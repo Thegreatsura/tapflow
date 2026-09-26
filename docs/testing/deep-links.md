@@ -13,7 +13,7 @@ A deep link is a URL that opens a specific screen of an app, such as `myapp://se
 
 ## How to use {#how-to-use}
 
-1. On a device with the app installed, press **Open a deeplink** in the toolbar, or press <kbd>⌘</kbd> <kbd>K</kbd>.
+1. On a device with the app installed, press the link icon in the toolbar (tooltip **Deeplink**, accessible name **Open a deeplink**), or press <kbd>⌘</kbd> <kbd>K</kbd>.
 2. Type the URL into the box (**Deeplink URL**).
 3. Press <kbd>Enter</kbd> or **Open**.
 
@@ -35,7 +35,7 @@ On both platforms the device picks the app that handles the URL, as it would for
 
 ## Troubleshooting {#troubleshooting}
 
-- **The notice appeared but the screen you wanted did not open.** The app is what reads the URL. Check with its developers that it handles that path.
+- **The notice appeared but the screen you wanted did not open.** The app is what reads the URL. Check with its developers that it handles that path. On Android, **Deeplink opened** can also appear when no app on the device registered the URL scheme.
 - **A `no booted device` or `No booted device` error appears.** The device is still booting, or the session has dropped. Try again once the progress message on the info card is gone.
 
 ## Related {#related}

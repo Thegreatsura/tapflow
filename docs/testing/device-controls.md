@@ -27,10 +27,10 @@ Once the device is up, the build is installed on it automatically. When the inst
 
 | Platform | Buttons |
 |---|---|
-| iOS | **Home** (<kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>U</kbd>) |
-| Android | Home, Back, Recent apps, Volume up, Volume down, Power |
+| iOS | **Home** in the toolbar (<kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>U</kbd>), and the side buttons drawn on the device frame |
+| Android | **Home**, **Back**, **Recent Apps**, **Volume Up**, **Volume Down** and **Power** in the toolbar |
 
-Android shows only the buttons the emulator reports, under the names the emulator gives them.
+On iOS, clicking a side button drawn on the device frame (power, volume and so on) presses it.
 
 ## Software keyboard {#software-keyboard}
 
@@ -53,9 +53,10 @@ A foldable Android emulator gets a fold button in the toolbar. Each press switch
 **Restart the device** opens a confirmation (**Restart this device?**). Press **Restart** and the device shuts down and boots again.
 
 - Anything open on the device closes, and whatever you had set up on screen is gone.
-- Installed apps and their data stay.
+- The build under test is installed again once the device is back, which clears that app's data.
+- Other apps and their data stay.
 
-To erase the data as well, turn on **Full reset** before picking the device (see [QA Session](/testing/qa-session#select-device)).
+To erase all of the device's data, turn on **Full reset** before picking the device (see [QA Session](/testing/qa-session#select-device)).
 
 ## Clipboard {#clipboard}
 
@@ -71,7 +72,7 @@ If the dashboard is open over plain HTTP, text copied on the device stays on the
 | Feature | iOS | Android |
 |---|---|---|
 | Tap, swipe, pinch, typing | Yes | Yes |
-| Device buttons | Home | Home, Back, Recent apps, volume, power (those the emulator reports) |
+| Device buttons | Home, side buttons on the device frame | Home, Back, Recent Apps, Volume Up, Volume Down, Power |
 | Software keyboard button | Yes | No |
 | Rotate | Yes | Yes |
 | Fold and unfold | No | Foldable emulators with two postures |

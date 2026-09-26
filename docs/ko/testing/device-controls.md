@@ -27,10 +27,10 @@ description: QA 세션의 기기를 마우스와 키보드로 다루는 방법�
 
 | 플랫폼 | 버튼 |
 |---|---|
-| iOS | **Home**(<kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>U</kbd>) |
-| Android | Home, Back, 최근 앱, 볼륨 올리기, 볼륨 내리기, 전원 |
+| iOS | 툴바의 **Home**(<kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>U</kbd>), 기기 테두리에 그려진 측면 버튼 |
+| Android | 툴바의 **Home**, **Back**, **Recent Apps**, **Volume Up**, **Volume Down**, **Power** |
 
-Android 버튼은 에뮬레이터가 알려 주는 버튼만 표시되고 이름도 에뮬레이터가 정합니다.
+iOS는 기기 테두리에 그려진 측면 버튼(전원, 볼륨 등)을 클릭하면 그 버튼이 눌립니다.
 
 ## 소프트웨어 키보드 {#software-keyboard}
 
@@ -53,9 +53,10 @@ Android 버튼은 에뮬레이터가 알려 주는 버튼만 표시되고 이름
 **Restart the device** 버튼을 누르면 확인 창(**Restart this device?**)이 뜹니다. **Restart**를 누르면 기기가 꺼졌다 다시 켜집니다.
 
 - 열려 있던 앱과 화면에 띄워 둔 상태는 사라집니다.
-- 설치된 앱과 앱 데이터는 남습니다.
+- 테스트 중인 빌드는 기기가 다시 켜진 뒤 새로 설치되므로 그 앱의 데이터는 지워집니다.
+- 다른 앱과 그 데이터는 남습니다.
 
-데이터까지 지우고 싶다면 기기를 고르기 전에 **Full reset**을 켭니다([QA 세션](/ko/testing/qa-session#select-device) 참고).
+기기의 데이터를 모두 지우고 싶다면 기기를 고르기 전에 **Full reset**을 켭니다([QA 세션](/ko/testing/qa-session#select-device) 참고).
 
 ## 클립보드 {#clipboard}
 
@@ -71,7 +72,7 @@ Android 버튼은 에뮬레이터가 알려 주는 버튼만 표시되고 이름
 | 기능 | iOS | Android |
 |---|---|---|
 | 터치, 스와이프, 핀치, 키 입력 | 지원 | 지원 |
-| 기기 버튼 | Home | Home, Back, 최근 앱, 볼륨, 전원 (에뮬레이터가 알려 주는 것만) |
+| 기기 버튼 | Home, 기기 테두리의 측면 버튼 | Home, Back, Recent Apps, Volume Up, Volume Down, Power |
 | 소프트웨어 키보드 버튼 | 지원 | 없음 |
 | 회전 | 지원 | 지원 |
 | 접기와 펼치기 | 없음 | 접힘 상태가 둘인 폴더블 에뮬레이터 |

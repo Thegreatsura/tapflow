@@ -716,11 +716,14 @@ export function SimulatorToolbar({
               <AlertDialogTitle>Restart this device?</AlertDialogTitle>
               {/* Says what is lost rather than that something is. A tester who has spent ten minutes
                   reaching a screen is deciding whether to spend them again, and "this cannot be
-                  undone" does not tell them that. Apps and their data survive — this is a restart,
-                  not the wipe the selector screen offers. */}
+                  undone" does not tell them that. Other apps keep their data — this is a restart,
+                  not the wipe the selector screen offers — but the build under test does not: the
+                  boot that follows re-sends `app:install`, and both agents clear the app before
+                  installing it (iOS uninstalls, Android clears its data). */}
               <AlertDialogDescription>
                 Anything open on the device closes, and whatever you had set up on screen is gone.
-                Installed apps and their data stay. The device takes a moment to come back.
+                The app under test is reinstalled, which clears its data; other apps keep theirs. The
+                device takes a moment to come back.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

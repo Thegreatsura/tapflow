@@ -34,7 +34,7 @@ Click a device under **Select device** to start the session. Each device shows i
 
 Find a device by name with **Search device…**. Narrow the list with the OS version filter (default **Any version**).
 
-Turn on **Full reset** before picking a device to erase all of its data first. It applies once: the switch turns itself off the moment you pick a device. The switch appears only when the Mac supports resetting.
+Turn on **Full reset** before picking a device to erase all of its data first, other apps included. Even with it off, the build under test is installed fresh at every session start, so that app always starts with its data cleared. It applies once: the switch turns itself off the moment you pick a device. The switch appears only when the Mac supports resetting.
 
 ### Launch the app {#launch}
 
@@ -51,11 +51,11 @@ The breadcrumb at the top reads `app name › build › Mac › device`. Click a
 | [Touch and gestures](/testing/device-controls#touch-and-gestures) | Click to tap, drag to swipe. Hold Option (Alt) and drag to pinch. |
 | [Typing](/testing/device-controls#typing) | Click the device screen once, then type. |
 | [Launch the app](/testing/device-controls#launch-the-app) | Run the installed build with **Launch app**. |
-| [Device buttons](/testing/device-controls#device-buttons) | Press iOS Home, or Android Home, Back, Recent apps, volume and power. |
+| [Device buttons](/testing/device-controls#device-buttons) | Press iOS Home and the side buttons on the device frame, or Android **Home**, **Back**, **Recent Apps**, **Volume Up**, **Volume Down** and **Power**. |
 | [Software keyboard](/testing/device-controls#software-keyboard) | Show or hide the iOS on-screen keyboard. |
 | [Rotate](/testing/device-controls#rotate) | Turn the device between portrait and landscape. |
 | [Fold and unfold](/testing/device-controls#fold) | Fold or unfold a foldable Android emulator. |
-| [Restart the device](/testing/device-controls#restart) | Restart the device, keeping apps and their data. |
+| [Restart the device](/testing/device-controls#restart) | Restart the device. The build under test is reinstalled; other apps keep their data. |
 | [Clipboard](/testing/device-controls#clipboard) | Copy and paste text between the device and your computer. |
 | [Deep links](/testing/deep-links) | Open a specific screen of the app from a URL. |
 | [Network control](/testing/network-control) | Take the device offline and bring it back. |
@@ -79,7 +79,7 @@ The tabs under the card hold [Comments](/testing/comments) (**Comments**) and [R
 
 ## Keyboard shortcuts {#keyboard-shortcuts}
 
-They do not fire while the cursor is in one of the dashboard's text fields.
+These shortcuts do not fire while the cursor is in one of the dashboard's text fields.
 
 | Shortcut | Action | Platform |
 |---|---|---|
@@ -97,7 +97,7 @@ Any other key goes to the device once you have clicked its screen.
 ## Limits {#limits}
 
 - One person uses a device at a time. A device someone else is using shows **In use** and cannot be picked.
-- Leaving the device screen shuts the device down. Whatever was open on screen is gone, while installed apps and their data stay.
+- Leaving the device screen shuts the device down. Whatever was open on screen is gone and other apps keep their data. The build under test is installed again when the next session starts, so its data does not carry over.
 
 ## Troubleshooting {#troubleshooting}
 
@@ -105,7 +105,7 @@ When a session drops, the dashboard says why in a notice and returns to the Mac 
 
 | Notice | Cause and what to do |
 |---|---|
-| `The agent disconnected — this session ended.` | The Mac's connection dropped. Pick the Mac again to start a new session. |
+| **`The agent disconnected — this session ended.`** | The Mac's connection dropped. Pick the Mac again to start a new session. |
 | **This device is already open in another browser session.** | Someone else is using the device. If you reloaded while your connection was down, your own earlier tab is holding it, and it clears within about 45 seconds. |
 | **That Mac is too busy to start a session.** | The Mac's CPU or RAM is over the limit. Pick another Mac or wait a moment. |
 

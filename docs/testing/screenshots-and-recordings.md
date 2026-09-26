@@ -11,7 +11,7 @@ Keep what you saw in a [QA Session](/testing/qa-session) as an image or a video,
 
 ## Screenshots {#screenshots}
 
-Press the camera button in the toolbar (**Screenshot**) or <kbd>⌘</kbd> <kbd>S</kbd> and the current device screen downloads as `tapflow-<timestamp>.png`. Your browser saves the file straight to your computer; it is never uploaded to the relay.
+Press the camera button in the toolbar (**Screenshot**) or <kbd>⌘</kbd> <kbd>S</kbd> and the current device screen downloads as `tapflow-<timestamp>.png`. Your browser saves the file straight to your computer; it is never uploaded to the tapflow server (the relay).
 
 ## Recordings {#recordings}
 
@@ -19,7 +19,7 @@ Press the camera button in the toolbar (**Screenshot**) or <kbd>⌘</kbd> <kbd>S
 2. Press it again (**Stop recording**) to stop, and the video is saved to the relay. The button shows a spinner while it saves.
 3. When saving finishes, the video also downloads to your computer automatically.
 
-Recordings collect in the build's **Recordings** tab. Open the **Recordings** tab under the info card to see each recording's time, how long it is kept for (such as **Expires in 3d**), and its size, and download it with the **Download** button. Every teammate who opens the same build sees this list.
+Recordings collect in the build's **Recordings** tab. Open the **Recordings** tab under the info card to see each recording's time, how long it is kept for (such as **Expires in 2d**), and its size, and download it with the **Download** button. Every teammate who opens the same build sees this list.
 
 The video format depends on your browser: `.mp4` where the browser can record MP4 (H.264), `.webm` otherwise.
 

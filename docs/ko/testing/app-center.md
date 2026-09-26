@@ -65,7 +65,7 @@ CI 파이프라인에서 빌드를 자동으로 올리는 방법은 [CI에서 �
 
 ## 빌드 삭제 예약 {#schedule-deletion}
 
-더 이상 필요 없는 빌드는 휴지통 아이콘(**Schedule deletion**)으로 삭제를 예약합니다. 확인 창에서 **Schedule deletion**을 누르면 7일 뒤 빌드 파일이 삭제되고 행에 **Deletes in 7d** 같은 남은 시간 배지가 붙습니다.
+더 이상 필요 없는 빌드는 휴지통 아이콘(**Schedule deletion**)으로 삭제를 예약합니다. 확인 창에서 **Schedule deletion**을 누르면 7일 뒤 빌드 파일이 삭제되고 행에 **Deletes in 6d** 같은 남은 시간 배지가 붙습니다.
 
 그 전에는 타이머 아이콘(**Cancel scheduled deletion**)을 눌러 언제든 취소할 수 있습니다. 삭제 예약은 리뷰 상태와 따로 움직입니다.
 

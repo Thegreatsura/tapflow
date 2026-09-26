@@ -13,7 +13,7 @@ description: URL을 입력해 QA 세션의 기기에서 앱의 특정 화면을 
 
 ## 사용 방법 {#how-to-use}
 
-1. 앱이 설치된 기기에서 툴바의 **Open a deeplink** 버튼을 누르거나 <kbd>⌘</kbd> <kbd>K</kbd>를 누릅니다.
+1. 앱이 설치된 기기에서 툴바의 링크 아이콘 버튼(툴팁 **Deeplink**, 접근성 이름 **Open a deeplink**)을 누르거나 <kbd>⌘</kbd> <kbd>K</kbd>를 누릅니다.
 2. 입력창(**Deeplink URL**)에 URL을 입력합니다.
 3. <kbd>Enter</kbd>를 누르거나 **Open**을 누릅니다.
 
@@ -35,7 +35,7 @@ description: URL을 입력해 QA 세션의 기기에서 앱의 특정 화면을 
 
 ## 문제 해결 {#troubleshooting}
 
-- **알림은 떴지만 원하는 화면이 열리지 않습니다.** URL을 받는 쪽은 앱입니다. 앱이 그 경로를 처리하는지 개발자에게 확인합니다.
+- **알림은 떴지만 원하는 화면이 열리지 않습니다.** URL을 받는 쪽은 앱입니다. 앱이 그 경로를 처리하는지 개발자에게 확인합니다. Android에서는 그 URL 스킴을 등록한 앱이 기기에 없어도 **Deeplink opened**가 뜰 수 있습니다.
 - **`no booted device` 또는 `No booted device` 오류가 뜹니다.** 기기가 아직 켜지는 중이거나 세션이 끊긴 상태입니다. 정보 카드의 진행 상태가 사라진 뒤 다시 시도합니다.
 
 ## 관련 문서 {#related}

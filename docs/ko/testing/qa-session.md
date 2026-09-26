@@ -34,7 +34,7 @@ QA 세션은 Mac에서 실행 중인 iOS 시뮬레이터나 Android 에뮬레이
 
 **Search device…** 검색창으로 기기 이름을 찾습니다. OS 버전 필터(기본값 **Any version**)로 목록을 좁힙니다.
 
-**Full reset** 스위치를 켜고 기기를 고르면 그 기기의 데이터를 모두 지우고 시작합니다. 한 번만 적용되는 설정이라 기기를 고르는 순간 스위치가 다시 꺼집니다. 이 스위치는 Mac이 초기화를 지원할 때만 보입니다.
+**Full reset** 스위치를 켜고 기기를 고르면 다른 앱을 포함한 그 기기의 데이터를 모두 지우고 시작합니다. 스위치를 끈 채로 시작해도 테스트할 빌드는 매번 새로 설치되므로 그 앱의 데이터는 지워진 상태로 시작합니다. 한 번만 적용되는 설정이라 기기를 고르는 순간 스위치가 다시 꺼집니다. 이 스위치는 Mac이 초기화를 지원할 때만 보입니다.
 
 ### 앱 실행 {#launch}
 
@@ -51,11 +51,11 @@ QA 세션은 Mac에서 실행 중인 iOS 시뮬레이터나 Android 에뮬레이
 | [화면 조작](/ko/testing/device-controls#touch-and-gestures) | 클릭으로 터치하고 드래그로 스와이프합니다. Option(Alt)을 누른 채 드래그하면 핀치입니다. |
 | [키 입력](/ko/testing/device-controls#typing) | 기기 화면을 한 번 클릭한 뒤 키보드로 입력합니다. |
 | [앱 실행](/ko/testing/device-controls#launch-the-app) | 설치된 빌드를 **Launch app**으로 실행합니다. |
-| [기기 버튼](/ko/testing/device-controls#device-buttons) | iOS의 Home, Android의 Home·Back·최근 앱·볼륨·전원 버튼을 누릅니다. |
+| [기기 버튼](/ko/testing/device-controls#device-buttons) | iOS의 Home과 기기 테두리의 측면 버튼, Android의 **Home**·**Back**·**Recent Apps**·**Volume Up**·**Volume Down**·**Power**를 누릅니다. |
 | [소프트웨어 키보드](/ko/testing/device-controls#software-keyboard) | iOS 화면 키보드를 올리거나 내립니다. |
 | [회전](/ko/testing/device-controls#rotate) | 기기를 가로·세로로 돌립니다. |
 | [접기와 펼치기](/ko/testing/device-controls#fold) | 폴더블 Android 에뮬레이터를 접거나 펼칩니다. |
-| [기기 재시작](/ko/testing/device-controls#restart) | 앱과 데이터는 두고 기기만 다시 켭니다. |
+| [기기 재시작](/ko/testing/device-controls#restart) | 기기를 다시 켭니다. 테스트 중인 빌드는 새로 설치되고 다른 앱의 데이터는 남습니다. |
 | [클립보드](/ko/testing/device-controls#clipboard) | 기기와 내 컴퓨터 사이에서 텍스트를 복사하고 붙여 넣습니다. |
 | [딥 링크](/ko/testing/deep-links) | URL을 입력해 앱의 특정 화면을 바로 엽니다. |
 | [네트워크 제어](/ko/testing/network-control) | 기기를 오프라인으로 만들었다가 다시 연결합니다. |
@@ -63,7 +63,7 @@ QA 세션은 Mac에서 실행 중인 iOS 시뮬레이터나 Android 에뮬레이
 | [스크린샷](/ko/testing/screenshots-and-recordings#screenshots) | 기기 화면을 PNG로 내려받습니다. |
 | [녹화](/ko/testing/screenshots-and-recordings#recordings) | 기기 화면을 영상으로 녹화해 팀과 공유합니다. |
 | [댓글](/ko/testing/comments) | 빌드에 글과 이미지를 남깁니다. |
-| [키보드 단축키](#keyboard-shortcuts) | 자주 쓰는 기능을 키 하나로 실행합니다. |
+| [키보드 단축키](#keyboard-shortcuts) | 자주 쓰는 기능을 단축키로 실행합니다. |
 
 기능 버튼은 기기 오른쪽 툴바에 Navigation(이동), Device(기기 상태), Capture(캡처), Environment(환경) 네 묶음으로 놓여 있습니다. Mac이 지원하지 않는 기능의 버튼은 보이지 않습니다.
 
@@ -79,7 +79,7 @@ QA 세션은 Mac에서 실행 중인 iOS 시뮬레이터나 Android 에뮬레이
 
 ## 키보드 단축키 {#keyboard-shortcuts}
 
-대시보드의 입력창에 커서가 있을 때는 동작하지 않습니다.
+아래 단축키는 대시보드의 입력창에 커서가 있을 때는 동작하지 않습니다.
 
 | 단축키 | 동작 | 플랫폼 |
 |---|---|---|
@@ -97,7 +97,7 @@ QA 세션은 Mac에서 실행 중인 iOS 시뮬레이터나 Android 에뮬레이
 ## 제한 사항 {#limits}
 
 - 한 기기는 한 번에 한 사람만 씁니다. 다른 팀원이 쓰는 기기는 **In use**로 표시되고 고를 수 없습니다.
-- 기기 화면을 떠나면 기기가 종료됩니다. 화면에 띄워 둔 상태는 남지 않지만 설치된 앱과 데이터는 남습니다.
+- 기기 화면을 떠나면 기기가 종료됩니다. 화면에 띄워 둔 상태는 남지 않고 다른 앱의 데이터는 남습니다. 테스트할 빌드는 다음 세션을 시작할 때 다시 설치되므로 그 앱의 데이터는 이어지지 않습니다.
 
 ## 문제 해결 {#troubleshooting}
 
@@ -105,7 +105,7 @@ QA 세션은 Mac에서 실행 중인 iOS 시뮬레이터나 Android 에뮬레이
 
 | 알림 | 원인과 조치 |
 |---|---|
-| `The agent disconnected — this session ended.` | Mac 쪽 연결이 끊겼습니다. Mac을 다시 골라 새 세션을 시작합니다. |
+| **`The agent disconnected — this session ended.`** | Mac 쪽 연결이 끊겼습니다. Mac을 다시 골라 새 세션을 시작합니다. |
 | **This device is already open in another browser session.** | 다른 사람이 그 기기를 쓰고 있습니다. 연결이 끊긴 사이 새로고침했다면 내 이전 탭이 기기를 잡고 있으며 약 45초 안에 풀립니다. |
 | **That Mac is too busy to start a session.** | Mac의 CPU나 RAM이 한도를 넘었습니다. 다른 Mac을 고르거나 잠시 기다립니다. |
 

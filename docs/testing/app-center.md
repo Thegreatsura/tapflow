@@ -65,7 +65,7 @@ The review status tells the team how far a build has been checked. Change it fro
 
 ## Schedule deletion {#schedule-deletion}
 
-Schedule a build you no longer need for deletion with the trash icon (**Schedule deletion**). Press **Schedule deletion** in the confirmation and the build files are deleted after 7 days. The row gets a countdown badge such as **Deletes in 7d**.
+Schedule a build you no longer need for deletion with the trash icon (**Schedule deletion**). Press **Schedule deletion** in the confirmation and the build files are deleted after 7 days. The row gets a countdown badge such as **Deletes in 6d**.
 
 Until then you can cancel it any time with the timer icon (**Cancel scheduled deletion**). Scheduled deletion is independent of the review status.
 
