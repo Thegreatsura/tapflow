@@ -58,6 +58,9 @@
 //  - (2026-09-27) the Network Control and Audio rows swapped in `llms.txt`: the grouping case red,
 //    though the set comparison stayed green — order is what it adds. One KO sidebar link pointed at
 //    the old `/ko/guide/audio`, and `collapsed` dropped from one KO group: the mirror case red on each.
+//  - (2026-09-27, PR-d) `leaves` made to skip a group's own link again, and the mirror check to skip
+//    group links: the real grouping case (the QA Session page vanished from the sidebar side) and both
+//    group-link fixtures went red.
 import { describe, it, expect } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -266,8 +269,11 @@ const llmsTxt = () => readFileSync(join(DOCS, 'public', 'llms.txt'), 'utf8')
 const indexedUrls = () =>
   [...llmsTxt().matchAll(/^- \[[^\]]+\]\((https?:\/\/[^)]+)\)/gm)].map((m) => m[1]).sort()
 
-/** The sidebar's leaf links, depth first, in the order a reader sees them. */
-const leaves = (items) => items.flatMap((i) => (i.items ? leaves(i.items) : [i.link]))
+/** The sidebar's page links, depth first, in the order a reader sees them. A group may carry a link of
+ *  its own (the QA Session group label *is* the QA Session page), and that page comes before the
+ *  group's items — dropping it would leave a real page out of the comparison with llms.txt. */
+const leaves = (items) => items.flatMap((i) =>
+  i.items ? [...(i.link ? [i.link] : []), ...leaves(i.items)] : [i.link])
 
 /** `llms.txt` cut at its `## ` headings: `[{ title, urls }]`, in file order. `###` stays inside. */
 function llmsSections(text = llmsTxt()) {
@@ -307,7 +313,8 @@ function mirrorProblems(en, ko, path = '') {
     const here = `${path}/${e.text}`
     if (Boolean(e.items) !== Boolean(k.items)) problems.push(`${here}: a group on one side only`)
     else if (e.items) problems.push(...mirrorProblems(e.items, k.items, here))
-    else if (`/ko${e.link}` !== k.link) problems.push(`${here}: EN ${e.link}, KO ${k.link}`)
+    // A group's own link is compared too: a group that links on one side only is a page one locale lists.
+    if ((e.link || k.link) && (e.link ? `/ko${e.link}` : undefined) !== k.link) problems.push(`${here}: EN ${e.link}, KO ${k.link}`)
     if (Boolean(e.collapsed) !== Boolean(k.collapsed)) problems.push(`${here}: collapsed differs`)
   })
   return problems
@@ -331,7 +338,18 @@ describe('llms.txt indexes the whole site', () => {
     // Named, so a sidebar that failed to load cannot agree with an llms.txt that has no sections.
     expect(sidebar.map((g) => g.text)).toEqual(expect.arrayContaining(['Get started', 'Operate', 'Reference']))
     expect(leaves(sidebar)).toContain('/operate/agents')
+    // The QA Session group links to its page rather than repeating it as an item.
+    expect(leaves(sidebar)).toContain('/testing/qa-session')
     expect(sectionProblems(sidebar, llmsSections())).toEqual([])
+  })
+
+  it('counts a group that links to a page as that page, ahead of its items', () => {
+    const sidebar = [{ text: 'A', items: [{ text: 'g', link: '/a/g', items: [{ text: 'one', link: '/a/one' }] }] }]
+    expect(leaves(sidebar)).toEqual(['/a/g', '/a/one'])
+    const listed = ['# t', '', '## A', '', `- [g](${SITE}/a/g): x`, `- [one](${SITE}/a/one): x`, ''].join('\n')
+    expect(sectionProblems(sidebar, llmsSections(listed))).toEqual([])
+    const missing = ['# t', '', '## A', '', `- [one](${SITE}/a/one): x`, ''].join('\n')
+    expect(sectionProblems(sidebar, llmsSections(missing))).toEqual(['A: llms.txt [/a/one] ≠ sidebar [/a/g, /a/one]'])
   })
 
   it('reports a missing section, a page out of order, and a page in the wrong section', () => {
@@ -354,6 +372,16 @@ describe('llms.txt indexes the whole site', () => {
   it('the Korean sidebar mirrors the English one', () => {
     expect(leaves(koSidebar())).toContain('/ko/operate/agents')
     expect(mirrorProblems(enSidebar(), koSidebar())).toEqual([])
+  })
+
+  it('reports a group link that one locale lacks or points elsewhere', () => {
+    const en = [{ text: 'A', items: [{ text: 'g', link: '/g', items: [{ text: 'one', link: '/a' }] }] }]
+    const unlinked = [{ text: '가', items: [{ text: '그룹', items: [{ text: '하나', link: '/ko/a' }] }] }]
+    const elsewhere = [{ text: '가', items: [{ text: '그룹', link: '/ko/h', items: [{ text: '하나', link: '/ko/a' }] }] }]
+    const same = [{ text: '가', items: [{ text: '그룹', link: '/ko/g', items: [{ text: '하나', link: '/ko/a' }] }] }]
+    expect(mirrorProblems(en, unlinked)).toEqual(['/A/g: EN /g, KO undefined'])
+    expect(mirrorProblems(en, elsewhere)).toEqual(['/A/g: EN /g, KO /ko/h'])
+    expect(mirrorProblems(en, same)).toEqual([])
   })
 
   it('reports a Korean sidebar that drifted', () => {

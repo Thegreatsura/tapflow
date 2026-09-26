@@ -1,33 +1,40 @@
 ---
 title: Test apps
-description: "Where teammates test builds in the dashboard: App Center lists the uploaded builds, and a QA Session streams a device to your browser."
+description: "How teammates test builds in the browser: pick a build in App Center, drive a simulator or emulator in a QA Session, and leave what you found."
 ---
 
 <a id="dashboard-overview"></a>
 
 # Test apps
 
-Teammates test builds in two dashboard screens: App Center, which lists the uploaded builds, and the QA Session, which streams a device to the browser.
+This section is for teammates who check builds in the browser. There is nothing to install. All you need is the tapflow dashboard address and an account from whoever runs tapflow.
 
-## App Center
+The dashboard is tapflow's web interface. The devices (iOS simulators and Android emulators) run on a Mac your operator set up, and you watch and drive them from your browser.
 
-**Route**: `/app-center`
+## Testing flow {#testing-flow}
 
-The main workspace for the team. Shows all uploaded builds organised by app.
+1. Pick an app and a build in **App Center**. App Center is the dashboard's build list, unrelated to Microsoft App Center.
+2. Press **Start QA** on the build's row to open a QA Session. A QA Session streams the device screen to your browser and sends your clicks and keystrokes to the device.
+3. Pick a Mac and a device, and the build is installed on it. Launch the app, check it, and leave what you found as a comment or a recording.
+4. Change the build's review status in App Center to tell the team the result.
 
-| UI element | What it does |
-|---|---|
-| App list | Groups builds by app (bundle ID + platform). Select an app to see its builds, grouped by version. Use **Add App** to add an app by hand. |
-| Build row | Shows build number, platform, status badge, uploader, and upload date. Click it to open the QA Session page for that build. |
-| Status | **Backlog** · **In Progress** · **Done** · **Rejected** — change it from the status menu on the build row. A Viewer sees the status badge only, with no status menu and no schedule-deletion button. |
-| Upload build | Opens the build upload dialog. Accepts `.app.zip` or `.tar.gz`/`.tgz` (iOS simulator builds) and `.apk` (Android). |
+## Pages in this section {#pages}
 
-Viewer is read-only. When a Viewer presses **Add App** or **Upload build**, a notice says QA or Developer access is needed instead of opening the dialog. For what each role can do, see [Invite your team](/dashboard/setup#_3-invite-your-team).
+- [App Center](/testing/app-center): the build list, uploading builds, search and status filter, review status, and scheduled deletion.
+- [QA Session](/testing/qa-session): picking a Mac and a device to start a session, and everything you can do in one.
+  - [Device controls](/testing/device-controls): touch, swipe, pinch, typing, device buttons, rotation, restart, and the clipboard.
+  - [Deep links](/testing/deep-links): open a specific screen of the app from a URL.
+  - [Network control](/testing/network-control): take the device offline and bring it back.
+  - [Audio](/testing/audio): hear the device in your browser.
+  - [Screenshots & recordings](/testing/screenshots-and-recordings): save the screen as an image or record it as a video.
+  - [Comments](/testing/comments): leave notes and images on a build for the team.
 
 ## Moved sections {#moved-sections}
 
 Sections that used to be on this page now live on these pages.
 
+- [App Center](/testing/app-center)
+  - <a id="app-center" data-moved-to="/testing/app-center#app-center"></a>[App Center](/testing/app-center#app-center)
 - [QA Session](/testing/qa-session)
   - <a id="qa-session" data-moved-to="/testing/qa-session#qa-session"></a>[QA Session](/testing/qa-session#qa-session)
 - [Scaling Mac Resources](/operate/scaling)

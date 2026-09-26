@@ -51,7 +51,7 @@ steps:
 | `pressKey` | 키 이름 | 키보드 키를 누릅니다(`Enter`, `Backspace`, `Escape` 등). |
 | `swipe` | `{ from, to, durationMs? }` | 두 지점 사이를 스와이프합니다. 좌표는 0~1. `durationMs`는 밀리초 단위 숫자이며 기본값 300, 최대 2147483647입니다. 소수(예: 250.5)도 허용됩니다. |
 | `scroll` | 키워드 또는 `scroll: <방향>` | 화면을 스크롤합니다. 인자 없는 형태는 아래로 스크롤합니다. |
-| `openUrl` | URL 문자열 | 딥링크나 URL을 엽니다. |
+| `openUrl` | URL 문자열 | 딥 링크나 URL을 엽니다. |
 | `assertVisible` | 셀렉터 | 요소가 나타날 때까지 기다립니다. 나타나지 않으면 실패합니다. |
 | `assertNotVisible` | 셀렉터 | 요소가 사라질 때까지 기다립니다. 사라지지 않으면 실패합니다. |
 
