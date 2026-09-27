@@ -1,4 +1,11 @@
+---
+title: 오디오
+description: "기기 소리가 영상과 함께 브라우저에서 재생됩니다. iOS와 Android 모두 기본으로 켜져 있고 에이전트 Mac의 스피커는 조용합니다(Android는 macOS 14.2 이상에서)."
+---
+
 # 오디오
+
+<Badge type="info" text="iOS" /> <Badge type="info" text="Android" />
 
 tapflow는 영상과 함께 기기 오디오를 브라우저로 전송합니다. 덕분에 팀 전체가 앱을 눈으로 보는 데 그치지 않고 소리까지 함께 확인할 수 있습니다. 앱 사운드, 웹 오디오(예: 인앱 브라우저에서 재생하는 영상), 시스템 사운드가 모두 전달됩니다.
 
@@ -14,12 +21,19 @@ TAPFLOW_AUDIO=off tapflow agent start
 
 이 설정은 양쪽 플랫폼의 오디오 캡처를 끕니다. 영상 경로는 어느 쪽이든 그대로 유지됩니다.
 
-## 요구 사항
+<a id="요구-사항"></a>
 
-- **iOS**: 에이전트 Mac이 macOS 14.2 이상이어야 합니다(Core Audio 프로세스 탭). iOS 에이전트는 macOS 26 이상에서 동작하므로([시스템 요구사항](/ko/operate/requirements)) 지원 환경에서는 이 조건이 항상 충족됩니다.
-- **Android**: 에뮬레이터 스트림으로 캡처하므로 추가 요구 사항이 없습니다.
+## 플랫폼 지원 {#platform-support}
 
-## 권한 (최초 1회)
+| | iOS | Android |
+|---|---|---|
+| 소리를 가져오는 방식 | 에이전트 Mac의 Core Audio 프로세스 탭 | 에뮬레이터 스트림 |
+| 추가 요구 사항 | 없음. iOS 에이전트의 macOS 26 요건으로 충족됩니다([시스템 요구사항](/ko/operate/requirements)) | 없음 |
+| 에이전트 Mac 스피커 | 조용함 | macOS 14.2 이상에서 조용함, 그 미만에서는 소리가 남 |
+
+## 설정(운영자) {#setup-operator}
+
+### 권한 (최초 1회)
 
 iOS 오디오 캡처와 아래의 Android 호스트 음소거는 macOS 오디오 녹음 권한을 사용합니다. 그래서 처음 필요한 순간에 macOS가 1회성 권한 창을 띄웁니다.
 
@@ -29,7 +43,7 @@ iOS 오디오 캡처와 아래의 Android 호스트 음소거는 macOS 오디오
 이 권한은 대시보드 뷰어가 아니라 Mac을 운영하는 에이전트 운영자가 승인합니다.
 :::
 
-## 에이전트 Mac은 조용합니다
+### 에이전트 Mac은 조용합니다
 
 오디오가 켜져 있어도 기기 소리는 브라우저에서만 재생됩니다. 에이전트 Mac의 스피커는 조용하게 유지되므로 공용이거나 무인으로 두는 Mac에서도 소리가 새거나 울리지 않습니다.
 
@@ -47,11 +61,13 @@ iOS 오디오 캡처와 아래의 Android 호스트 음소거는 macOS 오디오
 **브라우저에서 소리가 나지 않을 때**
 
 - `tapflow agent start`를 다시 실행해 권한 창을 띄우고 허용을 누르세요.
-- iOS: 에이전트 Mac이 macOS 14.2 이상인지 확인하세요.
 - `TAPFLOW_AUDIO`가 `off`로 설정되어 있지 않은지 확인하세요.
 
 **에이전트 Mac에서 에뮬레이터 소리가 날 때 (Android)**
 
 - macOS 14.2 미만에서는 정상입니다. Mac 볼륨을 낮추세요. macOS 14.2 이상에서는 자동으로 음소거됩니다.
 
-함께 보기: [스트리밍 품질](/ko/operate/streaming-quality)
+## 관련 문서 {#related}
+
+- [QA 세션](/ko/testing/qa-session): 세션에서 쓸 수 있는 기능
+- [스트림 품질](/ko/operate/streaming-quality): 영상 쪽 조정 방법
