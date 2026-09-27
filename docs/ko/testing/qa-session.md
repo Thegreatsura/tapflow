@@ -5,8 +5,6 @@ description: Mac과 기기를 골라 세션을 시작하고 기기 화면을 브
 
 # QA 세션
 
-<Badge type="info" text="iOS" /> <Badge type="info" text="Android" />
-
 QA 세션은 Mac에서 실행 중인 iOS 시뮬레이터나 Android 에뮬레이터를 브라우저로 보면서 직접 조작하는 화면입니다. 기기는 운영자의 Mac에서 돌아가므로 팀원은 아무것도 설치하지 않습니다. [App Center](/ko/testing/app-center)에서 빌드 행의 **Start QA**를 누르면 열립니다.
 
 ## 세션 시작 {#start-a-session}
