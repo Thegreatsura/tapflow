@@ -11,6 +11,15 @@ export const WS_SCOPE_REASON =
 /** An `agent` token is issued by an Admin and is only as good as that Admin role, checked at every use. */
 export const WS_AGENT_OWNER_REASON =
   "Unauthorized: this agent token's owner is no longer an Admin; an Admin must issue a new agent token"
+/** The member whose access a write just reduced, handed to the socket sweep that follows it. */
+export interface AuthChange { userId: number }
+
+/**
+ * An open socket of a member whose access was just reduced, when the database could not be read to say
+ * how. Reconnecting gets the real answer.
+ */
+export const WS_ACCESS_CHANGED_REASON =
+  "Unauthorized: this account's access just changed; sign in or connect again"
 /** An open socket whose token was revoked, expired, or went with its owner. */
 export const WS_TOKEN_GONE_REASON =
   'Unauthorized: this token was revoked or has expired, or its owner was removed'

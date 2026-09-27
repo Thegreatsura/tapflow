@@ -3,6 +3,7 @@ import crypto from 'crypto'
 import { getDb } from '../db.js'
 import { requireRole } from '../middleware/auth.js'
 import { json, readJson } from '../router.js'
+import type { AuthChange } from '../lib/connectionAuth.js'
 import { sendMail } from '../lib/mailer.js'
 import { config } from '../lib/config.js'
 import { normalizeEmail } from '../lib/email.js'
@@ -59,7 +60,7 @@ export async function handleUpdateMember(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   params: Record<string, string>,
-  onAuthChanged: () => void = () => {},
+  onAuthChanged: (affected?: AuthChange) => void = () => {},
 ): Promise<void> {
   const auth = requireRole(req, res, ['Admin'])
   if (!auth) return
@@ -73,7 +74,7 @@ export async function handleUpdateMember(
   const result = db.prepare('UPDATE users SET role = ? WHERE id = ?').run(body.role, params.id)
   if (result.changes === 0) return json(res, 404, { error: 'Member not found' })
   // A demoted Admin's agent tokens stop working now, including on sockets already open.
-  onAuthChanged()
+  onAuthChanged({ userId: Number(params.id) })
   json(res, 200, { ok: true })
 }
 
@@ -81,7 +82,7 @@ export function handleDeleteMember(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   params: Record<string, string>,
-  onAuthChanged: () => void = () => {},
+  onAuthChanged: (affected?: AuthChange) => void = () => {},
 ): void {
   const auth = requireRole(req, res, ['Admin'])
   if (!auth) return
@@ -94,6 +95,6 @@ export function handleDeleteMember(
   const result = db.prepare('DELETE FROM users WHERE id = ?').run(params.id)
   if (result.changes === 0) return json(res, 404, { error: 'Member not found' })
   // Their cookie and PATs (cascaded) stop working on HTTP at once; this closes their open sockets too.
-  onAuthChanged()
+  onAuthChanged({ userId: Number(params.id) })
   json(res, 204, null)
 }

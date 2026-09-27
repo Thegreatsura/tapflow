@@ -4,6 +4,7 @@ import { makePasswordHash, verifyPassword, isInitialized, createAdminAccount } f
 import { sessionCookie, requireAuth } from '../middleware/auth.js'
 import { normalizeEmail, EMAIL_KEY_SQL } from '../lib/email.js'
 import { json, readJson } from '../router.js'
+import type { AuthChange } from '../lib/connectionAuth.js'
 import { config } from '../lib/config.js'
 import { resolveRequestClient } from '../lib/clientAddress.js'
 import { createRateLimiter, type RateLimiter } from '../middleware/rateLimit.js'
@@ -82,7 +83,7 @@ export function handleMe(req: http.IncomingMessage, res: http.ServerResponse): v
 export async function handleChangePassword(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  onAuthChanged: () => void = () => {},
+  onAuthChanged: (affected?: AuthChange) => void = () => {},
 ): Promise<void> {
   const auth = requireAuth(req, res)
   if (!auth) return
@@ -99,7 +100,7 @@ export async function handleChangePassword(
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(makePasswordHash(body.newPassword), auth.userId)
   // The new hash ends every session issued under the old one, this browser's included — so this browser
   // gets a fresh cookie, and the others (a stolen one among them) are signed out. Open sockets follow.
-  onAuthChanged()
+  onAuthChanged({ userId: auth.userId })
   res.writeHead(200, { 'Content-Type': 'application/json', 'Set-Cookie': sessionCookie(auth) })
   res.end(JSON.stringify({ ok: true }))
 }

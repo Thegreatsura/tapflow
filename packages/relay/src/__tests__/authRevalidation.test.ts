@@ -12,7 +12,7 @@ import { initDb, closeDb, getDb } from '../db'
 import { hashPat, passwordVersion, signJwt } from '../middleware/auth'
 import { makePasswordHash } from '../lib/adminAccount'
 import { getJwtSecret } from '../lib/config'
-import { WS_AGENT_OWNER_REASON, WS_REJECT_REASON, WS_SCOPE_REASON, WS_TOKEN_GONE_REASON } from '../lib/connectionAuth'
+import { WS_AGENT_OWNER_REASON, WS_REJECT_REASON, WS_SCOPE_REASON, WS_TOKEN_GONE_REASON, WS_ACCESS_CHANGED_REASON } from '../lib/connectionAuth'
 import { barrier, waitForMessage, waitForOpen, waitForType } from '@tapflowio/test-utils'
 import type { AgentRegistered } from '@tapflowio/protocol'
 
@@ -269,6 +269,58 @@ describe('open sockets are re-validated', () => {
     const browser = await remote({ authorization: `Bearer ${token.raw}` })
     expect((await request(relayPort, 'PATCH', '/api/v1/team/members/4', adminCookie, { role: 'QA' })).status).toBe(200)
     expect(await stillOpen(browser)).toBe(true)
+  })
+
+  // The sweep after a write that reduced one member's access, run while the database cannot be read.
+  // Mutations: the `affected` branch removed → the member's socket stays open; `continue` back to `return`
+  // → the member's socket, opened after another's, is never reached.
+  it('a database fault in the sweep after a revocation closes that member\'s sockets, and only theirs', async () => {
+    const bystander = await remote({ cookie: cookieFor(1) })
+    const member = await remote({ cookie: cookieFor(4) })
+    const memberClosed = closedWithin(member)
+    const bystanderClosed = closedWithin(bystander, 500)
+    getDb().close()
+    try {
+      (server as unknown as { onAuthChanged: (a?: { userId: number }) => void }).onAuthChanged({ userId: 4 })
+      expect(await memberClosed).toEqual({ code: 1008, reason: WS_ACCESS_CHANGED_REASON })
+      expect(await bystanderClosed).toBeNull()
+    } finally {
+      openDb()
+    }
+  })
+
+  // The fail-closed branch matches on `userId` by identity, so a handler that passed the route's string id
+  // (or the caller instead of the target) would never trigger it. Mutation: `Number(params.id)` → `params.id`.
+  it('every write that reduces access names the member it reduced', async () => {
+    const named: unknown[] = []
+    const relay = server as unknown as { onAuthChanged: (a?: { userId: number }) => void }
+    const original = relay.onAuthChanged
+    relay.onAuthChanged = (a) => { named.push(a); original(a) }
+    try {
+      getDb().prepare('UPDATE users SET password_hash = ? WHERE id = 3').run(makePasswordHash('old-password'))
+      const pat = seedToken(2, 'view')
+      expect((await request(relayPort, 'PATCH', '/api/v1/team/members/4', adminCookie, { role: 'QA' })).status).toBe(200)
+      expect((await request(relayPort, 'DELETE', `/api/v1/tokens/${pat.id}`, { Cookie: cookieFor(2) })).status).toBe(204)
+      expect((await request(relayPort, 'POST', '/api/v1/auth/change-password', { Cookie: cookieFor(3) }, { currentPassword: 'old-password', newPassword: 'new-password-1' })).status).toBe(200)
+      const { token } = JSON.parse((await request(relayPort, 'POST', '/api/v1/team/members/4/send-reset', adminCookie)).body) as { token: string }
+      expect((await request(relayPort, 'POST', '/api/v1/auth/reset-password', {}, { token, password: 'new-password-2' })).status).toBe(200)
+      expect((await request(relayPort, 'DELETE', '/api/v1/team/members/4', adminCookie)).status).toBe(204)
+      expect(named).toEqual([{ userId: 4 }, { userId: 2 }, { userId: 3 }, { userId: 4 }, { userId: 4 }])
+    } finally {
+      relay.onAuthChanged = original
+    }
+  })
+
+  it('a database fault in a sweep with no member named closes nothing', async () => {
+    const socket = await remote({ cookie: cookieFor(4) })
+    const closed = closedWithin(socket, 500)
+    getDb().close()
+    try {
+      (server as unknown as { onAuthChanged: (a?: { userId: number }) => void }).onAuthChanged()
+      expect(await closed).toBeNull()
+    } finally {
+      openDb()
+    }
   })
 
   it('a database fault during the handshake closes that socket with 1011 and the relay keeps serving', async () => {

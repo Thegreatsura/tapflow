@@ -3,7 +3,7 @@ import crypto from 'crypto'
 import { getDb } from '../db.js'
 import { currentRole, requireAuth, hashPat } from '../middleware/auth.js'
 import { json, readJson } from '../router.js'
-import { AGENT_SCOPE } from '../lib/connectionAuth.js'
+import { AGENT_SCOPE, type AuthChange } from '../lib/connectionAuth.js'
 
 const ALLOWED_SCOPES = new Set(['view', 'builds:write', AGENT_SCOPE])
 const DEFAULT_SCOPE = 'view,builds:write'
@@ -75,7 +75,7 @@ export function handleRevokeToken(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   params: Record<string, string>,
-  onAuthChanged: () => void = () => {},
+  onAuthChanged: (affected?: AuthChange) => void = () => {},
 ): void {
   const auth = requireAuth(req, res)
   if (!auth) return
@@ -87,6 +87,6 @@ export function handleRevokeToken(
 
   if (result.changes === 0) return json(res, 404, { error: 'Token not found' })
   // Closes the sockets that were opened with it.
-  onAuthChanged()
+  onAuthChanged({ userId: auth.userId })
   json(res, 204, null)
 }

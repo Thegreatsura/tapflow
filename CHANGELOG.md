@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **A member whose access was just reduced is disconnected even while the database is failing.** After a role change, removal, token revocation or password reset or change, the relay re-checks open connections; if it could not read the database at that moment, it used to leave every connection open until a later check succeeded, the affected member's included. It now closes that member's connections and still leaves everyone else's alone.
+
 ## [0.26.0] - 2026-09-27
 
 **Everyone signs in once after upgrading.** Sessions are now tied to the password they were issued under, and sessions from earlier versions carry no such link.
