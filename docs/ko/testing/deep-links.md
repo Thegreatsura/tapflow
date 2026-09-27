@@ -37,6 +37,7 @@ description: URL을 입력해 QA 세션의 기기에서 앱의 특정 화면을 
 
 - **알림은 떴지만 원하는 화면이 열리지 않습니다.** URL을 받는 쪽은 앱입니다. 앱이 그 경로를 처리하는지 개발자에게 확인합니다. Android에서는 그 URL 스킴을 등록한 앱이 기기에 없어도 **Deeplink opened**가 뜰 수 있습니다.
 - **`no booted device` 또는 `No booted device` 오류가 뜹니다.** 기기가 아직 켜지는 중이거나 세션이 끊긴 상태입니다. 정보 카드의 진행 상태가 사라진 뒤 다시 시도합니다.
+- **세션이 계속 끊깁니다.** [스트림과 세션](/ko/troubleshooting/streaming)을 참고하세요.
 
 ## 관련 문서 {#related}
 

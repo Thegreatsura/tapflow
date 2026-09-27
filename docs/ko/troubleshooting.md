@@ -1,20 +1,42 @@
 ---
 title: 문제 해결
-description: tapflow 문제의 해결 방법을 설치와 에이전트, iOS 시뮬레이터, Android 에뮬레이터, 빌드, 스트림, 로그인 영역별로 모았습니다. 릴레이 로그 확인 방법도 있습니다.
+description: tapflow 문제를 증상으로 찾고, tapflow doctor로 Mac을 점검하고, 릴레이 로그를 확인하는 방법입니다. 해결 방법은 설치와 에이전트, iOS 시뮬레이터, Android 에뮬레이터, 빌드, 스트림, 로그인 영역별로 모았습니다.
 ---
 
 # 문제 해결
 
-문제는 영역별로 한 페이지씩 나뉘어 있습니다.
+아래 표에서 증상을 찾거나 문제가 생긴 Mac에서 `tapflow doctor`부터 실행하세요.
 
-- [설치와 에이전트](/ko/troubleshooting/install-and-agents)
-- [iOS 시뮬레이터](/ko/troubleshooting/ios-simulator)
-- [Android 에뮬레이터](/ko/troubleshooting/android-emulator)
-- [빌드와 업로드](/ko/troubleshooting/builds)
-- [스트림과 세션](/ko/troubleshooting/streaming)
-- [로그인과 계정](/ko/troubleshooting/accounts)
+## `tapflow doctor`부터 실행 {#start-with-doctor}
 
-## 로그 확인
+에이전트 Mac에서 `tapflow doctor`를 실행하면 Node.js, 포트, Xcode와 시뮬레이터, Android SDK와 AVD를 점검하고 실패한 항목마다 고칠 방법을 출력합니다. `ios`나 `android`를 붙이면 한 플랫폼만 점검합니다. 점검 항목은 [CLI 레퍼런스](/ko/reference/cli#tapflow-doctor)에, 실패별 해결 방법은 [`tapflow doctor` 실패](/ko/troubleshooting/install-and-agents#tapflow-doctor-실패)에 있습니다.
+
+```sh
+tapflow doctor
+tapflow doctor ios
+```
+
+## 증상으로 찾기 {#symptoms}
+
+| 증상 | 참고 |
+|---|---|
+| 에이전트가 대시보드에 나타나지 않거나 연결되지 않음 | [에이전트가 릴레이에 연결되지 않음](/ko/troubleshooting/install-and-agents#에이전트가-릴레이에-연결되지-않음) |
+| `tapflow agent start`가 이미 에이전트가 실행 중이라고 함 | [이미 에이전트가 실행 중이라고 나옴](/ko/troubleshooting/install-and-agents#agent-already-running) |
+| 릴레이가 예상과 다른 설정이나 DB를 읽음 | [예상과 다른 설정이나 DB](/ko/troubleshooting/install-and-agents#릴레이가-예상과-다른-설정이나-db를-씁니다) |
+| iOS 빌드를 열면 `spawn unknown error`가 남 | [iOS 시뮬레이터](/ko/troubleshooting/ios-simulator#spawn-unknown-error) |
+| iOS 시뮬레이터가 부팅되지 않음 | [서비스 버전 불일치](/ko/troubleshooting/ios-simulator#ios-simulator-service-version-mismatch), [cannot be located on disk](/ko/troubleshooting/ios-simulator#simulator-data-missing) |
+| Android 스트림이 시작되지 않음 | [Android 에뮬레이터](/ko/troubleshooting/android-emulator#스트림이-시작되지-않거나-인코더-크래시) |
+| 업로드가 `400`으로 실패함 | [빌드와 업로드](/ko/troubleshooting/builds#업로드-시-400-오류) |
+| Apple Silicon Mac에서 APK가 설치되지 않음 (`INSTALL_FAILED_NO_MATCHING_ABIS`) | [빌드와 업로드](/ko/troubleshooting/builds#install-failed-no-matching-abis-—-apple-silicon-에뮬레이터와-호환되지-않는-apk) |
+| 스트림이 느리거나 끊기거나 흐림 | [스트림과 세션](/ko/troubleshooting/streaming#stream-lag) |
+| 세션이 저절로 끝남 | [세션이 자동으로 종료됨](/ko/troubleshooting/streaming#세션이-자동으로-종료됨) |
+| 기기가 오프라인이 되지 않음 | [네트워크 제어](/ko/testing/network-control#troubleshooting) |
+| 초대 링크나 비밀번호 재설정 링크가 동작하지 않음 | [로그인과 계정](/ko/troubleshooting/accounts) |
+| 업그레이드 후 모두 로그아웃됨 | [업그레이드 후 로그아웃됨](/ko/troubleshooting/accounts#signed-out-after-upgrading) |
+
+## 릴레이 로그 확인 {#viewing-logs}
+
+<a id="로그-확인"></a>
 
 릴레이 호스트에서 다음 명령으로 릴레이의 동작 로그를 확인할 수 있습니다. 릴레이는 다른 기기에는 로그를 보여 주지 않습니다.
 
