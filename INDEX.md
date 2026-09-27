@@ -33,7 +33,6 @@ Common rules are in the root [AGENTS.md](./AGENTS.md).
 |-----------|-----------|---------|
 | playground | [playground/AGENTS.md](./playground/AGENTS.md) | Full-stack local run and integration testing |
 | .work | [.work/CLAUDE.md](./.work/CLAUDE.md) | Local work log conventions (plan/review/compound) |
-| .internal/marketing | [.internal/marketing/CLAUDE.md](./.internal/marketing/CLAUDE.md) | Marketing context — product positioning, copy bank, channel tone guide |
 
 ## Documentation
 
