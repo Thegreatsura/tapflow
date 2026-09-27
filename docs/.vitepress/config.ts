@@ -51,11 +51,16 @@ const enSidebar = [
       { text: 'Overview', link: '/testing' },
       { text: 'App Center', link: '/testing/app-center' },
       {
+        // The group label is the QA Session page itself, so the page is not listed a second time.
         text: 'QA Session',
+        link: '/testing/qa-session',
         items: [
-          { text: 'QA Session', link: '/testing/qa-session' },
+          { text: 'Device controls', link: '/testing/device-controls' },
+          { text: 'Deep links', link: '/testing/deep-links' },
           { text: 'Network control', link: '/testing/network-control' },
           { text: 'Audio', link: '/testing/audio' },
+          { text: 'Screenshots & recordings', link: '/testing/screenshots-and-recordings' },
+          { text: 'Comments', link: '/testing/comments' },
         ],
       },
     ],
@@ -159,10 +164,14 @@ const koSidebar = [
       { text: 'App Center', link: '/ko/testing/app-center' },
       {
         text: 'QA 세션',
+        link: '/ko/testing/qa-session',
         items: [
-          { text: 'QA 세션', link: '/ko/testing/qa-session' },
+          { text: '기기 조작', link: '/ko/testing/device-controls' },
+          { text: '딥 링크', link: '/ko/testing/deep-links' },
           { text: '네트워크 제어', link: '/ko/testing/network-control' },
           { text: '오디오', link: '/ko/testing/audio' },
+          { text: '스크린샷과 녹화', link: '/ko/testing/screenshots-and-recordings' },
+          { text: '댓글', link: '/ko/testing/comments' },
         ],
       },
     ],

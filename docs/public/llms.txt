@@ -22,14 +22,18 @@
 
 ## Test apps
 
-- [Test apps](https://www.tapflow.dev/testing): Where teammates test builds in the dashboard: App Center lists the uploaded builds, and a QA Session streams a device to your browser.
-- [Uploading Builds](https://www.tapflow.dev/testing/app-center): Upload iOS (.app.zip) or Android (.apk) builds from the dashboard. Builds are linked to apps by bundle ID automatically.
+- [Test apps](https://www.tapflow.dev/testing): How teammates test builds in the browser: pick a build in App Center, drive a simulator or emulator in a QA Session, and leave what you found.
+- [App Center](https://www.tapflow.dev/testing/app-center): The dashboard's build list, grouped by app and version: uploading builds (.app.zip / .tar.gz for iOS simulators, .apk), search and status filter, what each review status means, scheduled deletion, and the Start QA button (disabled for Done).
 
 ### QA Session
 
-- [QA Session](https://www.tapflow.dev/testing/qa-session): The full-screen device view: pick a Mac and a device to start a session, then touch, swipe, open deep links, record, and comment on the build.
+- [QA Session](https://www.tapflow.dev/testing/qa-session): Pick a Mac and a device to start a session and drive the device screen from your browser. Every feature a session offers, the info card, keyboard shortcuts, and why a session ends.
+- [Device controls](https://www.tapflow.dev/testing/device-controls): Touch, swipe and Option-drag pinch, typing after clicking the screen, Launch app, device buttons, the iOS software keyboard, rotate, fold/unfold, restart, and the clipboard bridge (device → you needs HTTPS).
+- [Deep links](https://www.tapflow.dev/testing/deep-links): Open a specific screen of the app from a URL with the toolbar's Open a deeplink button or ⌘K, on iOS and Android.
 - [Network Control](https://www.tapflow.dev/testing/network-control): Take a simulator or emulator offline from the toolbar and bring it back. Exactly which connections are cut and which are not, why localhost is exempt, and why iOS needs the bundled network extension.
 - [Audio](https://www.tapflow.dev/testing/audio): Device audio in the browser — on by default on both platforms, the one-time permission, per-agent opt-out with TAPFLOW_AUDIO=off, volume, and why the agent Mac itself stays silent.
+- [Screenshots & recordings](https://www.tapflow.dev/testing/screenshots-and-recordings): ⌘S downloads a PNG locally and never uploads it; ⌘⇧Y records an mp4/webm that is saved to the relay, listed in the build's Recordings tab, and kept for 72 hours.
+- [Comments](https://www.tapflow.dev/testing/comments): A flat, per-build list of notes with png/jpg/webp images up to 5 MB, links to a single comment (need HTTPS to copy), and posting from CI.
 
 ## Operate
 

@@ -187,7 +187,7 @@ chmod 600 .tapflow/data/.env
 
 **꺼지는 것:** Siri와 Apple Intelligence의 백그라운드 작업, iCloud 키체인과 백업, 건강 앱·피트니스·HomeKit, 사진 분석, 가족 공유와 스크린 타임, 뉴스·지도 동기화·팁, iMessage와 FaceTime, AirDrop·Continuity·CarPlay·Watch·나의 찾기, Safari 북마크 동기화, 텔레메트리.
 
-**켜 두는 것:** 앱이 흔히 기대는 서비스와 테스터가 화면에서 보는 것은 켜 둡니다. 배경화면과 위젯, 받아쓰기·음성·키보드 추천, Apple로 로그인, CloudKit과 iCloud Drive, StoreKit·푸시·지갑, HealthKit, 사진 선택기, 연락처와 캘린더, Spotlight와 설정 검색, 유니버설 링크, WeatherKit, MapKit, Game Center, CallKit이 여기에 해당합니다. 목록은 앱에 맞춰 고르는 게 아니라 정해져 있으므로, 테스트하는 앱이 위의 꺼지는 목록에 든 서비스를 쓴다면 Lean mode를 사용하지 마세요. 스트리밍, 입력, UI 트리, 클립보드, 오디오, 설치, 딥링크, 네트워크 제어 같은 tapflow 자체 기능은 lean 시뮬레이터에서 확인했습니다.
+**켜 두는 것:** 앱이 흔히 기대는 서비스와 테스터가 화면에서 보는 것은 켜 둡니다. 배경화면과 위젯, 받아쓰기·음성·키보드 추천, Apple로 로그인, CloudKit과 iCloud Drive, StoreKit·푸시·지갑, HealthKit, 사진 선택기, 연락처와 캘린더, Spotlight와 설정 검색, 유니버설 링크, WeatherKit, MapKit, Game Center, CallKit이 여기에 해당합니다. 목록은 앱에 맞춰 고르는 게 아니라 정해져 있으므로, 테스트하는 앱이 위의 꺼지는 목록에 든 서비스를 쓴다면 Lean mode를 사용하지 마세요. 스트리밍, 입력, UI 트리, 클립보드, 오디오, 설치, 딥 링크, 네트워크 제어 같은 tapflow 자체 기능은 lean 시뮬레이터에서 확인했습니다.
 
 tapflow가 시뮬레이터를 실행하는 동안에만 적용됩니다.
 

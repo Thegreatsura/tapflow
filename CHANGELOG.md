@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The QA Session's restart dialog no longer promises that app data survives.** Restarting a device reinstalls the build under test, which clears that app's data; other apps keep theirs. The dialog used to say "Installed apps and their data stay".
+
 ## [0.25.0] - 2026-09-27
 
 ### Breaking Changes

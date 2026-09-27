@@ -61,7 +61,7 @@ If an App with the same bundle ID already exists for the other platform, the two
 
 ## 5. Start a session
 
-From App Center, click a build row to open the QA Session page. Pick a Mac under **Select Mac**, then click a device under **Select device** to start a session. The device streams to your browser in real time.
+From App Center, press **Start QA** on a build's row to open the QA Session page. Pick a Mac under **Select Mac**, then click a device under **Select device** to start a session. The device streams to your browser in real time.
 
 ## 6. Share access with your team
 

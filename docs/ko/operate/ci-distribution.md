@@ -87,7 +87,7 @@ curl -X POST https://your-relay/api/v1/builds \
 
 ## 3. 빌드 메타데이터 첨부 (선택)
 
-커밋과 브랜치 정보를 코멘트로 남기면 리뷰어가 무엇이 바뀌었는지 바로 확인할 수 있습니다.
+커밋과 브랜치 정보를 댓글로 남기면 리뷰어가 무엇이 바뀌었는지 바로 확인할 수 있습니다.
 
 ```sh
 BUILD_ID=$(curl -sf -X POST https://your-relay/api/v1/builds \
