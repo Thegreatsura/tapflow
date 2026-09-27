@@ -1,5 +1,13 @@
 # @tapflowio/relay
 
+## 0.26.1
+
+### Patch Changes
+
+- 4ecf4d5: When the relay cannot read its database right after a write that reduced a member's access (role change, removal, token revocation, password reset or change), it now closes the connections that rest on what was changed (one revoked token's, a password change's sessions, or all of a member's) instead of leaving them until the database recovers. Other members' connections are still left alone during a database fault.
+  - @tapflowio/protocol@0.26.1
+  - @tapflowio/agent-core@0.26.1
+
 ## 0.26.0
 
 ### Minor Changes

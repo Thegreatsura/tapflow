@@ -1,5 +1,13 @@
 # @tapflowio/android-agent
 
+## 0.26.1
+
+### Patch Changes
+
+- @tapflowio/protocol@0.26.1
+- @tapflowio/agent-core@0.26.1
+- @tapflowio/audiotap-helper@0.3.9
+
 ## 0.26.0
 
 ### Patch Changes
