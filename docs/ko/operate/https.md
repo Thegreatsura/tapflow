@@ -61,7 +61,7 @@ HTTPS는 선택입니다. Standard는 설정 없이 동작하고 HTTPS는 나중
 기본 Tailscale 주소는 평문 HTTP이고 tailnet 주소는 외부 주소로 분류되므로 팀원은 1000px로 줄인 스트림을 소프트웨어로 디코딩해 받습니다. Tailscale의 무료 HTTPS로 종단하면 터널 포트를 거쳐 들어오므로 Smooth 프로파일로 바뀝니다. Tailscale이 `*.ts.net` 인증서를 자동 발급·갱신하므로 도메인이나 DNS 토큰이 필요 없습니다.
 
 1. Tailscale admin 콘솔의 **DNS** 설정에서 **MagicDNS**와 **HTTPS Certificates**를 켭니다. 머신 이름이 공개 Certificate Transparency 기록에 남는다는 점에 동의해야 합니다.
-2. 릴레이 Mac에서 릴레이의 **터널 포트** 앞에 HTTPS를 둡니다. 기본값은 `4001`이고, `TAPFLOW_TUNNEL_PORT`를 정했거나 릴레이 자신이 4001을 쓰면 4002로 비켜섭니다. 시작 배너에 실제로 잡은 포트가 나오니 아래 명령에는 그 번호를 쓰세요.
+2. 릴레이 Mac에서 릴레이의 **터널 포트** 앞에 HTTPS를 둡니다. 기본값은 `4001`이고 `TAPFLOW_TUNNEL_PORT`를 정했거나 릴레이 자신이 4001을 쓰면 4002로 비켜섭니다. 시작 배너에 실제로 잡은 포트가 나오니 아래 명령에는 그 번호를 쓰세요.
 
    ```sh
    tailscale serve --bg 4001
