@@ -1,3 +1,8 @@
+---
+title: 설정 파일
+description: "tapflow.config.json 스키마와 환경 변수 재정의: relay, agent, tunnel, TLS, 데이터 디렉터리, SMTP, 웹훅."
+---
+
 # 설정 파일
 
 릴레이는 이 머신의 설치 디렉터리에서 `tapflow.config.json`을 읽습니다. 기본값은 `~/.tapflow`이고, `TAPFLOW_HOME`이나 현재 디렉터리의 기존 설치가 있으면 그쪽입니다([명령이 쓰는 설치 디렉터리](/ko/operate/configure#명령이-쓰는-설치-디렉토리)). `tapflow init`을 실행해 파일을 생성하고, 설정을 변경한 뒤에는 릴레이를 재시작해야 적용됩니다.
@@ -334,3 +339,9 @@ SMTP가 설정되지 않으면 초대 이메일과 비밀번호 재설정 이메
 | `webhooks[].enabled` | 활성 여부. 기본 `true` |
 
 `webhooks` 변경은 릴레이를 다시 시작해야 반영됩니다.
+
+## 관련 문서 {#related}
+
+- [tapflow 설정](/ko/operate/configure): 처음 설치를 단계별로 설정하기
+- [외부 접속](/ko/operate/external-access): LAN 밖 팀원을 위한 터널과 `relay.url`
+- [CLI 레퍼런스](/ko/reference/cli): 이 파일을 읽는 명령

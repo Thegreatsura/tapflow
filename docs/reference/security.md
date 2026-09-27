@@ -1,3 +1,8 @@
+---
+title: Security & Privacy
+description: "How tapflow keeps builds, device streams and recordings on your network: LAN-first architecture, personal access tokens with scopes, role-based access, TLS, and reporting a vulnerability."
+---
+
 # Security & Privacy
 
 tapflow is a self-hosted product. Build files, device streams, session recordings — all data stays inside your infrastructure. This page explains how tapflow protects your data by design.
@@ -68,3 +73,9 @@ If the relay is only reachable within your internal LAN, you can operate without
 ## Reporting a vulnerability
 
 If you find a security issue in tapflow's code, please report it privately rather than opening a public issue. See [SECURITY.md](https://github.com/jo-duchan/tapflow/blob/main/SECURITY.md) for the full disclosure process.
+
+## Related {#related}
+
+- [Team, roles & tokens](/operate/team-and-roles): roles and personal access tokens in practice
+- [External access](/operate/external-access): exposing the relay beyond the LAN
+- [REST API](/reference/api): which endpoints accept which credentials

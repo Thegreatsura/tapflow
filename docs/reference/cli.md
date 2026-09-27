@@ -1,3 +1,8 @@
+---
+title: CLI Reference
+description: "Every tapflow CLI command and flag: doctor, setup, init, admin init, start, relay start, agent start, devices, boot, reset, status, logs and the migrate commands."
+---
+
 # CLI Reference
 
 ## Installation
@@ -514,3 +519,9 @@ stopped working, see [Troubleshooting](/operate/network-extension#network-lost-o
 to take the filter out of the path with `--off`.
 
 Run `tapflow doctor ios` afterwards to confirm what the Mac ended up with.
+
+## Related {#related}
+
+- [Quick Start](/get-started/quick-start): the commands in the order a first install runs them
+- [Configuration](/reference/configuration): the config file and environment variables the commands read
+- [Troubleshooting](/troubleshooting): what to do when `tapflow doctor` or a command fails

@@ -1,3 +1,8 @@
+---
+title: 성능과 지연
+description: "tapflow 스트리밍의 측정값: 대역폭, 실제 LAN에서 WASM 경로의 디코드 지연, glass-to-glass 추정치, 알려진 한계, 수치를 재현하는 방법."
+---
+
 # 성능과 지연
 
 이 페이지는 tapflow 스트리밍을 **실제로 측정한 기록**입니다. 같은 측정을 직접 돌려보려면 아래 [직접 재현하기](#reproduce)를 참고하세요.
@@ -84,3 +89,9 @@ pnpm --filter @tapflowio/dashboard dev
 2. <a name="ref-80211ac"></a> IEEE 802.11ac-2013. 단일 링크 ≥500 Mbps, 다중 스테이션 ≥1.1 Gbps. <https://en.wikipedia.org/wiki/IEEE_802.11ac-2013>
 3. <a name="ref-80211ax"></a> "Experimental Evaluation of IEEE 802.11ax — Low Latency and High Reliability with Wi-Fi 6?"(IEEE) 및 "A First Look at Wi-Fi 6 in Action"(ACM). OFDMA가 비포화 조건에서 중앙값 지연을 ~5 ms에서 1 ms 미만으로 낮춘다. <https://ieeexplore.ieee.org/document/10001475/>
 4. <a name="ref-cloudgaming"></a> 클라우드 게이밍의 체감 품질(QoE) 연구는 100 ms를 넘으면 품질이 저하되기 시작하는 것으로 본다(Jarschel et al., 2011). G. Illahi et al., "Cloud Gaming With Foveated Graphics"(arXiv:1809.05823) §4.3.2에서 인용. <https://arxiv.org/abs/1809.05823>
+
+## 관련 문서 {#related}
+
+- [스트림 품질](/ko/operate/streaming-quality): 스트림 프로필과 Smooth로 바꾸는 방법
+- [Mac 리소스 확장](/ko/operate/scaling): Mac 한 대가 돌릴 수 있는 기기 수
+- [지속가능성](/ko/reference/sustainability): Mac을 재사용할 때 하드웨어 측면

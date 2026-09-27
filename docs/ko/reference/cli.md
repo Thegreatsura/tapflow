@@ -1,3 +1,8 @@
+---
+title: CLI 레퍼런스
+description: "tapflow CLI의 모든 명령과 플래그: doctor, setup, init, admin init, start, relay start, agent start, devices, boot, reset, status, logs, migrate 명령."
+---
+
 # CLI 레퍼런스
 
 ## 설치
@@ -445,3 +450,9 @@ tapflow migrate net-filter --ignore-running-devices
 나타나지 않으면 그렇게 말하고 **0이 아닌 코드로 종료합니다.** 설정은 켜져 있는데 아무도 답하지 않는 상태이기 때문입니다. 대개는 아직 기동 중이고 잠시 뒤 `tapflow doctor ios`가 정상이라고 답합니다. 맥의 새 연결이 멈췄다면 [문제 해결](/ko/operate/network-extension#network-lost-on-replace)을 보세요. 해법은 `--off`로 필터를 경로에서 빼는 것입니다.
 
 끝나고 `tapflow doctor ios`로 맥이 어떤 상태가 됐는지 확인하세요.
+
+## 관련 문서 {#related}
+
+- [빠른 시작](/ko/get-started/quick-start): 처음 설치할 때 명령을 실행하는 순서
+- [설정 파일](/ko/reference/configuration): 명령이 읽는 설정 파일과 환경 변수
+- [문제 해결](/ko/troubleshooting): `tapflow doctor`나 명령이 실패할 때

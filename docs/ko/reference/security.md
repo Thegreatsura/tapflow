@@ -1,3 +1,8 @@
+---
+title: 보안 및 개인정보
+description: "tapflow가 빌드, 기기 스트림, 녹화를 내 네트워크 안에 두는 방식: LAN 우선 구조, scope가 있는 개인 액세스 토큰, 역할 기반 접근, TLS, 취약점 제보."
+---
+
 # 보안 및 개인정보
 
 tapflow는 self-hosted 제품입니다. 빌드 파일, 기기 스트림, 세션 녹화물 — 모든 데이터가 여러분의 인프라 안에서만 움직입니다. 이 페이지는 tapflow가 설계상 어떻게 데이터를 보호하는지 설명합니다.
@@ -68,3 +73,9 @@ tapflow가 제공하는 보호 범위와 여러분이 직접 관리해야 하는
 ## 취약점 제보
 
 tapflow 코드에서 보안 문제를 발견했다면 공개 이슈 대신 비공개 채널로 제보해 주세요. 자세한 방법은 [SECURITY.md](https://github.com/jo-duchan/tapflow/blob/main/SECURITY.md)를 참고하세요.
+
+## 관련 문서 {#related}
+
+- [팀·역할·토큰](/ko/operate/team-and-roles): 실제 역할과 개인 액세스 토큰 운영
+- [외부 접속](/ko/operate/external-access): LAN 밖으로 릴레이 열기
+- [REST API](/ko/reference/api): 엔드포인트별로 받는 자격 증명

@@ -1,3 +1,8 @@
+---
+title: Sustainability
+description: "Why reusing Macs a team already owns lowers the hardware footprint of mobile QA: embodied carbon, the SCI standard, what we measured, and the limits of the claim."
+---
+
 # Sustainability
 
 tapflow makes better use of the Macs a team already owns and lowers the need for new hardware, which makes mobile QA more sustainable.
@@ -45,3 +50,8 @@ The formulas, input sources, measurement conditions, and the comparisons we cons
 - **It does not replace every physical device.** tapflow cannot test features that depend on device hardware, such as camera, NFC, or biometrics.
 - **Old Macs have a floor.** The iOS simulator requires a recent Xcode, which requires a recent macOS. A Mac past that line cannot run as an agent. See [Requirements](/operate/requirements).
 - **Grid factors vary by region.** The figures above are for Korea. On a cleaner grid both electricity lines shrink, while the manufacturing comparison stays the same.
+
+## Related {#related}
+
+- [Scaling Mac resources](/operate/scaling): getting more devices out of the Macs you have
+- [Performance & Latency](/reference/performance): what the stream costs in bandwidth and latency

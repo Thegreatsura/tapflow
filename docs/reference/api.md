@@ -1,3 +1,8 @@
+---
+title: REST API
+description: "Full tapflow REST API reference under /api/v1: auth, invitations, password reset, apps, builds, comments, team, tokens, profile, settings, recordings, agents, sessions, relay and logs, with request and response shapes."
+---
+
 # REST API
 
 All endpoints are served by the relay at `http(s)://<relay-host>/api/v1/`.
@@ -898,3 +903,9 @@ Query:
   "[2025-05-15T12:00:00.000Z] ..."
 ]
 ```
+
+## Related {#related}
+
+- [Upload from CI](/operate/ci-distribution): uploading builds with a personal access token
+- [Team, roles & tokens](/operate/team-and-roles): which role can call which endpoint, and how to issue tokens
+- [CLI Reference](/reference/cli): the commands that run the relay and agents
