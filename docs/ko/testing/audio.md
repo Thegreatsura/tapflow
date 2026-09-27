@@ -1,6 +1,6 @@
 ---
 title: 오디오
-description: "기기 소리가 영상과 함께 브라우저에서 재생됩니다. iOS와 Android 모두 기본으로 켜져 있고 에이전트 Mac의 스피커는 조용합니다."
+description: "기기 소리가 영상과 함께 브라우저에서 재생됩니다. iOS와 Android 모두 기본으로 켜져 있고 에이전트 Mac의 스피커는 조용합니다(Android는 macOS 14.2 이상에서)."
 ---
 
 # 오디오

@@ -1,6 +1,6 @@
 ---
 title: Audio
-description: "The device's sound plays in the browser alongside the video, on by default on iOS and Android; the agent Mac's speakers stay silent."
+description: "The device's sound plays in the browser alongside the video, on by default on iOS and Android; the agent Mac's speakers stay silent (for Android, on macOS 14.2 or later)."
 ---
 
 # Audio

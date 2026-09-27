@@ -51,7 +51,7 @@ Confirm offline behaviour on those screens by a **new request** failing, rather 
 :::
 
 ::: tip Error codes differ from a real device
-An iOS simulator reports `NSURLErrorNetworkConnectionLost` (`-1005`), not the `NSURLErrorNotConnectedToInternet` (`-1009`) a real device in airplane mode gives, so if your app branches on the error code, check that it handles both.
+The error an app sees is not the one a real device in airplane mode gives. Observed on an iOS simulator: `URLSession` reports `NSURLErrorNetworkConnectionLost` (`-1005`) rather than `NSURLErrorNotConnectedToInternet` (`-1009`), a low-level socket `connect()` fails with `EBADF`, and Safari shows an unknown error. These are examples, not a fixed list: if your app branches on the error code, handle `-1005` and `-1009` both, and treat any other failure as offline too.
 :::
 
 ## Setup (operator) {#setup-operator}

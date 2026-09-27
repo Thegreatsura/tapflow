@@ -51,7 +51,7 @@ WebView 안에서 도는 화면에는 오프라인 통지가 닿지 않아 배�
 :::
 
 ::: tip 오류 코드가 실기기와 다릅니다
-iOS 시뮬레이터에서는 `NSURLErrorNetworkConnectionLost`(`-1005`)가 납니다. 실기기를 기내 모드로 두었을 때 나오는 `NSURLErrorNotConnectedToInternet`(`-1009`)와 다른 값이므로 오류 코드로 분기하는 앱이라면 두 값을 모두 처리하는지 확인하세요.
+앱이 받는 오류는 실기기를 기내 모드로 두었을 때와 다릅니다. iOS 시뮬레이터에서 관찰된 예는 이렇습니다. `URLSession`은 `NSURLErrorNotConnectedToInternet`(`-1009`) 대신 `NSURLErrorNetworkConnectionLost`(`-1005`)를 보고합니다. 저수준 소켓의 `connect()`는 `EBADF`로 실패하고 Safari는 알 수 없는 오류를 띄웁니다. 이 목록이 전부는 아닙니다. 오류 코드로 분기하는 앱이라면 `-1005`와 `-1009`를 모두 처리하고 그 밖의 실패도 오프라인으로 다루세요.
 :::
 
 ## 설정(운영자) {#setup-operator}
