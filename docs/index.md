@@ -7,8 +7,11 @@ hero:
   tagline: Run iOS & Android simulators in the browser — no complicated setup, no device management, no data leaving your network.
   actions:
     - theme: brand
-      text: Get Started
+      text: Set up tapflow
       link: /get-started/quick-start
+    - theme: alt
+      text: For teammates
+      link: /get-started/teammates
     - theme: alt
       text: View on GitHub
       link: https://github.com/jo-duchan/tapflow

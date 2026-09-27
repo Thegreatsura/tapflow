@@ -212,8 +212,8 @@ describe('docs/vercel.json is generated from moves.json', () => {
     expect(vercel.cleanUrls).toBe(true)
     expect(vercel.outputDirectory).toBe('.vitepress/dist')
     // Floor, and one rule by name per kind, so an empty table cannot agree with an empty file.
-    // 20 page moves × 4 + 4 aliases × 2 + 2 files on 2026-09-27.
-    expect(vercel.redirects.length).toBeGreaterThanOrEqual(90)
+    // 21 page moves × 4 + 4 aliases × 2 + 2 files on 2026-09-27 (after `dashboard/setup` merged into Quick Start).
+    expect(vercel.redirects.length).toBeGreaterThanOrEqual(94)
     expect(vercel.redirects).toEqual(expect.arrayContaining([
       { source: '/guide/agent', destination: '/operate/agents', permanent: true },
       { source: '/ko/guide/agent', destination: '/ko/operate/agents', permanent: true },
@@ -304,14 +304,19 @@ describe('Moved-sections entries resolve and are not dead', () => {
   it('on the real site', () => {
     const rendered = renderSite()
     // Floor and names, so a render that stopped seeing `data-moved-to` cannot pass as "no problems":
-    // 126 entries on 2026-09-27 (14 + 43 + 6 per locale on `operate/deployment`, `troubleshooting`,
-    // `testing`). The named ones are the shipped fragment and the README one.
+    // 130 entries on 2026-09-27 (14 + 43 + 6 + 2 per locale on `operate/deployment`, `troubleshooting`,
+    // `testing`, `get-started/quick-start`). The named ones are the shipped fragment, the README one, and
+    // one from each locale of the fourth split page (`dashboard/setup`).
+    // The fourth split's other old ids (`_1-create-the-admin-account`, …) stay on Quick Start as plain
+    // `<a id>`s beside the steps that absorbed them, and the frozen case holds those.
     const entries = [...rendered].flatMap(([url, { moved }]) => moved.map((m) => `${url}#${m.id} → ${m.to}`))
-    expect(entries.length).toBeGreaterThanOrEqual(126)
+    expect(entries.length).toBeGreaterThanOrEqual(130)
     expect(entries).toEqual(expect.arrayContaining([
       '/troubleshooting#ios-simulator-service-version-mismatch → /troubleshooting/ios-simulator#ios-simulator-service-version-mismatch',
       '/operate/deployment#docker-compose-lan-server → /operate/docker#docker-compose-lan-server',
       '/ko/operate/deployment#docker-compose-lan-서버 → /ko/operate/docker#docker-compose-lan-서버',
+      '/get-started/quick-start#_3-invite-your-team → /operate/team-and-roles#_3-invite-your-team',
+      '/ko/get-started/quick-start#_6-팀원에게-공유하기 → /ko/get-started/teammates#_6-팀원에게-공유하기',
     ]))
     expect(movedSectionProblems(rendered, loadMoves())).toEqual([])
   })

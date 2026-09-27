@@ -41,6 +41,7 @@ Sections that used to be on this page now live on these pages.
   - <a id="mac-resources" data-moved-to="/operate/scaling#mac-resources"></a>[Mac Resources](/operate/scaling#mac-resources)
 - [Team, roles & tokens](/operate/team-and-roles)
   - <a id="settings" data-moved-to="/operate/team-and-roles"></a>[Settings](/operate/team-and-roles)
-  - <a id="default" data-moved-to="/operate/team-and-roles#default"></a>[Default](/operate/team-and-roles#default)
   - <a id="team" data-moved-to="/operate/team-and-roles#team"></a>[Team](/operate/team-and-roles#team)
   - <a id="tokens" data-moved-to="/operate/team-and-roles#tokens"></a>[Tokens](/operate/team-and-roles#tokens)
+- [For teammates](/get-started/teammates)
+  - <a id="default" data-moved-to="/get-started/teammates#default"></a>[Default](/get-started/teammates#default)

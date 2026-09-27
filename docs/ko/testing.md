@@ -41,6 +41,7 @@ description: 팀원이 브라우저로 빌드를 테스트하는 방법입니다
   - <a id="mac-resources" data-moved-to="/ko/operate/scaling#mac-resources"></a>[Mac Resources](/ko/operate/scaling#mac-resources)
 - [팀·역할·토큰](/ko/operate/team-and-roles)
   - <a id="settings" data-moved-to="/ko/operate/team-and-roles"></a>[Settings](/ko/operate/team-and-roles)
-  - <a id="default" data-moved-to="/ko/operate/team-and-roles#default"></a>[Default](/ko/operate/team-and-roles#default)
   - <a id="team" data-moved-to="/ko/operate/team-and-roles#team"></a>[Team](/ko/operate/team-and-roles#team)
   - <a id="tokens" data-moved-to="/ko/operate/team-and-roles#tokens"></a>[Tokens](/ko/operate/team-and-roles#tokens)
+- [팀원 시작 가이드](/ko/get-started/teammates)
+  - <a id="default" data-moved-to="/ko/get-started/teammates#default"></a>[Default](/ko/get-started/teammates#default)

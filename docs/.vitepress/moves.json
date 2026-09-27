@@ -20,7 +20,8 @@
     "/guide/contributing": "/contributing",
     "/guide/self-hosting": "/operate/deployment",
     "/guide/troubleshooting": "/troubleshooting",
-    "/dashboard/overview": "/testing"
+    "/dashboard/overview": "/testing",
+    "/dashboard/setup": "/get-started/quick-start"
   },
   "aliases": {
     "/guide": "/get-started/introduction",

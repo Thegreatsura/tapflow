@@ -7,8 +7,6 @@ description: 업로드된 빌드를 앱과 버전별로 모아 보는 화면입�
 
 # App Center
 
-<Badge type="info" text="iOS" /> <Badge type="info" text="Android" />
-
 App Center는 tapflow 대시보드 안의 빌드 목록 화면입니다. Microsoft App Center와는 관계가 없습니다. 팀이 올린 iOS·Android 빌드가 앱별, 버전별로 모이고 여기서 빌드를 골라 QA 세션을 시작합니다. 대시보드에 로그인하면 가장 먼저 열리는 화면입니다.
 
 ## 사용 방법 {#how-to-use}

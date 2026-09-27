@@ -16,9 +16,9 @@
 
 ## Get started
 
-- [Introduction](https://www.tapflow.dev/get-started/introduction): Architecture overview, key concepts (Relay, Agent, Dashboard, MCP Server), and streaming format by platform.
-- [Quick Start](https://www.tapflow.dev/get-started/quick-start): Install tapflow, start the relay and agent, create the admin account, and open the dashboard — under 5 minutes.
-- [First-time Setup](https://www.tapflow.dev/dashboard/setup): Create the admin account, sign in, invite teammates with roles (Admin / Developer / QA / Viewer), add the first app, and start a session.
+- [Introduction](https://www.tapflow.dev/get-started/introduction): What tapflow is, who does what (an operator sets up a Mac; teammates only open a browser), the key concepts (relay, agent, dashboard, App Center, build, QA Session, roles), architecture diagrams, and the manual-first vs experimental MCP paths.
+- [Quick Start](https://www.tapflow.dev/get-started/quick-start): Operator tutorial from install to the first tap: prerequisites, tapflow setup, optional tapflow init, tapflow start and its banner, the admin account, uploading your build, Start QA, picking a Mac and device, Launch app, and inviting a teammate with the dashboard's LAN address.
+- [For teammates](https://www.tapflow.dev/get-started/teammates): For a teammate who received an invite link: accept it, save the dashboard address, pick a build in App Center, start a QA Session, leave comments, what each role (Viewer / QA / Developer / Admin) may do, and profile settings.
 
 ## Test apps
 

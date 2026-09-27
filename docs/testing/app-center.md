@@ -7,8 +7,6 @@ description: "The dashboard's build list, grouped by app and version: uploading 
 
 # App Center
 
-<Badge type="info" text="iOS" /> <Badge type="info" text="Android" />
-
 App Center is the build list inside the tapflow dashboard. It has nothing to do with Microsoft App Center. The iOS and Android builds your team uploads collect here by app and version, and this is where you pick one and start a QA Session. It is the first screen you see after signing in.
 
 ## How to use {#how-to-use}

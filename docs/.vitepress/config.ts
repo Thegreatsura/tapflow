@@ -31,8 +31,6 @@ function nfcSlugify(str: string): string {
 // One sidebar for
 // every page rather than one per section, so each reader can see the other's pages.
 //
-// Interim entry until the page is merged: `/dashboard/setup` (Get started) keeps its old URL for now.
-//
 // `koSidebar` must mirror this one — same groups, same order, every link prefixed with `/ko` —
 // and `docs/public/llms.txt` lists the same links under the same top-level group names.
 // `scripts/__tests__/agentReadableDocs.test.mjs` checks both.
@@ -42,7 +40,7 @@ const enSidebar = [
     items: [
       { text: 'Introduction', link: '/get-started/introduction' },
       { text: 'Quick Start', link: '/get-started/quick-start' },
-      { text: 'First-time Setup', link: '/dashboard/setup' },
+      { text: 'For teammates', link: '/get-started/teammates' },
     ],
   },
   {
@@ -154,7 +152,7 @@ const koSidebar = [
     items: [
       { text: '소개', link: '/ko/get-started/introduction' },
       { text: '빠른 시작', link: '/ko/get-started/quick-start' },
-      { text: '최초 설정', link: '/ko/dashboard/setup' },
+      { text: '팀원 시작 가이드', link: '/ko/get-started/teammates' },
     ],
   },
   {
@@ -297,10 +295,9 @@ export default withMermaid(defineConfig({
       lang: 'en-US',
       themeConfig: {
         nav: [
-          // The `dashboard/setup` alternative covers the interim entry named above `enSidebar`;
-          // drop it when that page moves. `^/testing` without a slash also matches the section
+          // `^/testing` without a slash also matches the section
           // overview, which is the sibling file `testing.md` rather than `testing/index.md`.
-          { text: 'Get started', link: '/get-started/introduction', activeMatch: '^/(get-started/|dashboard/setup)' },
+          { text: 'Get started', link: '/get-started/introduction', activeMatch: '^/get-started/' },
           { text: 'Test apps', link: '/testing', activeMatch: '^/testing(/|$)' },
           { text: 'Operate', link: '/operate/requirements', activeMatch: '^/(operate|automation)/' },
           { text: 'Reference', link: '/reference/cli', activeMatch: '^/reference/' },
@@ -314,7 +311,7 @@ export default withMermaid(defineConfig({
       lang: 'ko-KR',
       themeConfig: {
         nav: [
-          { text: '시작하기', link: '/ko/get-started/introduction', activeMatch: '^/ko/(get-started/|dashboard/setup)' },
+          { text: '시작하기', link: '/ko/get-started/introduction', activeMatch: '^/ko/get-started/' },
           { text: '앱 테스트', link: '/ko/testing', activeMatch: '^/ko/testing(/|$)' },
           { text: '운영', link: '/ko/operate/requirements', activeMatch: '^/ko/(operate|automation)/' },
           { text: '레퍼런스', link: '/ko/reference/cli', activeMatch: '^/ko/reference/' },

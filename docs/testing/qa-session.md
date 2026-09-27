@@ -5,8 +5,6 @@ description: "Pick a Mac and a device to start a session and drive the device sc
 
 # QA Session
 
-<Badge type="info" text="iOS" /> <Badge type="info" text="Android" />
-
 A QA Session is where you watch and drive an iOS simulator or Android emulator running on a Mac, straight from your browser. The device runs on your operator's Mac, so teammates install nothing. It opens when you press **Start QA** on a build's row in [App Center](/testing/app-center).
 
 ## Start a session {#start-a-session}
