@@ -1,5 +1,26 @@
 # @tapflowio/relay
 
+## 0.26.0
+
+### Minor Changes
+
+- c104870: A password reset revokes the member's personal access tokens, CI and agent tokens included, and disconnects agents that use them. A self-service password change keeps the tokens. The reset dialog says so.
+- c23b00d: Team accounts are harder to take over and easier to recover.
+
+  - Changing a password, by reset link or in Settings, ends every session issued before it and closes the user's open connections. The browser that made a self-service change gets a new cookie and stays signed in. Everyone signs in once after upgrading.
+  - An invitation never changes an existing account: inviting a member's address, or accepting an invitation for one, is refused with 409.
+  - **Reset pwd** gives the Admin a copyable reset link, as an invitation does, and also emails it when SMTP is configured. `send-reset` returns `token` and `resetUrl`; only the newest link works.
+  - Email addresses are stored and compared without regard to letter case or surrounding spaces, and existing ones are normalized on upgrade. Addresses that differ only in case are left alone and named in the relay's startup log.
+
+- f71578c: Developers and QA see **Settings → Tokens** and can create their own API tokens; the Agent type is still offered to Admins only, and Viewers still do not see the page.
+
+### Patch Changes
+
+- e8b187a: Documentation links follow the reorganized docs: the dashboard's Standard-mode notice opens the HTTPS page, the sidebar's **Docs** opens the page for teammates, and the iOS agent's CoreSimulator error names the iOS Simulator troubleshooting page. Old links keep working through redirects.
+- f8ea0ac: The **Restart this device?** dialog in a QA Session no longer says that installed apps and their data stay. After a restart the dashboard installs the build under test again, and both agents clear that app before installing it, so its data is gone; other apps on the device keep theirs. The dialog now says so.
+  - @tapflowio/protocol@0.26.0
+  - @tapflowio/agent-core@0.26.0
+
 ## 0.25.0
 
 ### Minor Changes

@@ -1,5 +1,11 @@
 # @tapflowio/agent-core
 
+## 0.26.0
+
+### Patch Changes
+
+- @tapflowio/protocol@0.26.0
+
 ## 0.25.0
 
 ### Patch Changes
