@@ -403,6 +403,26 @@
       "permanent": true
     },
     {
+      "source": "/dashboard/setup",
+      "destination": "/get-started/quick-start",
+      "permanent": true
+    },
+    {
+      "source": "/ko/dashboard/setup",
+      "destination": "/ko/get-started/quick-start",
+      "permanent": true
+    },
+    {
+      "source": "/dashboard/setup.md",
+      "destination": "/get-started/quick-start.md",
+      "permanent": true
+    },
+    {
+      "source": "/ko/dashboard/setup.md",
+      "destination": "/ko/get-started/quick-start.md",
+      "permanent": true
+    },
+    {
       "source": "/guide",
       "destination": "/get-started/introduction",
       "permanent": true

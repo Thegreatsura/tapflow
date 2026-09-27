@@ -214,7 +214,7 @@ describe('docs fragment links land on an id', () => {
     // silently stopped decoding, rewriting or resolving one kind cannot pass on the others. The
     // count is the backstop under them (104 on 2026-09-26).
     expect(checked).toContain('ko/reference/cli.md → /ko/operate/agents#원격-릴레이-인증')
-    expect(checked).toContain('dashboard/setup.md → /reference/configuration#create-the-first-admin-account-in-a-docker-container-tapflow-admin-email')
+    expect(checked).toContain('get-started/quick-start.md → /reference/configuration#create-the-first-admin-account-in-a-docker-container-tapflow-admin-email')
     expect(checked).toContain('reference/cli.md → #tapflow-migrate-net-filter')
     expect(checked.length).toBeGreaterThanOrEqual(100)
     expect(broken).toEqual([])

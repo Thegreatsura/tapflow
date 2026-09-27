@@ -152,7 +152,7 @@ KO 헤딩은 `사용 방법 / 플랫폼 지원 / 제한 사항 / 설정(운영�
 | 레퍼런스 | `docs/reference/{slug}.md` | `docs/ko/reference/{slug}.md` |
 | 문제 해결 | `docs/troubleshooting/{slug}.md` | `docs/ko/troubleshooting/{slug}.md` |
 
-URL 접두사가 곧 섹션이다. slug는 UI 위치가 아니라 대상 이름으로 짓는다. 섹션 개요는 `index.md`가 아니라 형제 파일로 둔다(`docs/testing.md` → `/testing`, `docs/troubleshooting.md` → `/troubleshooting`). `docs/dashboard/`에 남은 `setup.md`는 병합을 기다리는 중이므로 거기에 새 페이지를 두지 않는다.
+URL 접두사가 곧 섹션이다. slug는 UI 위치가 아니라 대상 이름으로 짓는다. 섹션 개요는 `index.md`가 아니라 형제 파일로 둔다(`docs/testing.md` → `/testing`, `docs/troubleshooting.md` → `/troubleshooting`).
 
 **페이지를 옮기거나 없앨 때**: 옛 URL을 `docs/.vitepress/moves.json`의 `pages`에 `"옛 경로": "새 경로"`로 추가하고 `node scripts/docs-redirects.mjs --write`로 `docs/vercel.json`을 다시 만든다. 항목 하나가 EN·KO·`.md` 네 개의 308 리다이렉트가 된다. 이미 옮긴 페이지를 또 옮기면 항목을 이어 붙이지 말고 기존 항목의 목적지를 고친다(연쇄 금지). 레포 안의 링크는 새 경로로 고치고, README처럼 이미 배포된 URL은 `docsAnchors`의 `LEGACY_URLS`가 옛 형태 그대로 계속 검사한다. 이 규칙은 `docsMoves` 테스트가 강제한다.
 

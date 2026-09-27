@@ -7,8 +7,11 @@ hero:
   tagline: 복잡한 세팅 없이, 기기 관리 없이, 외부 데이터 유출 걱정 없이 — 팀 누구나 iOS·Android 시뮬레이터를 브라우저에서 바로 실행하세요.
   actions:
     - theme: brand
-      text: 시작하기
+      text: tapflow 설치하기
       link: /ko/get-started/quick-start
+    - theme: alt
+      text: 팀원 시작 가이드
+      link: /ko/get-started/teammates
     - theme: alt
       text: GitHub 보기
       link: https://github.com/jo-duchan/tapflow
