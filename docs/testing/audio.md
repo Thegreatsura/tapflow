@@ -1,4 +1,11 @@
+---
+title: Audio
+description: "The device's sound plays in the browser alongside the video, on by default on iOS and Android; the agent Mac's speakers stay silent (for Android, on macOS 14.2 or later)."
+---
+
 # Audio
+
+<Badge type="info" text="iOS" /> <Badge type="info" text="Android" />
 
 tapflow streams the device's audio to the browser alongside video, so your whole team hears the app — not just sees it. App sound, web audio (e.g. a video playing in the in-app browser), and system sounds all come through.
 
@@ -14,12 +21,19 @@ TAPFLOW_AUDIO=off tapflow agent start
 
 That disables audio capture on both platforms; the video path is unchanged either way.
 
-## Requirements
+<a id="requirements"></a>
 
-- **iOS** — macOS 14.2+ on the agent Mac (Core Audio process taps). The iOS agent requires macOS 26 or later ([System Requirements](/operate/requirements)), so a supported host always meets this.
-- **Android** — captured through the emulator's stream; no extra requirement.
+## Platform support {#platform-support}
 
-## Permission (one-time)
+| | iOS | Android |
+|---|---|---|
+| How the sound is captured | Core Audio process taps on the agent Mac | From the emulator's stream |
+| Extra requirement | None — the iOS agent's macOS 26 requirement covers it ([Requirements](/operate/requirements)) | None |
+| Agent Mac speakers | Silent | Silent on macOS 14.2 or later; audible below that |
+
+## Setup (operator) {#setup-operator}
+
+### Permission (one-time)
 
 Both iOS audio capture and the Android host-mute below use a macOS audio-recording permission, so the first time it's needed macOS shows a one-time prompt.
 
@@ -29,7 +43,7 @@ Both iOS audio capture and the Android host-mute below use a macOS audio-recordi
 The agent operator (whoever runs the Mac), not the dashboard viewer, grants this permission.
 :::
 
-## The agent Mac stays quiet
+### The agent Mac stays quiet
 
 When audio is on, the device's sound plays **only in the browser** — the agent Mac's own speakers stay silent, so there's no echo or noise on a shared or unattended Mac:
 
@@ -47,11 +61,13 @@ The device's own volume is reflected in what the browser hears — change the si
 **No audio in the browser**
 
 - Re-run `tapflow agent start` to re-trigger the permission prompt, then click Allow.
-- iOS: confirm the agent Mac is on macOS 14.2 or later.
 - Confirm `TAPFLOW_AUDIO` isn't set to `off`.
 
 **The agent Mac plays the emulator's sound (Android)**
 
 - Expected below macOS 14.2 — lower the Mac's volume. On macOS 14.2+ it's muted automatically.
 
-See also: [Streaming Quality](/operate/streaming-quality).
+## Related {#related}
+
+- [QA Session](/testing/qa-session): everything a session offers
+- [Streaming quality](/operate/streaming-quality): how the video side is tuned

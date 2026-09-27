@@ -89,7 +89,7 @@ title: {기능 이름}
 description: {한 문장. llms.txt 설명과 맞춘다}
 ---
 # {기능 이름}
-<Badge type="info" text="iOS" /> <Badge type="info" text="Android" />
+<Badge type="info" text="iOS" /> <Badge type="info" text="Android" />   ← 모든 기능 페이지에 지원 플랫폼 배지를 단다. 한쪽 플랫폼에만 있는 절은 그 절 제목 아래에 해당 배지를 단다
 {무엇을 하고 누구에게 쓸모 있는지 1~2문장, 기본 켜짐 여부}
 <VideoPlayer ... />   ← 있으면
 ## How to use          ← 대시보드에서의 단계

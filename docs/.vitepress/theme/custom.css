@@ -315,3 +315,14 @@
   padding: 2px 6px;
   margin-left: -6px;
 }
+
+/* Platform badges under a page or section title (the feature-page template): a little air below the
+ * heading, and the first badge flush with the text column instead of VPBadge's default 2px indent. */
+/* Rendered as siblings of the heading, not inside a <p>, so the selectors follow the heading. */
+.vp-doc :is(h1, h2, h3) ~ .VPBadge {
+  margin-top: 8px;
+}
+
+.vp-doc :is(h1, h2, h3) + .VPBadge {
+  margin-left: 0;
+}
