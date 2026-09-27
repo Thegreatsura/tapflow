@@ -8,7 +8,7 @@ import { FieldError } from '@/components/ui/field-error'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
@@ -45,6 +45,36 @@ const inviteResponseSchema = z.object({
   inviteUrl: z.string().nullable(),
 })
 
+const resetResponseSchema = z.object({
+  token: z.string(),
+  emailSent: z.boolean(),
+  resetUrl: z.string().nullable(),
+})
+
+interface IssuedReset { email: string; link: string; copied: boolean; emailSent: boolean }
+
+/** A plain-HTTP page has no clipboard API. That is a copy that did not happen, not a failure. */
+function copyToClipboard(text: string): Promise<boolean> {
+  return (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject(new Error('no clipboard')))
+    .then(() => true, () => false)
+}
+
+/**
+ * A link the Admin hands to a teammate, shown whether or not it was copied. Focus goes to it on mount,
+ * where it can be selected and copied by hand — the only way on a plain-HTTP page.
+ */
+function CopyableLink({ link, copied, noun }: { link: string; copied: boolean; noun: string }) {
+  const labelId = useId()
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => { ref.current?.focus() }, [link])
+  return (
+    <>
+      <p id={labelId} className="text-sm text-muted-foreground">{copied ? `${noun[0].toUpperCase()}${noun.slice(1)} copied to clipboard:` : `Copy this ${noun}:`}</p>
+      <Input ref={ref} readOnly value={link} aria-labelledby={labelId} onFocus={(e) => e.currentTarget.select()} className="font-mono text-xs" />
+    </>
+  )
+}
+
 export function TeamSettings() {
   const queryClient = useQueryClient()
   const membersQuery = useQuery({ queryKey: queryKeys.teamMembers, queryFn: getTeamMembers })
@@ -52,25 +82,22 @@ export function TeamSettings() {
   const view = listView(membersQuery)
   const inviteButtonRef = useRef<HTMLButtonElement>(null)
   const listRegion = useFocusAfterSwap<HTMLTableSectionElement>(view, inviteButtonRef)
-  const [resetSent, setResetSent] = useState<Record<number, string>>({})
+  const [issuedReset, setIssuedReset] = useState<IssuedReset | null>(null)
+  // The reset dialog opens from state, with no `DialogTrigger` for Radix to return focus to, so the
+  // row's button is remembered here and focus goes back to it on close.
+  const resetReturnRef = useRef<HTMLButtonElement | null>(null)
   const [inviteLink, setInviteLink] = useState('')
   const [linkCopied, setLinkCopied] = useState(false)
   const [inviteStatus, setInviteStatus] = useState('')
-  const linkLabelId = useId()
-  const linkRef = useRef<HTMLInputElement>(null)
   const [inviteOpen, setInviteOpen] = useState(false)
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null)
 
-  const { register, handleSubmit, control, reset, formState: { errors, isSubmitting } } = useForm<InviteData>({
+  const { register, handleSubmit, control, reset, setError, formState: { errors, isSubmitting } } = useForm<InviteData>({
     resolver: zodResolver(inviteSchema),
     defaultValues: { email: '', role: 'QA' },
   })
 
   const load = () => { void queryClient.invalidateQueries({ queryKey: queryKeys.teamMembers }) }
-
-  // The form and the button that had focus are replaced by the link. Focus goes to the link, where it can be
-  // selected and copied by hand — the only way on a plain-HTTP page, which has no clipboard API.
-  useEffect(() => { if (inviteLink) linkRef.current?.focus() }, [inviteLink])
 
   async function onInvite(data: InviteData) {
     // Cleared first, so a retry that fails the same way is announced again.
@@ -82,14 +109,17 @@ export function TeamSettings() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: data.email, role: data.role }),
       })
+      // The relay refuses an address that already has an account: an invitation never changes one.
+      if (res.status === 409) {
+        setError('email', { message: 'Already a member. Change their role in the list instead.' }, { shouldFocus: true })
+        return
+      }
       if (!res.ok) throw new Error(`Server error: ${res.status}`)
       const json = inviteResponseSchema.parse(await res.json())
       // The relay returns the link it mailed (#788). It has none to offer when its only address is one a
       // teammate cannot open, and then the link is built from the teammate base.
       const link = json.inviteUrl ?? joinPath((await loadTeammateBases()).linkBase, `/invite?token=${json.token}`)
-      // A plain-HTTP page has no clipboard API. That is a copy that did not happen, not a failed invite.
-      const copied = await (navigator.clipboard ? navigator.clipboard.writeText(link) : Promise.reject(new Error('no clipboard')))
-        .then(() => true, () => false)
+      const copied = await copyToClipboard(link)
       setInviteLink(link)
       setLinkCopied(copied)
       // Toasts render outside the dialog, and an open dialog hides everything outside it from assistive
@@ -123,12 +153,26 @@ export function TeamSettings() {
     load()
   }
 
-  async function handleSendReset(id: number) {
-    const res = await fetch(`/api/v1/team/members/${id}/send-reset`, { method: 'POST', credentials: 'include' })
-    const data = await res.json() as { emailSent: boolean }
-    const msg = data.emailSent ? 'Sent' : 'No SMTP'
-    setResetSent((p) => ({ ...p, [id]: msg }))
-    setTimeout(() => setResetSent((p) => { const n = { ...p }; delete n[id]; return n }), 3000)
+  // Mirrors the invitation: the Admin always gets the link, and mail is sent as well when it can be, so
+  // an install without SMTP can still reset a password.
+  async function handleSendReset(member: Member) {
+    try {
+      const res = await fetch(`/api/v1/team/members/${member.id}/send-reset`, { method: 'POST', credentials: 'include' })
+      if (!res.ok) throw new Error(`Server error: ${res.status}`)
+      const json = resetResponseSchema.parse(await res.json())
+      const link = json.resetUrl ?? joinPath((await loadTeammateBases()).linkBase, `/reset-password?token=${json.token}`)
+      const copied = await copyToClipboard(link)
+      setIssuedReset({ email: member.email, link, copied, emailSent: json.emailSent })
+      if (json.emailSent) {
+        toast.success(`Reset email sent to ${member.email}`)
+      } else if (copied) {
+        toast.warning('Reset link copied — email could not be sent. Send the link to the member yourself.')
+      } else {
+        toast.warning('Email could not be sent. Copy the reset link from the dialog and send it to the member.')
+      }
+    } catch {
+      toast.error('Failed to create reset link')
+    }
   }
 
   async function handleDelete(id: number) {
@@ -158,6 +202,23 @@ export function TeamSettings() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <Dialog open={issuedReset !== null} onOpenChange={(open) => { if (!open) setIssuedReset(null) }}>
+        <DialogContent className="sm:max-w-md" onCloseAutoFocus={(e) => { e.preventDefault(); resetReturnRef.current?.focus() }}>
+          <DialogHeader>
+            <DialogTitle>Password reset link</DialogTitle>
+            <DialogDescription>
+              {issuedReset?.emailSent ? `Reset email sent to ${issuedReset.email}.` : `Email could not be sent to ${issuedReset?.email ?? ''}.`}{' '}
+              The link works once, for 2 hours. Making a new one turns this one off.
+            </DialogDescription>
+          </DialogHeader>
+          {issuedReset && (
+            <div className="flex flex-col gap-3 pt-2">
+              <CopyableLink link={issuedReset.link} copied={issuedReset.copied} noun="reset link" />
+              <Button onClick={() => setIssuedReset(null)}>Done</Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Team</h1>
         <Dialog open={inviteOpen} onOpenChange={handleDialogClose}>
@@ -170,8 +231,7 @@ export function TeamSettings() {
             <p role="status" className="sr-only">{inviteStatus}</p>
             {inviteLink ? (
               <div className="flex flex-col gap-3 pt-2">
-                <p id={linkLabelId} className="text-sm text-muted-foreground">{linkCopied ? 'Invite link copied to clipboard:' : 'Copy this invite link:'}</p>
-                <Input ref={linkRef} readOnly value={inviteLink} aria-labelledby={linkLabelId} onFocus={(e) => e.currentTarget.select()} className="font-mono text-xs" />
+                <CopyableLink link={inviteLink} copied={linkCopied} noun="invite link" />
                 <Button onClick={() => handleDialogClose(false)}>Done</Button>
               </div>
             ) : (
@@ -256,8 +316,8 @@ export function TeamSettings() {
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
-                      <Button variant="secondary" size="nav" onClick={() => handleSendReset(m.id)}>
-                        {resetSent[m.id] ?? 'Reset pwd'}
+                      <Button variant="secondary" size="nav" onClick={(e) => { resetReturnRef.current = e.currentTarget; void handleSendReset(m) }}>
+                        Reset pwd
                       </Button>
                       <Button variant="destructive" size="nav" onClick={() => setPendingDeleteId(m.id)}>
                         Remove

@@ -1,7 +1,8 @@
 import http from 'http'
 import { getDb } from '../db.js'
 import { makePasswordHash, verifyPassword, isInitialized, createAdminAccount } from '../lib/adminAccount.js'
-import { signJwt, requireAuth } from '../middleware/auth.js'
+import { sessionCookie, requireAuth } from '../middleware/auth.js'
+import { normalizeEmail, EMAIL_KEY_SQL } from '../lib/email.js'
 import { json, readJson } from '../router.js'
 import { config } from '../lib/config.js'
 import { resolveRequestClient } from '../lib/clientAddress.js'
@@ -25,7 +26,7 @@ export async function handleLogin(
   const body = await readJson<{ email: string; password: string }>(req)
   if (!body.email || !body.password) return json(res, 400, { error: 'email and password required' })
 
-  const key = `${resolveRequestClient(req, trustedProxies).addr}|${body.email.toLowerCase()}`
+  const key = `${resolveRequestClient(req, trustedProxies).addr}|${normalizeEmail(body.email)}`
   const gate = limiter.check(key)
   if (!gate.allowed) {
     res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': String(Math.ceil(gate.retryAfterMs / 1000)) })
@@ -33,10 +34,7 @@ export async function handleLogin(
     return
   }
 
-  const db = getDb()
-  const user = db.prepare(
-    'SELECT id, email, role, password_hash FROM users WHERE email = ?'
-  ).get(body.email) as { id: number; email: string; role: string; password_hash: string | null } | undefined
+  const user = findLoginUser(body.email)
 
   if (!user || !user.password_hash || !verifyPassword(body.password, user.password_hash)) {
     limiter.recordFailure(key)
@@ -44,10 +42,27 @@ export async function handleLogin(
   }
   limiter.reset(key)
 
-  const token = signJwt({ userId: user.id, email: user.email, role: user.role })
-  const cookie = `tapflow_token=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${7 * 24 * 3600}`
+  const cookie = sessionCookie({ userId: user.id, email: user.email, role: user.role })
   res.writeHead(200, { 'Content-Type': 'application/json', 'Set-Cookie': cookie })
   res.end(JSON.stringify({ ok: true, role: user.role }))
+}
+
+type LoginRow = { id: number; email: string; role: string; password_hash: string | null }
+
+/**
+ * The account an address signs in to. The normalized form is what migration 014 and every write since
+ * store. The exact form as typed, then a normalized comparison that must be unambiguous, reach the
+ * rows migration 014 had to leave alone because two of them normalize to the same address: typing
+ * one exactly still signs in to it, and an address matching both signs in to neither.
+ */
+function findLoginUser(email: string): LoginRow | undefined {
+  const db = getDb()
+  const byExact = db.prepare('SELECT id, email, role, password_hash FROM users WHERE email = ?')
+  const found = byExact.get(normalizeEmail(email)) ?? byExact.get(email)
+  if (found) return found as LoginRow
+  const byKey = db.prepare(`SELECT id, email, role, password_hash FROM users WHERE ${EMAIL_KEY_SQL} = ?`)
+    .all(normalizeEmail(email)) as LoginRow[]
+  return byKey.length === 1 ? byKey[0] : undefined
 }
 
 export function handleMe(req: http.IncomingMessage, res: http.ServerResponse): void {
@@ -63,7 +78,11 @@ export function handleMe(req: http.IncomingMessage, res: http.ServerResponse): v
   json(res, 200, { id: user.id, email: user.email, displayName, avatarUrl: user.avatar_url, role: user.role })
 }
 
-export async function handleChangePassword(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+export async function handleChangePassword(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  onAuthChanged: () => void = () => {},
+): Promise<void> {
   const auth = requireAuth(req, res)
   if (!auth) return
 
@@ -77,7 +96,11 @@ export async function handleChangePassword(req: http.IncomingMessage, res: http.
   if (!verifyPassword(body.currentPassword, user.password_hash)) return json(res, 401, { error: 'Incorrect current password' })
 
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(makePasswordHash(body.newPassword), auth.userId)
-  json(res, 200, { ok: true })
+  // The new hash ends every session issued under the old one, this browser's included — so this browser
+  // gets a fresh cookie, and the others (a stolen one among them) are signed out. Open sockets follow.
+  onAuthChanged()
+  res.writeHead(200, { 'Content-Type': 'application/json', 'Set-Cookie': sessionCookie(auth) })
+  res.end(JSON.stringify({ ok: true }))
 }
 
 export function handleLogout(_req: http.IncomingMessage, res: http.ServerResponse): void {

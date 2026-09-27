@@ -13,8 +13,43 @@ export interface AuthContext {
 
 const JWT_EXPIRES = '7d'
 
+/**
+ * Which password a session was issued under: a keyed digest of the stored hash, carried in the JWT as
+ * `pwv` and compared with the row on every check. Changing the password in any way — reset link,
+ * self-service change, anything added later — changes the hash and so ends every session issued before
+ * it, without each writer having to remember to. A per-user "changed at" column was the alternative,
+ * and it needed exactly that memory: the self-service path was missed on paper before any code existed.
+ *
+ * Keyed with the JWT secret so the claim reveals nothing about the hash. A cookie issued before this
+ * claim existed carries none and is refused, which signs everyone in once after the upgrade: accepting
+ * it would leave a reset unable to end those sessions for their remaining seven days.
+ */
+export function passwordVersion(passwordHash: string | null): string {
+  return crypto.createHmac('sha256', getJwtSecret()).update(passwordHash ?? '').digest('hex').slice(0, 16)
+}
+
+/** Signs a session for `payload.userId`, bound to that user's current password (see `passwordVersion`). */
 export function signJwt(payload: AuthContext): string {
-  return jwt.sign(payload, getJwtSecret(), { expiresIn: JWT_EXPIRES })
+  const row = getDb().prepare('SELECT password_hash FROM users WHERE id = ?').get(payload.userId) as
+    | { password_hash: string | null }
+    | undefined
+  // Picked, not spread: a caller holding a `SessionAuth` would otherwise pass its `exp` along, and
+  // `jwt.sign` refuses an `exp` beside `expiresIn`.
+  const claims: JwtClaims = {
+    userId: payload.userId, email: payload.email, role: payload.role,
+    pwv: passwordVersion(row?.password_hash ?? null),
+  }
+  return jwt.sign(claims, getJwtSecret(), { expiresIn: JWT_EXPIRES })
+}
+
+/** The `Set-Cookie` value for a new session. One place, so every issuing path sets the same attributes. */
+export function sessionCookie(payload: AuthContext): string {
+  return `tapflow_token=${signJwt(payload)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${7 * 24 * 3600}`
+}
+
+interface JwtClaims extends AuthContext {
+  pwv?: string
+  exp?: number
 }
 
 export function verifyJwtOrThrow(token: string): AuthContext {
@@ -37,6 +72,8 @@ export function verifyJwt(token: string): AuthContext | null {
 export interface SessionAuth extends AuthContext {
   /** The JWT's `exp` (seconds since the epoch), so an open socket can be closed when it passes. */
   exp?: number
+  /** The password version the session was issued under, so an open socket can be closed when it changes. */
+  pwv: string
 }
 
 /**
@@ -45,7 +82,8 @@ export interface SessionAuth extends AuthContext {
  * The JWT lives seven days and removing a member deletes their row, so a signature check alone kept a
  * removed member signed in for up to a week on every cookie path: this function, `requireViewAuth`,
  * `requireBuildAuth`, recordings, and the WebSocket handshake. This is the one place all of them pass,
- * so the row check lives here. User ids are `AUTOINCREMENT`, so a removed id never comes back and "the
+ * so the row check lives here, and so does the password-version check that ends sessions on a password
+ * change. User ids are `AUTOINCREMENT`, so a removed id never comes back and "the
  * row exists" is a sound test. `email` and `role` come from the row, never from the JWT.
  *
  * Only the JWT verification failure becomes `null`. A database error propagates: turning a transient
@@ -55,18 +93,18 @@ export function getAuth(req: http.IncomingMessage): SessionAuth | null {
   const cookie = req.headers.cookie ?? ''
   const match = /(?:^|;\s*)tapflow_token=([^;]+)/.exec(cookie)
   if (!match) return null
-  const claims = verifyJwt(match[1]) as (AuthContext & { exp?: number }) | null
+  const claims = verifyJwt(match[1]) as JwtClaims | null
   if (!claims) return null
   const user = findUser(claims.userId)
-  if (!user) return null
-  return { userId: claims.userId, email: user.email, role: user.role, exp: claims.exp }
+  if (!user || claims.pwv !== user.pwv) return null
+  return { userId: claims.userId, email: user.email, role: user.role, exp: claims.exp, pwv: user.pwv }
 }
 
-export function findUser(userId: number): { email: string; role: string } | null {
-  const row = getDb().prepare('SELECT email, role FROM users WHERE id = ?').get(userId) as
-    | { email: string; role: string }
+export function findUser(userId: number): { email: string; role: string; pwv: string } | null {
+  const row = getDb().prepare('SELECT email, role, password_hash FROM users WHERE id = ?').get(userId) as
+    | { email: string; role: string; password_hash: string | null }
     | undefined
-  return row ?? null
+  return row ? { email: row.email, role: row.role, pwv: passwordVersion(row.password_hash) } : null
 }
 
 export function requireAuth(

@@ -91,6 +91,7 @@ function sniffImageFormat(buf: Buffer): 'png' | 'jpeg' | null {
   return null
 }
 import { handleVerifyReset, handleDoReset, handleSendMemberReset } from './api/passwordReset.js'
+import { EMAIL_KEY_SQL } from './lib/email.js'
 import { handleListBuilds, handleGetBuild, handleUpdateBuild, handleUploadBuild, handleScheduleBuildDeletion, handleCancelBuildDeletion, purgeExpiredBuilds } from './api/builds.js'
 import { handleListApps, handleCreateApp, handleUpdateApp, handleDeleteApp } from './api/apps.js'
 import { handleListWebhooks, handleCreateWebhook, handleUpdateWebhook, handleDeleteWebhook } from './api/webhooks.js'
@@ -407,13 +408,13 @@ export class RelayServer {
     this.router.get('/api/v1/auth/me', handleMe)
     this.router.post('/api/v1/auth/login', (req, res) => handleLogin(req, res, this.options.trustedProxies ?? []))
     this.router.post('/api/v1/auth/logout', handleLogout)
-    this.router.post('/api/v1/auth/change-password', handleChangePassword)
+    this.router.post('/api/v1/auth/change-password', (req, res) => handleChangePassword(req, res, this.onAuthChanged))
     this.router.get('/api/v1/auth/reset-password/verify', handleVerifyReset)
-    this.router.post('/api/v1/auth/reset-password', handleDoReset)
+    this.router.post('/api/v1/auth/reset-password', (req, res) => handleDoReset(req, res, this.onAuthChanged))
 
     // invitations
     this.router.get('/api/v1/invitations/verify', handleVerify)
-    this.router.post('/api/v1/invitations/accept', (req, res) => handleAccept(req, res, u, this.onAuthChanged))
+    this.router.post('/api/v1/invitations/accept', (req, res) => handleAccept(req, res, u))
 
     // apps
     this.router.get('/api/v1/apps', handleListApps)
@@ -523,6 +524,7 @@ export class RelayServer {
     // that never run a relay stop leaving one behind — and a write failure is still a boot failure.
     getJwtSecret()
     this.warnOrphanedAgentTokens()
+    this.warnDuplicateEmails()
     purgeExpiredRecordings(this.recordingsDir)
     this.purgeRecordingsTimer = setInterval(() => purgeExpiredRecordings(this.recordingsDir), 24 * 60 * 60 * 1000)
     this.purgeRecordingsTimer.unref()
@@ -625,6 +627,21 @@ export class RelayServer {
   }
 
   /**
+   * Migration 014 normalizes stored addresses but leaves alone any two that normalize to the same one —
+   * rewriting them would break `UNIQUE(email)` and the migration with it. Each still signs in by its
+   * exact address; name them so an Admin can remove the duplicate.
+   */
+  private warnDuplicateEmails(): void {
+    const groups = getDb().prepare(`
+      SELECT ${EMAIL_KEY_SQL} AS email, GROUP_CONCAT(id) AS ids FROM users
+      GROUP BY ${EMAIL_KEY_SQL} HAVING COUNT(*) > 1
+    `).all() as { email: string; ids: string }[]
+    for (const g of groups) {
+      logger.warn(`Accounts ${g.ids} differ only in letter case or spaces (${g.email}). Each signs in only with its exact address; remove the duplicate in Dashboard → Settings → Team.`)
+    }
+  }
+
+  /**
    * An install upgrading to a relay that checks an agent token's owner stops connecting agents whose
    * token belongs to a since-demoted Admin. Say how many at boot, with the fix, rather than leaving the
    * operator to read 1008s off each agent.
@@ -655,7 +672,7 @@ export class RelayServer {
 
   /**
    * Injected into the handlers whose write can take access away — member update and removal, token
-   * revocation, invitation accept — and called after the write commits. It carries no argument on
+   * revocation, a password reset or change — and called after the write commits. It carries no argument on
    * purpose: the sweep re-derives every socket's standing from the database, so no handler has to know
    * which sockets its change affects.
    */
@@ -673,7 +690,7 @@ export class RelayServer {
         const pat = principal.via === 'pat' ? findPat(principal.patId) : null
         const role = this.wsRoles.get(ws)
         reason = revalidatePrincipal(principal, role, {
-          userExists: principal.via === 'cookie' ? findUser(principal.userId) !== null : true,
+          userPasswordVersion: principal.via === 'cookie' ? findUser(principal.userId)?.pwv ?? null : null,
           pat,
         }, now)
         // A socket that has not introduced itself yet takes what a fresh handshake would give it now.
@@ -913,7 +930,7 @@ export class RelayServer {
       if (pat) touchPat(pat.patId)
       userId = cookie?.userId ?? pat?.userId
       if (!isLocal) {
-        if (cookie) this.principals.set(ws, { via: 'cookie', userId: cookie.userId, jwtExp: cookie.exp })
+        if (cookie) this.principals.set(ws, { via: 'cookie', userId: cookie.userId, jwtExp: cookie.exp, pwv: cookie.pwv })
         else if (pat) this.principals.set(ws, { via: 'pat', userId: pat.userId, patId: pat.patId })
       }
       if (decision.role === 'first-message') {

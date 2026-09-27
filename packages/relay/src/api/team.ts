@@ -5,6 +5,8 @@ import { requireRole } from '../middleware/auth.js'
 import { json, readJson } from '../router.js'
 import { sendMail } from '../lib/mailer.js'
 import { config } from '../lib/config.js'
+import { normalizeEmail } from '../lib/email.js'
+import { isMemberEmail } from './invitations.js'
 import { buildInviteBaseUrl, forTeammates, resolvePublicBaseUrl, type TunnelRuntime } from '../lib/publicUrl.js'
 
 export function handleListMembers(req: http.IncomingMessage, res: http.ServerResponse): void {
@@ -23,6 +25,9 @@ export async function handleInvite(req: http.IncomingMessage, res: http.ServerRe
   if (!auth) return
 
   const body = await readJson<{ email?: string; role?: string }>(req)
+  const email = body.email ? normalizeEmail(body.email) : ''
+  // Inviting a member would only produce a link that is refused on accept.
+  if (email && isMemberEmail(email)) return json(res, 409, { error: 'Already a member' })
   const role = ['Admin', 'Developer', 'QA', 'Viewer'].includes(body.role ?? '')
     ? body.role!
     : 'QA'
@@ -32,7 +37,7 @@ export async function handleInvite(req: http.IncomingMessage, res: http.ServerRe
 
   const db = getDb()
   db.prepare('INSERT INTO invitations (token, email, role, expires_at) VALUES (?, ?, ?, ?)')
-    .run(token, body.email ?? null, role, expiresAt)
+    .run(token, email || null, role, expiresAt)
 
   // The dashboard copies the same link the mail carries (#788). It gets null when the only address is
   // the mail's localhost fallback or a loopback relay.url, and builds from the browser's origin instead.
@@ -40,11 +45,11 @@ export async function handleInvite(req: http.IncomingMessage, res: http.ServerRe
   const offered = forTeammates(resolvePublicBaseUrl(config, tunnel)) === null ? null : inviteUrl
 
   let emailSent = false
-  if (body.email) {
+  if (email) {
     const html = `<p>You've been invited to join tapflow as <strong>${role}</strong>.</p>
 <p><a href="${inviteUrl}">Accept invitation</a></p>
 <p>This link expires in 7 days.</p>`
-    emailSent = await sendMail(body.email, 'You have been invited to tapflow', html)
+    emailSent = await sendMail(email, 'You have been invited to tapflow', html)
   }
 
   json(res, 201, { token, emailSent, inviteUrl: offered })

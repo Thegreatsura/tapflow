@@ -12,12 +12,18 @@ interface InviteReply { token: string; emailSent: boolean; inviteUrl: string | n
 const noHost = { lanHost: null, port: 4000, publicBaseUrl: null, agentRelayUrl: null }
 
 // The page fires several requests at once, so dispatch on URL (dashboard AGENTS.md).
-function stubFetch(invite: InviteReply, host: object = noHost) {
+interface ResetReply { token: string; emailSent: boolean; resetUrl: string | null }
+const member = { id: 2, email: 'alice@test.local', display_name: 'Alice', role: 'QA', joined_at: '2026-09-01T00:00:00Z' }
+
+function stubFetch(invite: InviteReply | { status: number; error: string }, host: object = noHost, reset?: ResetReply) {
   const fetchMock = vi.fn((url: string, init?: RequestInit) => {
     if (url.includes('/api/v1/relay/host')) return Promise.resolve({ ok: true, json: () => Promise.resolve(host) })
     if (url.includes('/api/v1/team/invite') && init?.method === 'POST') {
+      if ('error' in invite) return Promise.resolve({ ok: false, status: invite.status, json: () => Promise.resolve({ error: invite.error }) })
       return Promise.resolve({ ok: true, status: 201, json: () => Promise.resolve(invite) })
     }
+    if (url.includes('/send-reset') && reset) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(reset) })
+    if (url.includes('/api/v1/team/members')) return Promise.resolve({ ok: true, json: () => Promise.resolve([member]) })
     return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
   })
   vi.stubGlobal('fetch', fetchMock)
@@ -155,5 +161,82 @@ describe('Team — the invite link a teammate gets', () => {
     expect(await screen.findByLabelText(/email/i)).toBeInTheDocument()
     expect(screen.queryByDisplayValue(/invite\?token=t/)).not.toBeInTheDocument()
     expect(screen.getByRole('status').textContent).toBe('')
+  })
+})
+
+describe('Team — inviting an existing member', () => {
+  beforeEach(() => { vi.clearAllMocks(); resetTeammateBasesForTests() })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('shows the refusal on the email field and stays on the form', async () => {
+    stubFetch({ status: 409, error: 'Already a member' })
+    await sendInvite()
+    expect(await screen.findByText(/already a member/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/email/i)).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByRole('button', { name: /generate invite link/i })).toBeInTheDocument()
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+})
+
+describe('Team — the reset link an Admin hands over', () => {
+  beforeEach(() => { vi.clearAllMocks(); resetTeammateBasesForTests() })
+  afterEach(() => vi.unstubAllGlobals())
+
+  async function pressReset() {
+    render(withQuery(<TeamSettings />))
+    await userEvent.click(await screen.findByRole('button', { name: /reset pwd/i }))
+  }
+
+  it('without mail, shows and copies the link, and says mail was not sent', async () => {
+    const writeText = vi.fn(async (_text: string) => {})
+    stubClipboard(writeText)
+    stubFetch({ token: 't', emailSent: false, inviteUrl: null }, noHost, { token: 'r', emailSent: false, resetUrl: 'http://192.168.0.50:4000/reset-password?token=r' })
+    await pressReset()
+    const field = await screen.findByDisplayValue('http://192.168.0.50:4000/reset-password?token=r')
+    expect(writeText).toHaveBeenCalledWith('http://192.168.0.50:4000/reset-password?token=r')
+    expect(screen.getByRole('dialog')).toHaveTextContent(/email could not be sent to alice@test\.local/i)
+    expect(screen.getByText(/reset link copied to clipboard:/i)).toBeInTheDocument()
+    expect(toast.warning).toHaveBeenCalledWith(expect.stringMatching(/copied/i))
+    await waitFor(() => expect(field).toHaveFocus())
+    // The button keeps its name; the outcome is in the dialog and the toast, not in the button text.
+    expect(screen.getByRole('button', { name: /reset pwd/i, hidden: true })).toBeInTheDocument()
+  })
+
+  it('returns focus to the row\'s Reset pwd button when the dialog closes', async () => {
+    stubClipboard(vi.fn(async (_text: string) => {}))
+    stubFetch({ token: 't', emailSent: false, inviteUrl: null }, noHost, { token: 'r', emailSent: true, resetUrl: 'https://relay.example.com/reset-password?token=r' })
+    await pressReset()
+    await screen.findByDisplayValue('https://relay.example.com/reset-password?token=r')
+    await userEvent.click(screen.getByRole('button', { name: /^done$/i }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('button', { name: /reset pwd/i })).toHaveFocus())
+  })
+
+  it('with mail, says it was sent and still offers the link', async () => {
+    stubClipboard(vi.fn(async (_text: string) => {}))
+    stubFetch({ token: 't', emailSent: false, inviteUrl: null }, noHost, { token: 'r', emailSent: true, resetUrl: 'https://relay.example.com/reset-password?token=r' })
+    await pressReset()
+    expect(await screen.findByDisplayValue('https://relay.example.com/reset-password?token=r')).toBeInTheDocument()
+    expect(toast.success).toHaveBeenCalledWith('Reset email sent to alice@test.local')
+  })
+
+  it('builds the link from the teammate base when the relay offers none, and admits a refused copy', async () => {
+    stubClipboard(undefined)
+    stubFetch({ token: 't', emailSent: false, inviteUrl: null }, { ...noHost, lanHost: '192.168.0.50' }, { token: 'r', emailSent: false, resetUrl: null })
+    await pressReset()
+    expect(await screen.findByDisplayValue('http://192.168.0.50:4000/reset-password?token=r')).toBeInTheDocument()
+    expect(screen.getByText(/copy this reset link:/i)).toBeInTheDocument()
+    expect(vi.mocked(toast.warning).mock.calls[0][0]).not.toMatch(/copied/i)
+  })
+
+  it('a failure is a toast, and no dialog opens', async () => {
+    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(
+      url.includes('/send-reset')
+        ? { ok: false, status: 500, json: () => Promise.resolve({ error: 'boom' }) }
+        : { ok: true, json: () => Promise.resolve(url.includes('/team/members') ? [member] : []) },
+    )))
+    await pressReset()
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Failed to create reset link'))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })

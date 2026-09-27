@@ -117,26 +117,30 @@ describe('classifyConnection', () => {
 
 describe('revalidatePrincipal', () => {
   const now = 1_000_000
-  const cookie: SocketPrincipal = { via: 'cookie', userId: 1, jwtExp: now + 60 }
+  const cookie: SocketPrincipal = { via: 'cookie', userId: 1, jwtExp: now + 60, pwv: 'v1' }
   const pat: SocketPrincipal = { via: 'pat', userId: 1, patId: 9 }
-  const live = (scopes: string[], ownerRole = 'Admin') => ({ userExists: true, pat: { scopes, ownerRole } })
+  const live = (scopes: string[], ownerRole = 'Admin') => ({ userPasswordVersion: 'v1', pat: { scopes, ownerRole } })
 
   it('a live cookie stays open', () => {
-    expect(revalidatePrincipal(cookie, 'browser', { userExists: true, pat: null }, now)).toBeNull()
+    expect(revalidatePrincipal(cookie, 'browser', { userPasswordVersion: 'v1', pat: null }, now)).toBeNull()
   })
 
   it('a cookie whose user row is gone closes', () => {
-    expect(revalidatePrincipal(cookie, 'browser', { userExists: false, pat: null }, now)).toBe(WS_REJECT_REASON)
+    expect(revalidatePrincipal(cookie, 'browser', { userPasswordVersion: null, pat: null }, now)).toBe(WS_REJECT_REASON)
+  })
+
+  it('a cookie issued under a password that has since changed closes', () => {
+    expect(revalidatePrincipal(cookie, 'browser', { userPasswordVersion: 'v2', pat: null }, now)).toBe(WS_REJECT_REASON)
   })
 
   it('a cookie whose JWT has expired closes', () => {
-    expect(revalidatePrincipal({ ...cookie, jwtExp: now }, 'browser', { userExists: true, pat: null }, now))
+    expect(revalidatePrincipal({ via: 'cookie', userId: 1, pwv: 'v1', jwtExp: now }, 'browser', { userPasswordVersion: 'v1', pat: null }, now))
       .toBe(WS_REJECT_REASON)
   })
 
   it('a PAT that is gone (revoked, expired or cascaded) closes', () => {
-    expect(revalidatePrincipal(pat, 'agent', { userExists: true, pat: null }, now)).toBe(WS_TOKEN_GONE_REASON)
-    expect(revalidatePrincipal(pat, 'browser', { userExists: true, pat: null }, now)).toBe(WS_TOKEN_GONE_REASON)
+    expect(revalidatePrincipal(pat, 'agent', { userPasswordVersion: 'v1', pat: null }, now)).toBe(WS_TOKEN_GONE_REASON)
+    expect(revalidatePrincipal(pat, 'browser', { userPasswordVersion: 'v1', pat: null }, now)).toBe(WS_TOKEN_GONE_REASON)
   })
 
   it.each(['agent', 'stream'] as const)('an %s socket closes when its owner is demoted', (role) => {

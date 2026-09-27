@@ -86,7 +86,7 @@ Body (JSON):
 { "ok": true, "role": "Admin" }
 ```
 
-Repeated failed sign-ins from the same address for the same email return `429` with a `Retry-After` header.
+The email is matched without regard to letter case or surrounding spaces. Repeated failed sign-ins from the same address for the same email return `429` with a `Retry-After` header.
 
 
 ### `POST /api/v1/auth/logout`
@@ -135,6 +135,8 @@ Body (JSON):
 { "ok": true }
 ```
 
+The response sets a new `tapflow_token` cookie. Changing the password signs the user out of every other browser, and closes their open connections.
+
 
 ## Invitations
 
@@ -158,7 +160,7 @@ Returns `410` if expired or not found.
 
 ### `POST /api/v1/invitations/accept`
 
-Accept an invitation and create an account. Sets a login cookie on success.
+Accept an invitation and create an account. Sets a login cookie on success. Returns `409` when the invitation's email already has an account; an invitation never changes an existing account.
 
 ```
 Content-Type: multipart/form-data
@@ -214,18 +216,20 @@ Body (JSON):
 { "ok": true }
 ```
 
+The user is signed out of every browser and signs in again with the new password.
+
 
 ### `POST /api/v1/team/members/:id/send-reset`
 
-Send a password reset email to a specific member. **Admin only**.
+Create a password reset link for a specific member, and email it when SMTP is configured. **Admin only**.
 
 **Response `200`**
 
 ```json
-{ "ok": true, "emailSent": true }
+{ "ok": true, "emailSent": true, "token": "abc123...", "resetUrl": "http://192.168.0.10:4000/reset-password?token=abc123..." }
 ```
 
-If SMTP is not configured, `emailSent: false` is returned and the Admin must share the reset link manually.
+The link works once, for 2 hours. Creating a new one turns off the member's earlier links. `emailSent` is `false` when SMTP is not configured, and for a member invited without an email. `resetUrl` follows the same rules as `inviteUrl` in [`POST /api/v1/team/invite`](#post-api-v1-team-invite). When it is `null`, build the link as `<relay-url>/reset-password?token=<token>`.
 
 
 ## Apps
@@ -574,7 +578,7 @@ Return all members. **Admin only**.
 
 ### `POST /api/v1/team/invite`
 
-Invite a team member. **Admin only**. Invitations expire after **7 days**.
+Invite a team member. **Admin only**. Invitations expire after **7 days**. Returns `409` when `email` already belongs to a member, whatever its letter case.
 
 ```
 Body (JSON):

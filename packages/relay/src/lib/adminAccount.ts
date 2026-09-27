@@ -1,5 +1,6 @@
 import crypto from 'crypto'
 import { getDb } from '../db.js'
+import { normalizeEmail } from './email.js'
 
 // The first-owner rules, and the password hashing they need.
 //
@@ -35,11 +36,6 @@ export function verifyPassword(password: string, stored: string): boolean {
  *
  * Shared so the two bootstrap paths cannot disagree about what "already initialized" means.
  *
- * They are not identical in every respect: the boot path trims `TAPFLOW_ADMIN_EMAIL` and the HTTP
- * one stores `body.email` as sent, so the same address with surrounding whitespace produces two
- * different rows and the HTTP one never matches `handleLogin`'s `WHERE email = ?`. Normalising
- * inside this function would change what a shipped endpoint stores, so it is a decision rather than
- * a fix here — tracked separately.
  */
 export function isInitialized(): boolean {
   const { n } = getDb().prepare('SELECT COUNT(*) as n FROM users').get() as { n: number }
@@ -56,10 +52,13 @@ export type CreateAdminResult = 'ok' | 'missing-fields' | 'password-too-short'
  * differently: 403 over HTTP, a silent no-op on every restart at boot.
  */
 export function createAdminAccount(email: string, password: string): CreateAdminResult {
-  if (!email || !password) return 'missing-fields'
+  // Normalized here rather than by each caller, so the boot path and `POST /auth/init` store the same
+  // value for the same address (#715).
+  const stored = email ? normalizeEmail(email) : ''
+  if (!stored || !password) return 'missing-fields'
   if (password.length < 8) return 'password-too-short'
   getDb()
     .prepare('INSERT INTO users (email, display_name, role, password_hash) VALUES (?, ?, ?, ?)')
-    .run(email, 'Admin', 'Admin', makePasswordHash(password))
+    .run(stored, 'Admin', 'Admin', makePasswordHash(password))
   return 'ok'
 }

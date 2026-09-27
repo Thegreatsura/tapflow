@@ -9,7 +9,8 @@ import jwt from 'jsonwebtoken'
 import { WebSocket } from 'ws'
 import { RelayServer } from '../RelayServer'
 import { initDb, closeDb, getDb } from '../db'
-import { hashPat, signJwt } from '../middleware/auth'
+import { hashPat, passwordVersion, signJwt } from '../middleware/auth'
+import { makePasswordHash } from '../lib/adminAccount'
 import { getJwtSecret } from '../lib/config'
 import { WS_AGENT_OWNER_REASON, WS_REJECT_REASON, WS_SCOPE_REASON, WS_TOKEN_GONE_REASON } from '../lib/connectionAuth'
 import { barrier, waitForMessage, waitForOpen, waitForType } from '@tapflowio/test-utils'
@@ -37,7 +38,7 @@ import type { AgentRegistered } from '@tapflowio/protocol'
 //   and the start warning (their fixtures are `toISOString()`, as the relay writes them).
 // - the other mutations for the cases added later are named beside each case.
 
-interface Res { status: number; body: string }
+interface Res { status: number; body: string; headers: http.IncomingHttpHeaders }
 
 function request(port: number, method: string, urlPath: string, headers: Record<string, string> = {}, body?: Buffer | object, contentType?: string): Promise<Res> {
   const payload = body === undefined ? undefined : Buffer.isBuffer(body) ? body : Buffer.from(JSON.stringify(body))
@@ -50,7 +51,7 @@ function request(port: number, method: string, urlPath: string, headers: Record<
     const req = http.request({ hostname: '127.0.0.1', port, path: urlPath, method, headers: h }, (res) => {
       const chunks: Buffer[] = []
       res.on('data', (c: Buffer) => chunks.push(c))
-      res.on('end', () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString() }))
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString(), headers: res.headers }))
     })
     req.on('error', reject)
     if (payload) req.write(payload)
@@ -120,7 +121,8 @@ describe('open sockets are re-validated', () => {
   })
 
   const cookieFor = (userId: number) => `tapflow_token=${signJwt({ userId, email: `u${userId}@test.local`, role: 'Admin' })}`
-  const adminCookie = { Cookie: cookieFor(1) }
+  // A getter: signing reads the user's password, and the users are seeded per test.
+  const adminCookie = { get Cookie() { return cookieFor(1) } }
   const seedToken = (userId: number, scope: string) => {
     const raw = `tflw_pat_${crypto.randomBytes(16).toString('hex')}`
     const r = getDb().prepare('INSERT INTO personal_access_tokens (user_id, name, token_hash, scope) VALUES (?, ?, ?, ?)').run(userId, 't', hashPat(raw), scope)
@@ -180,15 +182,46 @@ describe('open sockets are re-validated', () => {
     expect(await closed).toEqual({ code: 1008, reason: WS_TOKEN_GONE_REASON })
   })
 
-  it('an invitation accepted for an existing Admin\'s email with another role closes their agent', async () => {
-    const { agent } = await remoteAgentWithViewer(2)
+  // Mutation: `onAuthChanged()` removed from `handleDoReset` → the socket stays open until a heartbeat;
+  // the `pwv` comparison removed from `revalidatePrincipal` → it stays open for good.
+  it('a password reset closes the member\'s cookie socket at once and refuses the old cookie', async () => {
+    const oldCookie = cookieFor(4)
+    const browser = await remote({ cookie: oldCookie })
+    const sent = await request(relayPort, 'POST', '/api/v1/team/members/4/send-reset', adminCookie)
+    expect(sent.status).toBe(200)
+    const { token } = JSON.parse(sent.body) as { token: string }
+    const closed = closedWithin(browser)
+    expect((await request(relayPort, 'POST', '/api/v1/auth/reset-password', {}, { token, password: 'new-password-1' })).status).toBe(200)
+    expect(await closed).toEqual({ code: 1008, reason: WS_REJECT_REASON })
+    expect((await request(relayPort, 'GET', '/api/v1/auth/me', { Cookie: oldCookie })).status).toBe(401)
+    const again = new WebSocket(`ws://127.0.0.1:${tunnelPort}`, { headers: { cookie: oldCookie } })
+    sockets.push(again)
+    expect((await closedWithin(again))?.code).toBe(1008)
+  })
+
+  // Mutation: `onAuthChanged()` removed from `handleChangePassword` → the other socket stays open.
+  it('a self-service password change closes the member\'s other cookie sockets at once', async () => {
+    getDb().prepare('UPDATE users SET password_hash = ? WHERE id = 4').run(makePasswordHash('old-password'))
+    const other = await remote({ cookie: cookieFor(4) })
+    const closed = closedWithin(other)
+    const r = await request(relayPort, 'POST', '/api/v1/auth/change-password', { Cookie: cookieFor(4) }, { currentPassword: 'old-password', newPassword: 'new-password-1' })
+    expect(r.status).toBe(200)
+    expect(await closed).toEqual({ code: 1008, reason: WS_REJECT_REASON })
+  })
+
+  it('an invitation for an existing Admin\'s email is refused and leaves their account and agent alone', async () => {
+    const { agent } = await remoteAgentWithViewer(2, 'view,agent')
+    const before = getDb().prepare('SELECT role, password_hash, display_name FROM users WHERE id = 2').get()
     const invite = crypto.randomBytes(16).toString('hex')
-    getDb().prepare("INSERT INTO invitations (token, email, role, expires_at) VALUES (?, 'u2@test.local', 'QA', datetime('now', '+1 day'))").run(invite)
-    const closed = closedWithin(agent)
+    // Differently capitalized, as a second invitation made before the address was a member could be.
+    getDb().prepare("INSERT INTO invitations (token, email, role, expires_at) VALUES (?, 'U2@Test.local', 'QA', datetime('now', '+1 day'))").run(invite)
     const boundary = 'revalidate-boundary'
     const r = await request(relayPort, 'POST', '/api/v1/invitations/accept', {}, multipart(boundary, { token: invite, password: 'password123' }), `multipart/form-data; boundary=${boundary}`)
-    expect(r.status).toBe(200)
-    expect(await closed).toEqual({ code: 1008, reason: WS_AGENT_OWNER_REASON })
+    expect(r.status).toBe(409)
+    expect(r.headers['set-cookie']).toBeUndefined()
+    expect(getDb().prepare('SELECT role, password_hash, display_name FROM users WHERE id = 2').get()).toEqual(before)
+    expect(getDb().prepare('SELECT used_at FROM invitations WHERE token = ?').get(invite)).toEqual({ used_at: null })
+    expect(await stillOpen(agent)).toBe(true)
   })
 
   it('the heartbeat closes a socket whose token expired since it connected', async () => {
@@ -204,7 +237,7 @@ describe('open sockets are re-validated', () => {
 
   it('the heartbeat closes a cookie socket whose session expired since it connected', async () => {
     const exp = Math.floor(Date.now() / 1000) + 1
-    const shortLived = jwt.sign({ userId: 4, email: 'u4@test.local', role: 'Developer', exp }, getJwtSecret())
+    const shortLived = jwt.sign({ userId: 4, email: 'u4@test.local', role: 'Developer', exp, pwv: passwordVersion('x') }, getJwtSecret())
     const browser = await remote({ cookie: `tapflow_token=${shortLived}` })
     while (Math.floor(Date.now() / 1000) < exp) await new Promise((r) => setTimeout(r, 50))
     expect(await stillOpen(browser)).toBe(true)
@@ -229,9 +262,10 @@ describe('open sockets are re-validated', () => {
   })
 
   it('a database fault during the handshake closes that socket with 1011 and the relay keeps serving', async () => {
+    const cookie = cookieFor(1)
     getDb().close()
     try {
-      const ws = new WebSocket(`ws://127.0.0.1:${tunnelPort}`, { headers: { cookie: cookieFor(1) } })
+      const ws = new WebSocket(`ws://127.0.0.1:${tunnelPort}`, { headers: { cookie } })
       sockets.push(ws)
       expect(await closedWithin(ws)).toEqual({ code: 1011, reason: 'Internal error' })
       expect((await request(relayPort, 'GET', '/api/v1/logs')).status).toBe(200)
@@ -241,9 +275,10 @@ describe('open sockets are re-validated', () => {
   })
 
   it('a database fault while authorizing /uploads answers 500 and the relay keeps serving', async () => {
+    const cookie = cookieFor(1)
     getDb().close()
     try {
-      expect((await request(relayPort, 'GET', '/uploads/avatars/x.png', { Cookie: cookieFor(1) })).status).toBe(500)
+      expect((await request(relayPort, 'GET', '/uploads/avatars/x.png', { Cookie: cookie })).status).toBe(500)
       expect((await request(relayPort, 'GET', '/api/v1/logs')).status).toBe(200)
     } finally {
       openDb()

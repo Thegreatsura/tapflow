@@ -86,7 +86,7 @@ Body (JSON):
 { "ok": true, "role": "Admin" }
 ```
 
-같은 주소와 이메일로 로그인에 계속 실패하면 `429`와 `Retry-After` 헤더를 반환합니다.
+이메일은 대소문자와 앞뒤 공백을 구분하지 않고 비교합니다. 같은 주소와 이메일로 로그인에 계속 실패하면 `429`와 `Retry-After` 헤더를 반환합니다.
 
 
 ### `POST /api/v1/auth/logout`
@@ -135,6 +135,8 @@ Body (JSON):
 { "ok": true }
 ```
 
+응답에 새 `tapflow_token` 쿠키가 설정됩니다. 비밀번호를 바꾸면 다른 모든 브라우저에서 로그아웃되고 열려 있던 연결도 끊깁니다.
+
 
 ## 초대 (Invitations)
 
@@ -158,7 +160,7 @@ Query:
 
 ### `POST /api/v1/invitations/accept`
 
-초대를 수락하고 계정을 생성합니다. 성공 시 로그인 쿠키가 설정됩니다.
+초대를 수락하고 계정을 생성합니다. 성공 시 로그인 쿠키가 설정됩니다. 초대받은 이메일로 이미 계정이 있으면 `409`를 반환합니다. 초대로 기존 계정이 바뀌는 일은 없습니다.
 
 ```
 Content-Type: multipart/form-data
@@ -214,18 +216,20 @@ Body (JSON):
 { "ok": true }
 ```
 
+모든 브라우저에서 로그아웃되며 새 비밀번호로 다시 로그인해야 합니다.
+
 
 ### `POST /api/v1/team/members/:id/send-reset`
 
-특정 멤버에게 비밀번호 재설정 이메일을 발송합니다. **Admin 전용**.
+특정 멤버의 비밀번호 재설정 링크를 만들고 SMTP가 설정되어 있으면 이메일로도 보냅니다. **Admin 전용**.
 
 **응답 `200`**
 
 ```json
-{ "ok": true, "emailSent": true }
+{ "ok": true, "emailSent": true, "token": "abc123...", "resetUrl": "http://192.168.0.10:4000/reset-password?token=abc123..." }
 ```
 
-SMTP가 설정되지 않은 경우 `emailSent: false`가 반환되며, 재설정 링크는 Admin이 직접 공유해야 합니다.
+링크는 2시간 동안 한 번만 쓸 수 있습니다. 새 링크를 만들면 그 멤버의 이전 링크는 더 이상 동작하지 않습니다. SMTP가 설정되지 않았거나 이메일 없이 초대된 멤버라면 `emailSent`는 `false`입니다. `resetUrl`은 [`POST /api/v1/team/invite`](#post-api-v1-team-invite)의 `inviteUrl`과 같은 규칙을 따릅니다. `null`이면 `<relay-url>/reset-password?token=<token>`으로 링크를 직접 만드세요.
 
 
 ## 앱 (Apps)
@@ -574,7 +578,7 @@ File:
 
 ### `POST /api/v1/team/invite`
 
-팀원을 초대합니다. **Admin 전용**. 초대 링크는 **7일** 후 만료됩니다.
+팀원을 초대합니다. **Admin 전용**. 초대 링크는 **7일** 후 만료됩니다. `email`이 대소문자와 관계없이 이미 멤버의 이메일이면 `409`를 반환합니다.
 
 ```
 Body (JSON):

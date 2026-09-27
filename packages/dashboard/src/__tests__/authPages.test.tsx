@@ -147,6 +147,29 @@ describe('Invite', () => {
     renderAt('/invite?token=abc', '/invite', <Invite />)
     expect(await screen.findByText('Invitation expired')).toBeInTheDocument()
   })
+
+  async function submitInvite(accept: Response) {
+    fetchMock.mockImplementation((url: RequestInfo | URL) => Promise.resolve(
+      String(url).includes('/verify') ? json({ role: 'QA' }) : accept,
+    ))
+    renderAt('/invite?token=abc', '/invite', <Invite />)
+    await screen.findByText('Set up your account')
+    await userEvent.type(screen.getByLabelText(/^password$/i), 'password123')
+    await userEvent.type(screen.getByLabelText(/confirm password/i), 'password123')
+    await userEvent.click(screen.getByRole('button', { name: /create account/i }))
+  }
+
+  it('an address that already has an account is told so, with the way to sign in', async () => {
+    await submitInvite(json({ error: 'This email already has an account. Sign in instead.' }, 409))
+    expect(await screen.findByText(/already has an account/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /go to sign in/i })).toHaveAttribute('href', '/login')
+  })
+
+  it('any other refusal shows the reason the relay gave', async () => {
+    await submitInvite(json({ error: 'Invitation expired or not found' }, 410))
+    expect(await screen.findByText('Invitation expired or not found')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /go to sign in/i })).not.toBeInTheDocument()
+  })
 })
 
 describe('ResetPassword', () => {
