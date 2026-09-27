@@ -30,6 +30,10 @@ description: "`tapflow admin init`이 Already initialized로 실패할 때, 초�
 
 v0.26.0으로 업그레이드하면 모두 한 번 다시 로그인해야 합니다. 이제 로그인 세션은 로그인할 때의 비밀번호에 묶이는데 이전 버전의 세션에는 그 정보가 없기 때문입니다. 비밀번호가 재설정되거나 바뀔 때도 같은 일이 한 사용자에게 일어나서 다른 모든 브라우저가 로그아웃됩니다. **Settings**에서 직접 바꾼 브라우저는 로그인이 유지됩니다.
 
+## 비밀번호 재설정 후 토큰이 동작하지 않음 {#tokens-revoked-by-reset}
+
+비밀번호를 재설정하면 그 멤버의 개인 액세스 토큰이 CI 토큰과 에이전트 토큰까지 모두 폐기되고 그 토큰으로 연결된 에이전트는 `Unauthorized: this token was revoked or has expired, or its owner was removed`와 함께 끊깁니다. 탈취된 계정을 가졌던 사람이 만든 토큰이 남지 않게 하기 위해서입니다. 로그인한 뒤 **Settings → Tokens**(Admin 전용이며 다른 멤버는 [`POST /api/v1/tokens`](/ko/reference/api#post-api-v1-tokens)를 씁니다)에서 토큰을 새로 발급해 CI 시크릿과 각 원격 에이전트의 `--token` 등 기존 토큰이 있던 자리에 넣으세요. **Settings**에서 직접 비밀번호를 바꾸면 토큰은 유지됩니다.
+
 ## 대소문자만 다른 계정이 두 개 있음 {#accounts-differ-in-case}
 
 릴레이 시작 로그에 **Accounts 2,3 differ only in letter case or spaces**가 나옵니다. 이제 이메일은 대소문자를 구분하지 않고 비교하지만 예전에 `alice@example.com`과 `Alice@example.com`처럼 따로 만들어진 두 계정은 그대로 둡니다. 두 계정 모두 정확한 주소로는 계속 로그인할 수 있습니다. 쓰지 않는 쪽을 **Settings → Team**에서 삭제하면 경고가 사라집니다.

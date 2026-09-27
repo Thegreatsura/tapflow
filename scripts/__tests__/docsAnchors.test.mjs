@@ -263,8 +263,8 @@ describe('the docs URLs shipped code opens land on an id', () => {
     // `docker-compose-lan-서버` as an `<a id>`), so the README anchor here is the agent one; the old
     // Docker URL stays in `LEGACY_URLS`.
     expect(urls.map((u) => u.url)).toEqual(expect.arrayContaining([
-      'https://www.tapflow.dev/reference/configuration#https-secure-context',
-      'https://www.tapflow.dev/guide/troubleshooting#ios-simulator-service-version-mismatch',
+      'https://www.tapflow.dev/operate/https#pick-a-method',
+      'https://www.tapflow.dev/troubleshooting/ios-simulator#ios-simulator-service-version-mismatch',
       'https://www.tapflow.dev/operate/agents#remote-relay-authentication',
     ]))
     expect(brokenShipped(urls, renderSite(), loadMoves())).toEqual([])
