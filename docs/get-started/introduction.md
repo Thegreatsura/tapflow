@@ -5,7 +5,7 @@ description: tapflow is an open-source, self-hosted alternative to Appetize and 
 
 # Introduction
 
-**tapflow** lets your entire team run mobile QA directly in the browser — no developer tools, no device management, no external cloud. After this page you will know what tapflow is made of and who does what.
+**tapflow** lets your entire team run mobile QA directly in the browser — no developer tools, no device management, no external cloud.
 
 <VideoPlayer src="/media/tapflow-demo.mp4" poster="/demo-thumbnail.png" />
 

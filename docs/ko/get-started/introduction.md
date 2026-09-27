@@ -5,7 +5,7 @@ description: tapflow는 Appetize, BrowserStack App Live를 대체하는 오픈�
 
 # 소개
 
-**tapflow**를 사용하면 팀 누구나 iOS 시뮬레이터와 Android 에뮬레이터를 브라우저에서 직접 실행할 수 있습니다. 별도 도구 설치도, 기기 관리도, 외부 클라우드도 필요하지 않습니다. 이 페이지를 읽으면 tapflow를 이루는 요소와 누가 무엇을 하는지 알 수 있습니다.
+**tapflow**를 사용하면 팀 누구나 iOS 시뮬레이터와 Android 에뮬레이터를 브라우저에서 직접 실행할 수 있습니다. 별도 도구 설치도, 기기 관리도, 외부 클라우드도 필요하지 않습니다.
 
 <VideoPlayer src="/media/tapflow-demo.mp4" poster="/demo-thumbnail.png" />
 
