@@ -50,15 +50,16 @@ export async function handleLogin(
 type LoginRow = { id: number; email: string; role: string; password_hash: string | null }
 
 /**
- * The account an address signs in to. The normalized form is what migration 014 and every write since
- * store. The exact form as typed, then a normalized comparison that must be unambiguous, reach the
- * rows migration 014 had to leave alone because two of them normalize to the same address: typing
- * one exactly still signs in to it, and an address matching both signs in to neither.
+ * The account an address signs in to. The address exactly as typed comes first, so each row of a pair
+ * migration 014 had to leave alone (two addresses that normalize to the same one) still signs in by its
+ * own address — tried second, `alice@x.com` would shadow `Alice@x.com` for good. Then the normalized
+ * form, which migration 014 and every write since store; then a normalized comparison that must be
+ * unambiguous, so an address matching both rows of a pair signs in to neither.
  */
 function findLoginUser(email: string): LoginRow | undefined {
   const db = getDb()
   const byExact = db.prepare('SELECT id, email, role, password_hash FROM users WHERE email = ?')
-  const found = byExact.get(normalizeEmail(email)) ?? byExact.get(email)
+  const found = byExact.get(email) ?? byExact.get(normalizeEmail(email))
   if (found) return found as LoginRow
   const byKey = db.prepare(`SELECT id, email, role, password_hash FROM users WHERE ${EMAIL_KEY_SQL} = ?`)
     .all(normalizeEmail(email)) as LoginRow[]

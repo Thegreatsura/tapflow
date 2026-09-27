@@ -16,7 +16,7 @@ import { config } from '../lib/config'
 //
 // Mutations, each caught here:
 // - the `isMemberEmail` check removed from invite → "inviting a member" cases; from accept → the accept case
-// - the normalized exact lookup dropped from login → "when one of a pair is already normalized"
+// - the normalized exact lookup dropped from login, or tried before the exact one → "when one of a pair is already normalized"
 // - the collision guard dropped from migration 014 → the migration case (the relay fails to boot)
 // - earlier tokens not spent in `issuePasswordReset` → "only the newest link works"
 // - `sessionCookie` removed from change-password → "keeps this browser signed in"
@@ -165,6 +165,9 @@ describe('team accounts', () => {
     it('when one of a pair is already normalized, any spelling of it signs in to that one', async () => {
       getDb().prepare("INSERT INTO users (id, email, display_name, role, password_hash) VALUES (3, 'Alice@test.local', 'A', 'QA', 'h')").run()
       expect((await request(port, 'POST', '/api/v1/auth/login', { email: 'ALICE@test.local', password: 'alice-password' })).status).toBe(200)
+      // The other row's own exact address still reaches that row, not its normalized sibling.
+      getDb().prepare('UPDATE users SET password_hash = ? WHERE id = 3').run(makePasswordHash('other-password'))
+      expect((await request(port, 'POST', '/api/v1/auth/login', { email: 'Alice@test.local', password: 'other-password' })).status).toBe(200)
     })
 
     it('names, at start, the accounts that differ only in case', async () => {
