@@ -1,3 +1,8 @@
+---
+title: Performance & Latency
+description: "What tapflow streaming measures: bandwidth, decode latency on the WASM path over a real LAN, the glass-to-glass estimate, known limitations, and how to reproduce the numbers."
+---
+
 # Performance & Latency
 
 This page is a record of how tapflow streaming **actually measures**. To run the same measurements yourself, see [Reproduce it](#reproduce) below.
@@ -84,3 +89,9 @@ The full pipeline analysis, decoder selection process, and the accumulated measu
 2. <a name="ref-80211ac"></a> IEEE 802.11ac-2013. Single-link ≥500 Mbps, multi-station ≥1.1 Gbps. <https://en.wikipedia.org/wiki/IEEE_802.11ac-2013>
 3. <a name="ref-80211ax"></a> "Experimental Evaluation of IEEE 802.11ax — Low Latency and High Reliability with Wi-Fi 6?" (IEEE) and "A First Look at Wi-Fi 6 in Action" (ACM). OFDMA lowers the median latency from ~5 ms to under 1 ms in non-saturation conditions. <https://ieeexplore.ieee.org/document/10001475/>
 4. <a name="ref-cloudgaming"></a> Quality-of-experience research on cloud gaming finds that player QoE begins to degrade beyond a 100 ms latency threshold (Jarschel et al., 2011), as cited in G. Illahi et al., "Cloud Gaming With Foveated Graphics" (arXiv:1809.05823) §4.3.2. <https://arxiv.org/abs/1809.05823>
+
+## Related {#related}
+
+- [Stream quality](/operate/streaming-quality): the stream profiles and how to switch to Smooth
+- [Scaling Mac resources](/operate/scaling): how many devices one Mac can run
+- [Sustainability](/reference/sustainability): the hardware side of reusing Macs

@@ -1,3 +1,8 @@
+---
+title: Configuration
+description: "The tapflow.config.json schema and its environment variable overrides: relay, agent, tunnel, TLS, data directory, SMTP and webhooks."
+---
+
 # Configuration
 
 The relay reads `tapflow.config.json` from this machine's install directory — `~/.tapflow` unless `TAPFLOW_HOME` or an install in the current directory says otherwise ([which install a command uses](/operate/configure#which-install-a-command-uses)). Generate it by running `tapflow init`, then restart the relay after any changes.
@@ -328,3 +333,9 @@ tapflow POSTs to registered URLs when a build's review status changes to `Done` 
 | `webhooks[].enabled` | Whether the endpoint is active. Defaults to `true`. |
 
 Changes to `webhooks` take effect after a relay restart.
+
+## Related {#related}
+
+- [Configure tapflow](/operate/configure): setting up a first install step by step
+- [External access](/operate/external-access): tunnels and `relay.url` for teammates outside the LAN
+- [CLI Reference](/reference/cli): the commands that read this file

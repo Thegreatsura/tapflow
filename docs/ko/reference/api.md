@@ -1,3 +1,8 @@
+---
+title: REST API
+description: "tapflow REST API 전체 레퍼런스(/api/v1): 인증, 초대, 비밀번호 재설정, 앱, 빌드, 코멘트, 팀, 토큰, 프로필, 설정, 녹화, 에이전트, 세션, 릴레이, 로그의 요청과 응답 형식."
+---
+
 # REST API
 
 모든 엔드포인트는 릴레이의 `http(s)://<relay-host>/api/v1/`에서 제공됩니다.
@@ -898,3 +903,9 @@ Query:
   "[2025-05-15T12:00:00.000Z] ..."
 ]
 ```
+
+## 관련 문서 {#related}
+
+- [CI에서 빌드 올리기](/ko/operate/ci-distribution): PAT로 빌드 업로드하기
+- [팀·역할·토큰](/ko/operate/team-and-roles): 역할별로 쓸 수 있는 엔드포인트와 토큰 발급
+- [CLI 레퍼런스](/ko/reference/cli): 릴레이와 에이전트를 실행하는 명령
