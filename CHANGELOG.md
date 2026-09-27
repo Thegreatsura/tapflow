@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Email addresses are compared without regard to letter case or surrounding spaces.** Sign-in, invitations and the first admin account all store and match the normalized address, and addresses already stored are normalized on upgrade. Two accounts whose addresses differ only in case are left as they are, each signing in by its exact address, and the relay names them at start so an Admin can remove one. The boot path and `POST /api/v1/auth/init` now store the same value for the same address (#715).
 
+- **Documentation links in the dashboard and the iOS agent point at the reorganized docs.** The Standard-mode notice opens the new HTTPS page, the sidebar's **Docs** opens the page for teammates, and the CoreSimulator error names the iOS Simulator troubleshooting page.
+
 - **Inviting an address that already belongs to a member is refused** with 409, and the invite dialog says so on the email field instead of creating a link.
 
 ### Security

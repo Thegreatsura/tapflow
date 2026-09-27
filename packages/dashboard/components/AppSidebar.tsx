@@ -37,7 +37,8 @@ const settingsItems = [
 ]
 
 const referenceItems = [
-  { label: 'Docs', href: 'https://www.tapflow.dev', icon: BookOpen },
+  // Whoever opens the dashboard is usually a teammate, so the page written for them, not the site root.
+  { label: 'Docs', href: 'https://www.tapflow.dev/get-started/teammates', icon: BookOpen },
 ]
 
 export function AppSidebar() {

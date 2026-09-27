@@ -10,7 +10,9 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 
-const DOCS_HTTPS_URL = 'https://www.tapflow.dev/reference/configuration#https-secure-context';
+// The procedure page, which is what this notice's reader needs. The old configuration anchor stays alive
+// for dashboards already installed (docsAnchors.test.mjs LEGACY_URLS).
+const DOCS_HTTPS_URL = 'https://www.tapflow.dev/operate/https#pick-a-method';
 
 export function PerformanceModeNotice({
   open,
