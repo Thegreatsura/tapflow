@@ -228,7 +228,7 @@ File upload: use the **overlay pencil button on the current image** pattern inst
 `components/app-sidebar.tsx` — built on shadcn `Sidebar`. Three groups:
 
 1. **Main nav**: App Center, Mac Resources
-2. **Settings** (`SidebarGroupLabel`): Default (all roles), Team · Tokens (Admin only)
+2. **Settings** (`SidebarGroupLabel`): Default (all roles), Team (Admin), Tokens (Admin, Developer, QA) — one rule, `lib/settingsAccess.ts`, for the sidebar and the route guard
 3. **Reference** (`SidebarGroupLabel`): Docs external link
 
 Header: team logo + team name, fetched from `/api/v1/settings`. Falls back to `logo.svg` + "tapflow".
