@@ -69,7 +69,7 @@ The dashboard's **Mac Resources** page (`/mac-resources`) shows CPU and RAM usag
 
 Data is sampled once per minute and retained for 30 days.
 
-For a quick check from the terminal:
+To check from the terminal which agents and devices are connected (it does not report CPU or RAM):
 
 ```sh
 tapflow status

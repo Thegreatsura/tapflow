@@ -61,7 +61,7 @@ Use this for an internal PKI or a wildcard certificate you already hold. You ren
 The default Tailscale URL is plain HTTP, and tailnet addresses count as external, so teammates get a stream trimmed to 1000 px and decoded in software. Terminating over Tailscale's free HTTPS brings them in through the tunnel port, which moves them to the Smooth profile. Tailscale issues and renews the `*.ts.net` certificate automatically, so no domain or DNS token is needed.
 
 1. In the Tailscale admin console under **DNS**, enable **MagicDNS** and **HTTPS Certificates**. You'll acknowledge that machine names appear in the public Certificate Transparency log.
-2. On the relay Mac, terminate HTTPS in front of the relay's **tunnel port**. That is `4001`, unless you set `TAPFLOW_TUNNEL_PORT` or the relay itself runs on 4001, in which case it steps aside to 4002. The start banner prints the port it took, so use that number in the command below:
+2. On the relay Mac, terminate HTTPS in front of the relay's **tunnel port**. It is `TAPFLOW_TUNNEL_PORT` when you set it, and `4001` otherwise; only when the relay itself runs on 4001 does the default step aside to 4002. The command below uses the default, so replace `4001` with the port the start banner prints if yours differs:
 
    ```sh
    tailscale serve --bg 4001
