@@ -30,6 +30,10 @@ Password reset links expire after **2 hours**. An Admin can make a new link with
 
 After upgrading to v0.26.0, everyone has to sign in once. Sessions are now tied to the password they were signed in with, and sessions from earlier versions carry no such link. The same happens to one user whenever their password is reset or changed: every other browser is signed out. The browser where they changed it in **Settings** stays signed in.
 
+## Tokens stopped working after a password reset {#tokens-revoked-by-reset}
+
+A password reset revokes all of that member's personal access tokens, CI and agent tokens included, and agents connected with them disconnect with `Unauthorized: this token was revoked or has expired, or its owner was removed`. Whoever held a compromised account could otherwise keep the tokens they made. After signing in, issue new tokens in **Settings → Tokens** (Admin only; other members use [`POST /api/v1/tokens`](/reference/api#post-api-v1-tokens)), and put them where the old ones were: CI secrets and each remote agent's `--token`. A password change in **Settings** keeps the tokens.
+
 ## Two accounts differ only in letter case {#accounts-differ-in-case}
 
 The relay's startup log says **Accounts 2,3 differ only in letter case or spaces**. Email addresses are compared without regard to case now, but two accounts created earlier as, for example, `alice@example.com` and `Alice@example.com` are left as they are. Each still signs in with its exact address. Remove the one nobody uses in **Settings → Team**, and the warning stops.
