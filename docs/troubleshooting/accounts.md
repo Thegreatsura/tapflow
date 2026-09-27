@@ -17,4 +17,4 @@ Invitation links expire after **7 days**. An Admin must create a new invitation 
 
 ## Password reset link expired
 
-Password reset links expire after **2 hours**. An Admin can send a new link with **Reset pwd** on the member's row in **Settings → Team**. Reset links go out by email only, so SMTP must be configured.
+Password reset links expire after **2 hours**. An Admin can make a new link with **Reset pwd** on the member's row in **Settings → Team**. The link appears in a dialog to copy and share, and is also emailed when SMTP is configured. Only the newest link works.

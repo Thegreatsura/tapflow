@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **An Admin can hand a teammate a password reset link.** **Reset pwd** in **Settings → Team** now opens a dialog with the link, copied to the clipboard when the browser allows it, the same way an invitation works; the link is also emailed when SMTP is configured. Installs without SMTP could not reset a password at all before. `POST /api/v1/team/members/:id/send-reset` returns the `token` and a `resetUrl`, and only the newest link for a member works.
+
+### Changed
+
+- **Email addresses are compared without regard to letter case or surrounding spaces.** Sign-in, invitations and the first admin account all store and match the normalized address, and addresses already stored are normalized on upgrade. Two accounts whose addresses differ only in case are left as they are, each signing in by its exact address, and the relay names them at start so an Admin can remove one. The boot path and `POST /api/v1/auth/init` now store the same value for the same address (#715).
+
+- **Inviting an address that already belongs to a member is refused** with 409, and the invite dialog says so on the email field instead of creating a link.
+
+### Security
+
+- **Changing a password ends every session issued before it.** A password reset, or a change in **Settings**, signs the user out of every other browser and closes their open connections; the browser that made a self-service change stays signed in. Sessions used to survive for their full seven days, so resetting a compromised account did not sign the attacker out. **Everyone signs in once after upgrading**, because sessions issued by earlier versions cannot be tied to a password.
+
+- **Accepting an invitation no longer overwrites an existing account.** An invitation for an address that already had an account replaced that account's password, role and name when accepted, so an invite link worked as an unapproved password reset. It is now refused with 409, and the invite page says the address already has an account.
+
 ### Fixed
 
 - **The QA Session's restart dialog no longer promises that app data survives.** Restarting a device reinstalls the build under test, which clears that app's data; other apps keep theirs. The dialog used to say "Installed apps and their data stay".

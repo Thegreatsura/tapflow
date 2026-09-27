@@ -313,7 +313,7 @@ Upgrading from a version that kept its data in the directory you started the rel
 
 ## SMTP
 
-Without SMTP, invitation emails and password reset emails will not be sent. In that case, Admins can copy and share the invite link directly.
+Without SMTP, invitation emails and password reset emails will not be sent. In that case, Admins copy the invite link or the password reset link from the dialog and share it directly.
 
 To send invitation emails, configure `smtp.host`, `smtp.user`, and `smtp.pass`.
 

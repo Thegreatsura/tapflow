@@ -72,14 +72,14 @@ export function classifyConnection(
  * credential, so there is nothing to revoke.
  */
 export type SocketPrincipal =
-  | { via: 'cookie'; userId: number; /** JWT `exp`, seconds */ jwtExp?: number }
+  | { via: 'cookie'; userId: number; /** JWT `exp`, seconds */ jwtExp?: number; /** JWT `pwv` */ pwv: string }
   /** The PAT's id, never its hash: the hash is a bearer secret, the id is only a row. */
   | { via: 'pat'; userId: number; patId: number }
 
 /** What the database says now about a principal's credential. */
 export interface CurrentCredential {
-  /** Cookie principals: the user row still exists. */
-  userExists: boolean
+  /** Cookie principals: the user's current password version, or null when the row is gone. */
+  userPasswordVersion: string | null
   /** PAT principals: the token row, unexpired, with its owner — or null when revoked, expired or cascaded. */
   pat: { scopes: string[]; ownerRole: string } | null
 }
@@ -88,8 +88,8 @@ export interface CurrentCredential {
  * Would this socket still be accepted, given what the database says now? Returns the close reason, or
  * null when it would.
  *
- * **One predicate instead of one rule per event.** Removal, demotion, revocation, expiry and an
- * invitation accept that changes a role all reach an open socket through the same question, asked on
+ * **One predicate instead of one rule per event.** Removal, demotion, revocation, expiry and a
+ * password change all reach an open socket through the same question, asked on
  * the heartbeat and again right after any of those writes. A list of "which sockets does this event
  * affect" is the design this replaced, and it had already missed expiry and the invitation path.
  *
@@ -104,7 +104,8 @@ export function revalidatePrincipal(
   nowSeconds: number,
 ): string | null {
   if (principal.via === 'cookie') {
-    if (!current.userExists) return WS_REJECT_REASON
+    // A changed password ends the session the same way a removed member does (`passwordVersion`).
+    if (current.userPasswordVersion !== principal.pwv) return WS_REJECT_REASON
     if (principal.jwtExp !== undefined && principal.jwtExp <= nowSeconds) return WS_REJECT_REASON
     return null
   }

@@ -74,7 +74,7 @@ Viewer가 **Upload build**나 **Add App**을 누르면 QA나 Developer 권한이
 - **Profile**: **Nickname**과 **Avatar**를 바꾸고 **Save changes**를 누릅니다.
 - **Password**: **Current password**, **New password**, **Confirm new password**를 입력해 비밀번호를 바꿉니다.
 
-비밀번호를 잊었다면 Admin에게 요청하세요. tapflow가 메일을 보낼 수 있으면(SMTP 설정) Admin이 **Settings → Team**에서 **Reset pwd**를 누르고 재설정 링크가 메일로 갑니다. 링크는 2시간 동안 유효합니다. 메일을 보낼 수 없는 설치라면 대시보드에서 재설정 링크를 보낼 방법이 아직 없습니다. tapflow를 운영하는 사람이 [SMTP를 설정](/ko/reference/configuration#smtp-설정)하면 Admin이 **Reset pwd**를 쓸 수 있습니다. 로그아웃은 같은 메뉴의 **Log out**으로 합니다.
+비밀번호를 잊었다면 Admin에게 요청하세요. Admin이 **Settings → Team**에서 **Reset pwd**를 누르면 재설정 링크가 표시되고 Admin이 그 링크를 전달해 줍니다. tapflow가 메일을 보낼 수 있으면(SMTP 설정) 링크가 메일로도 갑니다. 링크는 2시간 동안 한 번만 쓸 수 있습니다. 재설정하면 모든 브라우저에서 로그아웃되니 새 비밀번호로 다시 로그인하세요. 로그아웃은 같은 메뉴의 **Log out**으로 합니다.
 
 ## 다음 단계 {#next-steps}
 

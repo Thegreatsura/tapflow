@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys, verifyInvitation } from '@/lib/queries'
 import { useForm, useWatch, Controller } from 'react-hook-form'
@@ -60,7 +60,16 @@ export function Invite() {
       if (data.avatar) form.append('avatar', data.avatar)
 
       const res = await fetch('/api/v1/invitations/accept', { method: 'POST', body: form })
-      if (!res.ok) { setError('root', { message: 'Failed to accept invitation' }); return }
+      if (res.status === 409) {
+        setError('root', { type: 'already-member', message: 'This email already has an account. Sign in instead, or ask your admin for a password reset link.' })
+        return
+      }
+      if (!res.ok) {
+        // The relay says why (an invitation used or expired since this page opened, a bad avatar).
+        const d = await res.json().catch(() => ({})) as { error?: string }
+        setError('root', { message: d.error ?? 'Failed to accept invitation' })
+        return
+      }
       // A used token is no longer valid; kept cached, going back would show its form again.
       queryClient.removeQueries({ queryKey: queryKeys.inviteToken(token) })
       navigate('/app-center', { replace: true })
@@ -165,6 +174,9 @@ export function Invite() {
             </div>
 
             <FieldError assertive id="invite-error" message={errors.root?.message} />
+            {errors.root?.type === 'already-member' && (
+              <Link to="/login" className="text-sm text-center underline underline-offset-4">Go to sign in</Link>
+            )}
             <Button type="submit" disabled={isSubmitting} className="w-full">
               {isSubmitting ? 'Creating account…' : 'Create account'}
             </Button>
