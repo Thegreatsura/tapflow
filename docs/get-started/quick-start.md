@@ -7,13 +7,14 @@ description: The operator's tutorial. Install tapflow on one Mac, create the adm
 
 # Quick Start
 
-This page takes you from installing tapflow on one Mac to tapping your own build's screen in the browser. The last step invites a teammate to test the same build. If an operator sent you a link, you have nothing to install — go to [For teammates](/get-started/teammates).
+This page takes you from installing tapflow on one Mac to tapping your own build's screen in the browser. The last step invites a teammate to test the same build. If someone on your team sent you an invite link, you have nothing to install — go to [For teammates](/get-started/teammates).
 
 ::: info Before you begin
 - **An Apple Silicon (M-series) Mac**: Intel Macs are not supported. See [Requirements](/operate/requirements) for the supported macOS and Xcode versions.
 - **Node.js 22 or later**
-- **The Mac's administrator password**: `tapflow setup` uses sudo while it finishes setting up Xcode.
-- **A build to test**: a simulator `.app.zip` or `.tar.gz`/`.tgz` for iOS, an `.apk` for Android. A device `.ipa` cannot be uploaded. An Android APK needs the `arm64-v8a` ABI to install on an Apple Silicon emulator.
+- **The Mac's administrator password**: `tapflow setup` asks for your sudo password when it installs Homebrew and the JDK, and while it finishes setting up Xcode.
+- **An Apple account**: Xcode comes only from the App Store, so you sign in with an Apple account.
+- **A build to test**: a simulator `.app.zip` or `.tar.gz`/`.tgz` for iOS, an `.apk` for Android. A device `.ipa` cannot be uploaded. An Android APK needs the `arm64-v8a` ABI to install on an Apple Silicon emulator. If you have no build yet, ask your app's developers for a simulator or emulator build; [Upload from CI](/operate/ci-distribution) shows how CI can produce and upload one.
 - **Time**: most of it is `tapflow setup` downloading. Xcode, the simulator runtime, the Android SDK and its system image are large, so a first download takes as long as your network needs. When they are already installed, setup only checks them.
 :::
 
@@ -43,7 +44,12 @@ On the Mac that will run the simulators and emulators, install what they need in
 tapflow setup
 ```
 
-Setup asks before each step that installs something. Xcode can only be installed from the App Store, so setup opens the App Store for you; press Enter once Xcode is installed and it carries on. To set up one platform only, run `tapflow setup ios` or `tapflow setup android`.
+Setup asks before each step that installs something. Xcode can only be installed from the App Store, so setup opens the App Store for you; press Enter once Xcode is installed and it carries on. During the iOS steps, macOS may show two prompts:
+
+- **Audio recording permission**: needed to send the device's sound to the browser. Click **Allow**.
+- **System extension approval**: the network filter used for iOS network control is a system extension, and macOS asks you to approve it. Without the approval setup ends with `SETUP INCOMPLETE` and names what is left. Everything except network control works without it.
+
+To set up one platform only, run `tapflow setup ios` or `tapflow setup android`.
 
 When setup finishes, run `tapflow doctor` to confirm. See [Environment Setup](/operate/environment-setup) for what each step does.
 

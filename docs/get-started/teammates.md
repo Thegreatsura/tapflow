@@ -9,7 +9,7 @@ If someone on your team sent you a tapflow invite link, follow this page. You in
 
 ::: info Before you begin
 - **A current browser**: Chrome, Firefox, Safari or Edge.
-- **An invite link**: an operator (Admin) creates it in the dashboard and sends it to you. It is valid for 7 days from when it was created.
+- **An invite link**: an Admin on your team creates it in the dashboard and sends it to you. The person who installed and runs tapflow (the operator) is the first Admin, but any member with the Admin role can invite. It is valid for 7 days from when it was created.
 - **The Tailscale app** (only if the operator uses Tailscale): install Tailscale on your computer and join the same tailnet as the operator, or the dashboard will not open. See [Tailscale](/operate/external-access#tailscale-recommended).
 :::
 
@@ -17,11 +17,13 @@ If someone on your team sent you a tapflow invite link, follow this page. You in
 
 ## 1. Accept the invite {#accept-the-invite}
 
-1. Open the invite link in your browser. The **Set up your account** page shows the role the operator chose after **You're joining as**.
+1. Open the invite link in your browser. The **Set up your account** page shows the role the inviting Admin chose after **You're joining as**.
 2. **Nickname** and **Avatar** are optional. Your nickname is the name shown on your comments; an avatar is a PNG or JPEG image of 2 MB or less.
 3. Enter **Password** (at least 8 characters) and **Confirm password**, then click **Create account**. You are signed in and App Center opens.
 
-If the link shows **Invitation expired**, it has expired or has already been used. Ask the operator for a new one. See [Sign-in & accounts](/troubleshooting/accounts).
+If the invite page does not load, check your case in the [address table](#bookmark-the-address) below, or ask whoever runs tapflow.
+
+If the link shows **Invitation expired**, it has expired or has already been used. Ask an Admin for a new one. See [Sign-in & accounts](/troubleshooting/accounts).
 
 ## 2. Save the dashboard address {#bookmark-the-address}
 
@@ -39,10 +41,11 @@ An address with `localhost` in it only opens on the operator's own Mac. If that 
 
 ## 3. Test a build {#test-a-build}
 
-1. In App Center, find the build to test. The **Search version…** box and the status filter narrow the list.
-2. Click **Start QA** on the build's row. The button is off for a build whose review status is **Done**.
-3. Pick a Mac on the **Select Mac** page, then click a device on the **Select device** page. A device a teammate is using shows **In use** and cannot be picked.
-4. Once the device is up and the build has installed, click **Launch app** in the toolbar to open the app.
+1. In App Center, pick the app in the **Apps** list on the left. The first app in the list is selected when the page opens, so check it when there are several.
+2. Find the build to test. The **Search version…** box and the status filter narrow the list.
+3. Click **Start QA** on the build's row. The button is off for a build whose review status is **Done**.
+4. Pick a Mac on the **Select Mac** page, then click a device on the **Select device** page. A device a teammate is using shows **In use** and cannot be picked.
+5. Once the device is up and the build has installed, click **Launch app** in the toolbar to open the app.
 
 A click on the device screen is a tap, and a drag is a swipe. To type, click the device screen once and then type. See [Device controls](/testing/device-controls) for the rest.
 
@@ -52,11 +55,11 @@ Write what you found as a [comment](/testing/comments) on the build; everyone wh
 
 ## What each role can do {#roles}
 
-Every account has the role the operator chose. Only an Admin can change it.
+Every account has the role the inviting Admin chose. Only an Admin can change it.
 
 | Role | What it can do |
 |---|---|
-| Viewer | Views builds, tests them in a QA Session and comments. Apart from comments it is read-only: no uploading builds, changing review status or managing apps. |
+| Viewer | Views builds, tests them in a QA Session, and leaves comments and recordings. Apart from comments and recordings it is read-only: no uploading builds, changing review status or managing apps. |
 | QA, Developer | Everything a Viewer does, plus uploading builds, changing review status, scheduling build deletion, adding, editing and deleting apps, and managing webhooks. The two roles have the same permissions. |
 | Admin | Everything. Inviting members, changing their roles, removing them, resetting passwords, workspace settings and tokens are Admin-only. |
 
@@ -71,7 +74,7 @@ Click your name at the bottom of the sidebar and choose **Settings**.
 - **Profile**: change **Nickname** and **Avatar**, then click **Save changes**.
 - **Password**: enter **Current password**, **New password** and **Confirm new password**.
 
-If you forget your password, ask an Admin to reset it. **Log out** is in the same menu.
+If you forget your password, tell an Admin. When SMTP (outgoing mail) is set up, the Admin sends you a reset email with **Reset pwd**. Without SMTP, the Admin creates a new invite link for the same email address; accepting it sets a new password on your existing account, and your role becomes the one chosen in the new invite. **Log out** is in the same menu.
 
 ## Next steps {#next-steps}
 

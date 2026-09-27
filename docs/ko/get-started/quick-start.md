@@ -7,13 +7,14 @@ description: 운영자가 Mac 한 대에 tapflow를 설치하고 관리자 계�
 
 # 빠른 시작
 
-Mac 한 대에 tapflow를 설치하고 준비한 빌드를 올려 브라우저에서 기기 화면을 처음 탭해 볼 때까지 안내합니다. 마지막 단계에서는 팀원을 초대해 같은 빌드를 테스트하게 합니다. 운영자에게 링크를 받은 팀원이라면 설치할 것이 없으니 [팀원 시작 가이드](/ko/get-started/teammates)로 가세요.
+Mac 한 대에 tapflow를 설치하고 준비한 빌드를 올려 브라우저에서 기기 화면을 처음 탭해 볼 때까지 안내합니다. 마지막 단계에서는 팀원을 초대해 같은 빌드를 테스트하게 합니다. 팀에서 초대 링크를 받은 팀원이라면 설치할 것이 없으니 [팀원 시작 가이드](/ko/get-started/teammates)로 가세요.
 
 ::: info 시작하기 전에
 - **Apple Silicon(M 시리즈) Mac**: Intel Mac은 지원하지 않습니다. 지원하는 macOS와 Xcode 버전은 [시스템 요구사항](/ko/operate/requirements)에서 확인하세요.
 - **Node.js 22 이상**
-- **Mac 관리자 암호**: `tapflow setup`이 Xcode 초기 설정 단계에서 sudo를 씁니다.
-- **테스트할 빌드**: iOS는 시뮬레이터용 `.app.zip` 또는 `.tar.gz`/`.tgz`, Android는 `.apk`입니다. 실제 기기용 `.ipa`는 올릴 수 없습니다. Android APK에는 `arm64-v8a` ABI가 들어 있어야 Apple Silicon 에뮬레이터에 설치됩니다.
+- **Mac 관리자 암호**: `tapflow setup`이 Homebrew·JDK 설치와 Xcode 초기 설정에서 sudo 암호를 묻습니다.
+- **Apple 계정**: Xcode는 App Store에서만 설치할 수 있어 Apple 계정으로 로그인해야 합니다.
+- **테스트할 빌드**: iOS는 시뮬레이터용 `.app.zip` 또는 `.tar.gz`/`.tgz`, Android는 `.apk`입니다. 실제 기기용 `.ipa`는 올릴 수 없습니다. Android APK에는 `arm64-v8a` ABI가 들어 있어야 Apple Silicon 에뮬레이터에 설치됩니다. 빌드가 없다면 앱 개발자에게 시뮬레이터·에뮬레이터용 빌드를 요청하세요. CI에서 빌드를 만들어 올리는 방법은 [CI에서 빌드 올리기](/ko/operate/ci-distribution)에 있습니다.
 - **걸리는 시간**: 대부분 `tapflow setup`의 다운로드 시간입니다. Xcode, 시뮬레이터 런타임, Android SDK와 시스템 이미지는 용량이 커서 처음 받을 때는 네트워크 속도에 따라 오래 걸립니다. 이미 설치되어 있으면 setup은 확인만 하고 넘어갑니다.
 :::
 
@@ -47,7 +48,12 @@ pnpm add -g tapflow
 tapflow setup
 ```
 
-setup은 설치가 필요한 단계마다 동의를 구합니다. Xcode는 App Store에서만 설치할 수 있어서 setup이 App Store를 열어 줍니다. Xcode 설치를 마치고 Enter를 누르면 다음 단계로 이어집니다. 한 플랫폼만 쓴다면 `tapflow setup ios` 또는 `tapflow setup android`를 실행합니다.
+setup은 설치가 필요한 단계마다 동의를 구합니다. Xcode는 App Store에서만 설치할 수 있어서 setup이 App Store를 열어 줍니다. Xcode 설치를 마치고 Enter를 누르면 다음 단계로 이어집니다. iOS 단계에서는 아래 macOS 확인 창이 뜰 수 있습니다.
+
+- **오디오 녹음 권한**: 기기 소리를 브라우저로 보내는 데 필요합니다. **허용**(Allow)을 누릅니다.
+- **시스템 확장 승인**: iOS 네트워크 제어에 쓰는 네트워크 필터를 설치하면 macOS가 승인을 요구합니다. 승인하지 않으면 setup이 `SETUP INCOMPLETE`로 끝나고 남은 일을 알려 줍니다. 네트워크 제어 외의 기능은 승인 없이도 동작합니다.
+
+한 플랫폼만 쓴다면 `tapflow setup ios` 또는 `tapflow setup android`를 실행합니다.
 
 setup이 끝나면 `tapflow doctor`로 준비 상태를 확인합니다. 단계별 설명은 [환경 준비](/ko/operate/environment-setup)를 참고하세요.
 
@@ -97,9 +103,9 @@ tapflow start
 <a id="_5-관리자-계정-생성"></a>
 <a id="_1-관리자-계정-생성"></a>
 
-## 5. 관리자 계정 만들기 {#_5-create-the-admin-account}
+## 5. 관리자 계정 생성 {#_5-create-the-admin-account}
 
-tapflow에는 기본 계정이 없습니다. 첫 계정은 관리자(Admin)가 되며 이 Mac의 브라우저에서 만듭니다.
+tapflow에는 기본 계정이 없습니다. 첫 계정은 Admin 역할을 받으며 이 Mac의 브라우저에서 만듭니다.
 
 1. 이 Mac의 브라우저에서 `http://localhost:4000`을 엽니다. 계정이 하나도 없으면 **Set up tapflow** 화면(`/setup`)으로 이동합니다.
 2. **Admin email**, **Password**(8자 이상), **Confirm password**를 입력합니다.
@@ -120,7 +126,7 @@ tapflow에는 기본 계정이 없습니다. 첫 계정은 관리자(Admin)가 �
 
 <a id="_4-첫-번째-앱-추가"></a>
 
-## 6. 빌드 올리기 {#upload-your-build}
+## 6. 빌드 업로드 {#upload-your-build}
 
 1. App Center 오른쪽 위의 **Upload build**를 누릅니다.
 2. **File** 영역을 클릭해 빌드 파일을 고르거나 파일을 끌어다 놓습니다.
@@ -138,7 +144,7 @@ tapflow가 파일에서 bundle ID, 버전, 빌드 번호를 읽어 앱 항목을
 
 기기가 켜지면 빌드가 자동으로 설치됩니다. 기기 오른쪽 정보 카드에 **Starting device…**, **Installing app…**이 차례로 표시됩니다. 화면별 자세한 설명은 [QA 세션](/ko/testing/qa-session)을 참고하세요.
 
-## 8. 기기 화면 탭하기 {#first-tap}
+## 8. 앱 실행과 첫 탭 {#first-tap}
 
 설치가 끝나면 툴바에 **Launch app** 버튼이 나타납니다. 이 버튼을 눌러 앱을 실행합니다.
 
