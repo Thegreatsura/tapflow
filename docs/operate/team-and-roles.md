@@ -1,6 +1,6 @@
 ---
 title: Team, roles & tokens
-description: "The dashboard's Settings pages: your profile, the member list with roles and invitations (Admin only), and personal access tokens for CI and remote agents."
+description: "The dashboard's Settings pages for Admins: workspace and apps, the member list with roles, invitations and password resets, and personal access tokens for CI and remote agents."
 ---
 
 # Team, roles & tokens
@@ -22,7 +22,7 @@ Visible to **Admin** only.
 - **Invite member** — send an email invite or generate a copy-paste link. Invites expire after 7 days.
 - **Change role** — reassign any member's role (Admin / Developer / QA / Viewer).
 - **Remove member** — permanently deletes the account. The member is signed out everywhere at once, and their open device sessions and any agents connected with their tokens are disconnected. You cannot remove yourself.
-- **Reset pwd** — create a password reset link for a member. The link appears in a dialog to copy and share, and is also emailed when SMTP is configured. It works once, for 2 hours, and making a new one turns off the earlier one. The reset signs the member out everywhere.
+- **Reset pwd** — create a password reset link for a member. The link appears in a dialog to copy and share, and is also emailed when SMTP is configured. It works once, for 2 hours, and making a new one turns off the earlier one. The reset signs the member out everywhere and revokes all of their personal access tokens, CI and agent tokens included, so agents using those tokens disconnect until new tokens are issued. This matters most when an Admin resets their own account, because agent tokens belong to Admins. A password change in **Settings** keeps tokens.
 
 <a id="_3-invite-your-team"></a>
 

@@ -42,20 +42,21 @@
 - [Requirements](https://www.tapflow.dev/operate/requirements): Node.js ≥ 22 for relay and agent; Xcode for iOS; Android SDK + AVD for Android; any modern browser for the dashboard. Names the verified macOS and Xcode versions.
 - [Environment Setup](https://www.tapflow.dev/operate/environment-setup): `tapflow doctor` to diagnose what a Mac is missing, and `tapflow setup` to install and configure it — per platform, including the Xcode license and first-launch steps that need sudo.
 - [Configuring tapflow](https://www.tapflow.dev/operate/configure): `tapflow init` and the `tapflow.config.json` it writes — tunnel choice, streaming profile on a LAN, certificate method, and the `.env` that holds secrets. Skippable if port 4000 over HTTP with no tunnel is fine.
-- [Agent Setup](https://www.tapflow.dev/operate/agents): Start the Mac agent and connect it to the relay. iOS prerequisites (Xcode, Simulator Runtime), Android prerequisites (AVD with google_apis/arm64-v8a image), and authenticating a remote agent with a PAT.
+- [Agent Setup](https://www.tapflow.dev/operate/agents): Start the Mac agent and connect it to the relay. listing and creating devices for iOS and Android, and authenticating a remote agent with a PAT.
 - [iOS Network Extension](https://www.tapflow.dev/operate/network-extension): Install and approve the network extension that iOS network control needs on the agent Mac, and recover when replacing it cuts the Mac off or a device comes back online by itself.
 
 ### Deploy the relay
 
-- [Deployment Options](https://www.tapflow.dev/operate/deployment): Choose where the relay runs — on the same Mac as the agent, or on a separate relay server — and how teammates on the same network reach it.
+- [Deployment Options](https://www.tapflow.dev/operate/deployment): Choose where the relay runs: on the same Mac as the agent, on a separate always-on Mac, or in Docker, and how teammates on the same network reach it.
 - [Deploy with Docker](https://www.tapflow.dev/operate/docker): Run the relay from the official Docker image on an always-on LAN box: the Compose file, the required volume, the relay URL for invite links, and creating the first account.
 - [External Access](https://www.tapflow.dev/operate/external-access): Reach the relay from outside the office through an outbound tunnel — Tailscale for tailnet members, or rathole through a VPS you own for a public URL — with optional HTTPS for the Smooth profile.
+- [HTTPS](https://www.tapflow.dev/operate/https): Serve the relay over HTTPS so teammates get the Smooth stream with native resolution and hardware decoding: a certificate from your DNS account, a certificate you already have, or HTTPS through Tailscale or a VPS.
 - [Streaming Quality](https://www.tapflow.dev/operate/streaming-quality): The three streaming profiles (Standard / Smooth / Remote), which one a viewer gets from how it connects, the decoder and resolution behind each, and how to tune the resolution.
 - [Backups & Uptime](https://www.tapflow.dev/operate/relay-operations): Back up the relay's data directory (Litestream for SQLite), and keep the relay running with PM2 on a Mac or systemd on Linux.
 
 ### Run the team
 
-- [Team, Roles & Tokens](https://www.tapflow.dev/operate/team-and-roles): The dashboard's Settings pages: your profile, the member list with roles and invitations (Admin only), and personal access tokens (PATs) for CI and remote agents.
+- [Team, Roles & Tokens](https://www.tapflow.dev/operate/team-and-roles): The dashboard's Settings pages for Admins: workspace and apps, the member list with roles, invitations and password resets, and personal access tokens (PATs) for CI and remote agents.
 - [Scaling Mac Resources](https://www.tapflow.dev/operate/scaling): Add more Mac hosts to the same relay for a larger device pool. Agent naming, per-Mac device limits, and monitoring via Mac Resources tab.
 
 ### Deliver builds

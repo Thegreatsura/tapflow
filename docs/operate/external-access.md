@@ -86,31 +86,7 @@ The relay does not ask connections that reach the relay port over loopback to si
 
 ### Enable HTTPS for the smoother stream (optional)
 
-The default Tailscale URL is plain HTTP, and tailnet addresses count as external, so teammates get a stream trimmed to 1000 px and decoded by the WASM decoder. Terminating over Tailscale's free HTTPS brings them in through the tunnel port, which moves them to the Smooth profile, with native resolution and hardware decoding (see [Streaming Quality](/operate/streaming-quality)). Tailscale issues and renews the `*.ts.net` certificate automatically, so no domain or DNS token is needed.
-
-1. In the Tailscale admin console under **DNS**, enable **MagicDNS** and **HTTPS Certificates**. You'll acknowledge that machine names appear in the public Certificate Transparency log.
-2. On the relay Mac, terminate HTTPS in front of the relay's **tunnel port**. That is `4001`, unless you set `TAPFLOW_TUNNEL_PORT` or the relay itself runs on 4001, in which case it steps aside to 4002. The start banner prints the port it took, so use that number in the command below. Tailscale manages the certificate for you, so there's no separate issue step:
-
-```sh
-tailscale serve --bg 4001
-```
-
-::: warning Serve the tunnel port, not 4000
-`tailscale serve` connects to the relay from the relay Mac itself. On port `4000` the relay treats those connections as local and does not ask them to sign in. On the tunnel port every connection counts as remote. If an earlier setup serves `4000`, run `tailscale serve reset` and then the command above. `tapflow start` warns while the old setting is in place.
-:::
-
-3. Point `publicUrl` at the HTTPS address in `tapflow.config.json` so the banner and shared URL match:
-
-```json
-{
-  "tunnel": {
-    "provider": "tailscale",
-    "publicUrl": "https://your-hostname.tailnet.ts.net"
-  }
-}
-```
-
-Teammates opening that HTTPS address now get the Smooth profile. The relay itself stays on HTTP and needs no `tls` config — Tailscale terminates TLS in front of it.
+The default Tailscale URL is plain HTTP, and tailnet addresses count as external, so teammates get a stream trimmed to 1000 px and decoded in software. Serving the relay over Tailscale's free HTTPS moves them to the Smooth profile; the steps are in [HTTPS through Tailscale](/operate/https#tailscale).
 
 ## VPS + rathole
 
