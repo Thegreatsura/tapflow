@@ -257,6 +257,27 @@ describe('team accounts', () => {
       expect(getDb().prepare('SELECT user_id, token_hash FROM personal_access_tokens').all()).toEqual([{ user_id: 1, token_hash: 'h-admin' }])
     })
 
+    // Mutation: the second `requireAuth` in `handleCreateToken` removed → the token is created (201).
+    it('a token request that holds its body back across a reset is refused, and creates nothing', async () => {
+      const before = `tapflow_token=${signJwt({ userId: 2, email: 'alice@test.local', role: 'QA' })}`
+      const payload = JSON.stringify({ name: 'late', scope: 'view,builds:write' })
+      const reply = new Promise<number>((resolve, reject) => {
+        const req = http.request({
+          host: '127.0.0.1', port, path: '/api/v1/tokens', method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), cookie: before },
+        }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode ?? 0)) })
+        req.on('error', reject)
+        req.write(payload.slice(0, 5))
+        void (async () => {
+          const r = await request(port, 'POST', '/api/v1/team/members/2/send-reset', undefined, admin())
+          await request(port, 'POST', '/api/v1/auth/reset-password', { token: r.body.token, password: 'fresh-password' })
+          req.end(payload.slice(5))
+        })()
+      })
+      expect(await reply).toBe(401)
+      expect(getDb().prepare('SELECT COUNT(*) AS n FROM personal_access_tokens WHERE user_id = 2').get()).toEqual({ n: 0 })
+    })
+
     it('a self-service change keeps the member\'s personal access tokens', async () => {
       getDb().prepare("INSERT INTO personal_access_tokens (user_id, name, token_hash, scope) VALUES (2, 't', 'h-ci', 'view,builds:write')").run()
       const here = (await request(port, 'POST', '/api/v1/auth/login', { email: 'alice@test.local', password: 'alice-password' })).setCookie!
@@ -319,5 +340,6 @@ describe('migration 014', () => {
       closeDb()
       fs.rmSync(tmp, { recursive: true })
     }
-  })
+    // Every migration on a file database: 6 s on the Windows runner, past the 5 s default.
+  }, 30_000)
 })
