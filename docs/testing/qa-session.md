@@ -18,7 +18,7 @@ A QA Session is where you watch and drive an iOS simulator or Android emulator r
 | Status dot | Meaning |
 |---|---|
 | Green | Plenty of headroom |
-| Yellow | CPU or RAM at 70% or more |
+| Yellow | CPU or RAM from 70% up to 80% |
 | Red | CPU or RAM over 80%. The card cannot be picked |
 | Grey | No usage report, or none for over 30 seconds. The card shows **Stale** |
 

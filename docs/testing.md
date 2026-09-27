@@ -7,7 +7,7 @@ description: "How teammates test builds in the browser: pick a build in App Cent
 
 # Test apps
 
-This section is for teammates who check builds in the browser. There is nothing to install. All you need is the tapflow dashboard address and an account from whoever runs tapflow.
+This section is for teammates who check builds in the browser. tapflow itself needs nothing installed: all you need is the tapflow dashboard address and an account from whoever runs tapflow. If they open the dashboard to you through Tailscale, install the Tailscale app too ([Tailscale](/operate/external-access#tailscale-recommended)).
 
 The dashboard is tapflow's web interface. The devices (iOS simulators and Android emulators) run on a Mac your operator set up, and you watch and drive them from your browser.
 
