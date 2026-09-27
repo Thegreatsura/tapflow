@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.1] - 2026-09-27
+
 ### Security
 
 - **A member whose access was just reduced is disconnected even while the database is failing.** After a role change, removal, token revocation or password reset or change, the relay re-checks open connections; if it could not read the database at that moment, it used to leave every connection open until a later check succeeded, the affected member's included. It now closes the connections resting on what changed (only that token's for a revoked token, only signed-in sessions for a password change) and still leaves everyone else's alone.
@@ -856,7 +858,8 @@ found out by waiting.
 
 - Automatic `tapflow.config.json` creation as a side effect of `tapflow start` / `tapflow relay start`.
 
-[Unreleased]: https://github.com/jo-duchan/tapflow/compare/v0.26.0...HEAD
+[Unreleased]: https://github.com/jo-duchan/tapflow/compare/v0.26.1...HEAD
+[0.26.1]: https://github.com/jo-duchan/tapflow/compare/v0.26.0...v0.26.1
 [0.26.0]: https://github.com/jo-duchan/tapflow/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/jo-duchan/tapflow/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/jo-duchan/tapflow/compare/v0.23.0...v0.24.0
