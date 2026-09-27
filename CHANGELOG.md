@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-09-27
+
+**Everyone signs in once after upgrading.** Sessions are now tied to the password they were issued under, and sessions from earlier versions carry no such link.
+
+### Breaking Changes
+
+- **`POST /api/v1/team/invite` and `POST /api/v1/invitations/accept` return 409 for an address that already belongs to a member**, whatever its letter case. Accepting such an invitation used to overwrite that account's password, role and name (see **Security**). Migrate: change an existing member's role in **Settings → Team** (or `PATCH /api/v1/team/members/:id`) instead of inviting them again, and send a password reset link when they are locked out.
+
 ### Added
 
 - **An Admin can hand a teammate a password reset link.** **Reset pwd** in **Settings → Team** now opens a dialog with the link, copied to the clipboard when the browser allows it, the same way an invitation works; the link is also emailed when SMTP is configured. Installs without SMTP could not reset a password at all before. `POST /api/v1/team/members/:id/send-reset` returns the `token` and a `resetUrl`, and only the newest link for a member works.
@@ -17,9 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Email addresses are compared without regard to letter case or surrounding spaces.** Sign-in, invitations and the first admin account all store and match the normalized address, and addresses already stored are normalized on upgrade. Two accounts whose addresses differ only in case are left as they are, each signing in by its exact address, and the relay names them at start so an Admin can remove one. The boot path and `POST /api/v1/auth/init` now store the same value for the same address (#715).
 
-- **Documentation links in the dashboard and the iOS agent point at the reorganized docs.** The Standard-mode notice opens the new HTTPS page, the sidebar's **Docs** opens the page for teammates, and the CoreSimulator error names the iOS Simulator troubleshooting page.
+- **The docs are reorganized** into Get started, Test apps, Operate, Automation, Troubleshooting and Reference, with new pages for HTTPS and keyboard shortcuts. Old URLs redirect to their new place.
 
-- **Inviting an address that already belongs to a member is refused** with 409, and the invite dialog says so on the email field instead of creating a link.
+- **Documentation links in the dashboard and the iOS agent point at the reorganized docs.** The Standard-mode notice opens the new HTTPS page, the sidebar's **Docs** opens the page for teammates, and the CoreSimulator error names the iOS Simulator troubleshooting page.
 
 ### Security
 
@@ -844,7 +852,8 @@ found out by waiting.
 
 - Automatic `tapflow.config.json` creation as a side effect of `tapflow start` / `tapflow relay start`.
 
-[Unreleased]: https://github.com/jo-duchan/tapflow/compare/v0.25.0...HEAD
+[Unreleased]: https://github.com/jo-duchan/tapflow/compare/v0.26.0...HEAD
+[0.26.0]: https://github.com/jo-duchan/tapflow/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/jo-duchan/tapflow/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/jo-duchan/tapflow/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/jo-duchan/tapflow/compare/v0.22.0...v0.23.0

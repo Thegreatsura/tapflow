@@ -1,5 +1,14 @@
 # @tapflowio/ios-agent
 
+## 0.26.0
+
+### Patch Changes
+
+- e8b187a: Documentation links follow the reorganized docs: the dashboard's Standard-mode notice opens the HTTPS page, the sidebar's **Docs** opens the page for teammates, and the iOS agent's CoreSimulator error names the iOS Simulator troubleshooting page. Old links keep working through redirects.
+  - @tapflowio/protocol@0.26.0
+  - @tapflowio/agent-core@0.26.0
+  - @tapflowio/audiotap-helper@0.3.8
+
 ## 0.25.0
 
 ### Patch Changes
