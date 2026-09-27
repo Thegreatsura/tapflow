@@ -86,6 +86,8 @@ The answer is saved as `agent.lean` in `tapflow.config.json`, and you can change
 
 ## The data directory's .env — holding secrets
 
+<a id="secrets-env"></a>
+
 `<data directory>/.env` — `~/.tapflow/data/.env` on a default install — is the **default home for every relay secret**. Choosing DNS auto-issue makes `init` scaffold an empty template for the token, but this file holds more than DNS tokens — `JWT_SECRET`, the SMTP password, and any other secret go here too, one per line. Secrets stay out of `tapflow.config.json` and live in this gitignored file instead.
 
 The file `init` creates holds only the token lines for the DNS provider you chose. Add a line for any other secret, as in the example below, and paste each value after the `=`.
@@ -180,17 +182,7 @@ Set it explicitly only when you need a fixed key — for example, to share one s
 openssl rand -hex 32
 ```
 
-Put it in the `.env` in the data directory (`~/.tapflow/data/.env` on a default install) so it survives restarts without re-exporting — the relay reads the file on start:
-
-```ini
-JWT_SECRET=YOUR_JWT_SECRET
-```
-
-Or inject it as a shell environment variable, which takes precedence over the file:
-
-```sh
-JWT_SECRET=YOUR_JWT_SECRET tapflow start
-```
+Add it as a `JWT_SECRET=` line in [the data directory's `.env`](#secrets-env), like any other secret.
 
 Once set, keep this value stable — changing it invalidates all active sessions immediately. Only rotate if the secret is compromised or you want to force everyone to log out.
 

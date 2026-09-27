@@ -9,13 +9,10 @@ description: 대시보드 Settings의 하위 페이지입니다. 내 프로필, 
 
 ## Default
 
-현재 로그인한 사용자의 개인 프로필 설정입니다.
+모든 멤버가 처음 여는 페이지입니다. 닉네임, 아바타, 비밀번호 같은 프로필 설정은 누구에게나 같으며 [팀원 시작 가이드](/ko/get-started/teammates#profile)에 정리되어 있습니다. 역할에 따라 두 섹션이 더 보입니다.
 
 - **Workspace** — 팀 이름과 로고를 설정합니다. Admin에게만 보입니다.
 - **Apps** — 앱 이름을 바꾸거나 앱을 삭제합니다. Admin, Developer, QA에게 보이고 Viewer에게는 보이지 않습니다.
-- **Nickname** — 댓글과 세션 히스토리에 표시됩니다.
-- **Avatar** — 아바타의 연필 아이콘을 클릭해 이미지를 업로드합니다 (PNG 또는 JPEG, 최대 2MB).
-- **Change password** — 현재 비밀번호가 필요합니다.
 
 ## Team
 

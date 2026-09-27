@@ -58,9 +58,7 @@ Connecting to a remote relay without a token (or with an expired or revoked one)
 
 ### Prerequisites
 
-- macOS
-- Xcode with iOS Simulator Runtime installed
-- Node.js ≥ 22
+An Apple Silicon Mac with the macOS and Xcode versions listed in [Requirements](/operate/requirements#ios), and the iOS Simulator runtime installed.
 
 ### List available simulators
 
@@ -89,8 +87,7 @@ Each Mac supports 2–4 simultaneous simulators depending on available RAM. The 
 
 ### Prerequisites
 
-- Android SDK installed (`ANDROID_HOME` set or `adb` in `$PATH`)
-- An AVD using the `google_apis/arm64-v8a` system image (android-35)
+The Android SDK and an AVD, as listed in [Requirements](/operate/requirements#android). `tapflow setup android` installs both.
 
 ### Create an AVD
 

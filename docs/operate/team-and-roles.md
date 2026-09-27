@@ -9,13 +9,10 @@ The dashboard's **Settings** has three sub-pages accessible from the left nav.
 
 ## Default
 
-Personal profile settings for the currently signed-in user.
+The page every member opens first. Its profile settings (nickname, avatar, password) are the same for everyone and are described in [For teammates](/get-started/teammates#profile). Two more sections appear by role:
 
 - **Workspace** — the team name and logo. Visible to Admins only.
 - **Apps** — rename or delete apps. Visible to Admins, Developers and QA, hidden from Viewers.
-- **Nickname** — shown in comments and session history.
-- **Avatar** — click the pencil icon on the avatar to upload a new image (PNG or JPEG, max 2 MB).
-- **Change password** — requires current password.
 
 ## Team
 

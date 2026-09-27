@@ -7,7 +7,7 @@ description: Install and approve the network extension that iOS network control 
 
 Install the network extension that iOS network control needs on the agent Mac, and recover when it stops working.
 
-## iOS: the network extension is not installed {#network-not-set-up}
+## Install the network extension {#network-not-set-up}
 
 Network control on an iOS simulator needs the tapflow network extension installed on the agent Mac. **It comes with tapflow, so there is nothing to download.** One command installs the copy already in the package.
 
@@ -95,7 +95,7 @@ What the extension can and cannot see is in [Network Control](/testing/network-c
 
 ## Troubleshooting
 
-### iOS: the Mac lost its network while the filter was being replaced {#network-lost-on-replace}
+### The Mac lost its network while the filter was being replaced {#network-lost-on-replace}
 
 The filter decides on **every new connection the Mac makes**, not only the simulator's. When it stops
 while it is still switched on, macOS does not let traffic through unchecked. It blocks all of it,
@@ -126,7 +126,7 @@ until the filter is on again, which is what running the migration again does.
 tapflow migrate net-filter
 ```
 
-### iOS: a device that was offline came back on the network by itself {#network-stopped}
+### A device that was offline came back on the network by itself {#network-stopped}
 
 A notice saying the device went back on the network while you were checking means **the offline behaviour you have checked so far needs checking again.** Requests may have been succeeding between the moment traffic started passing and the moment the notice appeared.
 
