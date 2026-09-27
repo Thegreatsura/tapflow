@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Changing a password ends every session issued before it.** A password reset, or a change in **Settings**, signs the user out of every other browser and closes their open connections; the browser that made a self-service change stays signed in. Sessions used to survive for their full seven days, so resetting a compromised account did not sign the attacker out. **Everyone signs in once after upgrading**, because sessions issued by earlier versions cannot be tied to a password.
 
+- **A password reset revokes the member's personal access tokens**, CI and agent tokens included, and disconnects agents using them. Whoever held a compromised account could otherwise keep the tokens they made after the password was reset. The member issues new tokens after signing in. A self-service password change in **Settings** keeps the tokens.
+
 - **Accepting an invitation no longer overwrites an existing account.** An invitation for an address that already had an account replaced that account's password, role and name when accepted, so an invite link worked as an unapproved password reset. It is now refused with 409, and the invite page says the address already has an account.
 
 ### Fixed

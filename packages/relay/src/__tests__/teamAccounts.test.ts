@@ -20,6 +20,7 @@ import { config } from '../lib/config'
 // - the collision guard dropped from migration 014 → the migration case (the relay fails to boot)
 // - earlier tokens not spent in `issuePasswordReset` → "only the newest link works"
 // - `sessionCookie` removed from change-password → "keeps this browser signed in"
+// - the token DELETE removed from `handleDoReset` → "a reset revokes every personal access token"
 // - the `pwv` comparison removed from `getAuth` → the three "password change" cases
 // The socket half (`revalidatePrincipal`, `onAuthChanged` on reset and change) is in authRevalidation.test.ts.
 
@@ -103,6 +104,7 @@ describe('team accounts', () => {
   beforeEach(async () => {
     const db = getDb()
     db.prepare('DELETE FROM invitations').run()
+    db.prepare('DELETE FROM personal_access_tokens').run()
     db.prepare('DELETE FROM users').run()
     db.prepare("INSERT INTO users (id, email, display_name, role, password_hash) VALUES (1, 'admin@test.local', 'Admin', 'Admin', ?)").run(makePasswordHash('admin-password'))
     db.prepare("INSERT INTO users (id, email, display_name, role, password_hash) VALUES (2, 'alice@test.local', 'Alice', 'QA', ?)").run(makePasswordHash('alice-password'))
@@ -245,6 +247,44 @@ describe('team accounts', () => {
       expect((await request(port, 'GET', '/api/v1/auth/me', undefined, login.setCookie)).status).toBe(200)
     })
 
+    it('a reset revokes every personal access token of the member, and no one else\'s', async () => {
+      const seed = getDb().prepare("INSERT INTO personal_access_tokens (user_id, name, token_hash, scope) VALUES (?, 't', ?, ?)")
+      seed.run(2, 'h-api', 'view,builds:write')
+      seed.run(2, 'h-agent', 'agent')
+      seed.run(1, 'h-admin', 'agent')
+      const r = await request(port, 'POST', '/api/v1/team/members/2/send-reset', undefined, admin())
+      await request(port, 'POST', '/api/v1/auth/reset-password', { token: r.body.token, password: 'fresh-password' })
+      expect(getDb().prepare('SELECT user_id, token_hash FROM personal_access_tokens').all()).toEqual([{ user_id: 1, token_hash: 'h-admin' }])
+    })
+
+    // Mutation: the second `requireAuth` in `handleCreateToken` removed → the token is created (201).
+    it('a token request that holds its body back across a reset is refused, and creates nothing', async () => {
+      const before = `tapflow_token=${signJwt({ userId: 2, email: 'alice@test.local', role: 'QA' })}`
+      const payload = JSON.stringify({ name: 'late', scope: 'view,builds:write' })
+      const reply = new Promise<number>((resolve, reject) => {
+        const req = http.request({
+          host: '127.0.0.1', port, path: '/api/v1/tokens', method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), cookie: before },
+        }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode ?? 0)) })
+        req.on('error', reject)
+        req.write(payload.slice(0, 5))
+        void (async () => {
+          const r = await request(port, 'POST', '/api/v1/team/members/2/send-reset', undefined, admin())
+          await request(port, 'POST', '/api/v1/auth/reset-password', { token: r.body.token, password: 'fresh-password' })
+          req.end(payload.slice(5))
+        })()
+      })
+      expect(await reply).toBe(401)
+      expect(getDb().prepare('SELECT COUNT(*) AS n FROM personal_access_tokens WHERE user_id = 2').get()).toEqual({ n: 0 })
+    })
+
+    it('a self-service change keeps the member\'s personal access tokens', async () => {
+      getDb().prepare("INSERT INTO personal_access_tokens (user_id, name, token_hash, scope) VALUES (2, 't', 'h-ci', 'view,builds:write')").run()
+      const here = (await request(port, 'POST', '/api/v1/auth/login', { email: 'alice@test.local', password: 'alice-password' })).setCookie!
+      expect((await request(port, 'POST', '/api/v1/auth/change-password', { currentPassword: 'alice-password', newPassword: 'fresh-password' }, here)).status).toBe(200)
+      expect(getDb().prepare('SELECT COUNT(*) AS n FROM personal_access_tokens WHERE user_id = 2').get()).toEqual({ n: 1 })
+    })
+
     it('a self-service change keeps this browser signed in and signs out the others', async () => {
       const here = (await request(port, 'POST', '/api/v1/auth/login', { email: 'alice@test.local', password: 'alice-password' })).setCookie!
       const elsewhere = `tapflow_token=${signJwt({ userId: 2, email: 'alice@test.local', role: 'QA' })}`
@@ -300,5 +340,6 @@ describe('migration 014', () => {
       closeDb()
       fs.rmSync(tmp, { recursive: true })
     }
-  })
+    // Every migration on a file database: 6 s on the Windows runner, past the 5 s default.
+  }, 30_000)
 })

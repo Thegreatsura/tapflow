@@ -199,6 +199,16 @@ describe('open sockets are re-validated', () => {
     expect((await closedWithin(again))?.code).toBe(1008)
   })
 
+  // Mutation: the token DELETE removed from `handleDoReset` → the agent stays connected.
+  it('a password reset disconnects the member\'s token-authenticated agent at once', async () => {
+    const { agent } = await remoteAgentWithViewer(2)
+    const sent = await request(relayPort, 'POST', '/api/v1/team/members/2/send-reset', adminCookie)
+    const { token } = JSON.parse(sent.body) as { token: string }
+    const closed = closedWithin(agent)
+    expect((await request(relayPort, 'POST', '/api/v1/auth/reset-password', {}, { token, password: 'new-password-1' })).status).toBe(200)
+    expect(await closed).toEqual({ code: 1008, reason: WS_TOKEN_GONE_REASON })
+  })
+
   // Mutation: `onAuthChanged()` removed from `handleChangePassword` → the other socket stays open.
   it('a self-service password change closes the member\'s other cookie sockets at once', async () => {
     getDb().prepare('UPDATE users SET password_hash = ? WHERE id = 4').run(makePasswordHash('old-password'))

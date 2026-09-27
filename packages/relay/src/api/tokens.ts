@@ -20,10 +20,15 @@ export function handleListTokens(req: http.IncomingMessage, res: http.ServerResp
 }
 
 export async function handleCreateToken(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-  const auth = requireAuth(req, res)
-  if (!auth) return
+  if (!requireAuth(req, res)) return
 
   const body = await readJson<{ name?: string; expires_in_days?: number; scope?: string }>(req)
+  // Checked again once the body is in: a request can hold its body back for as long as it likes, and a
+  // password reset that commits meanwhile revokes every token of the account and ends its sessions. A
+  // token minted from the check made before the wait would outlive that reset. From here to the INSERT
+  // nothing awaits, so no reset can land between this check and the write.
+  const auth = requireAuth(req, res)
+  if (!auth) return
   if (!body.name?.trim()) return json(res, 400, { error: 'name required' })
 
   const scopes = (body.scope?.trim() || DEFAULT_SCOPE).split(',').map((s) => s.trim())

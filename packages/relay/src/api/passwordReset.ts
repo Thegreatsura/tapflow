@@ -103,9 +103,15 @@ export async function handleDoReset(
     db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(makePasswordHash(body.password), row.user_id)
     // Every outstanding link for this user, not only the one used: the password they unlock is gone.
     db.prepare("UPDATE password_reset_tokens SET used_at = datetime('now') WHERE user_id = ? AND used_at IS NULL").run(row.user_id)
+    // A reset is how an account is recovered, and whoever held it may have minted tokens that a new
+    // password alone would leave working. So a reset revokes all of them, CI and agent tokens included;
+    // the owner issues new ones. A self-service change does not: it needs the current password, and
+    // revoking there would break the owner's own CI without warning.
+    db.prepare('DELETE FROM personal_access_tokens WHERE user_id = ?').run(row.user_id)
   })()
-  // The new hash has already ended the user's sessions (`passwordVersion`); this closes their open
-  // sockets now rather than on the next heartbeat.
+  // The new hash has already ended the user's sessions (`passwordVersion`) and the tokens are gone;
+  // this closes their open sockets, token-authenticated agents included, now rather than on the next
+  // heartbeat.
   onAuthChanged()
 
   json(res, 200, { ok: true })

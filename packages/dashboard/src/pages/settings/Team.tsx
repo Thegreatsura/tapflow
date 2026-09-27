@@ -208,7 +208,9 @@ export function TeamSettings() {
             <DialogTitle>Password reset link</DialogTitle>
             <DialogDescription>
               {issuedReset?.emailSent ? `Reset email sent to ${issuedReset.email}.` : `Email could not be sent to ${issuedReset?.email ?? ''}.`}{' '}
-              The link works once, for 2 hours. Making a new one turns this one off.
+              The link works once, for 2 hours. Making a new one turns this one off. Completing the reset
+              signs the member out everywhere and revokes their personal access tokens, so agents using
+              those tokens disconnect until new ones are issued.
             </DialogDescription>
           </DialogHeader>
           {issuedReset && (
