@@ -90,6 +90,7 @@ If the dashboard is open over plain HTTP, text copied on the device stays on the
 - **Keys do not reach the device.** Click the device screen once and check that **Focus** is green.
 - **Text copied on the device is not on your clipboard.** If the dashboard address starts with `http://`, the copy stays on the device, as described under [Clipboard](#clipboard).
 - **The device is taking too long — try again** appears. The device did not answer in time; try again.
+- **The stream lags, or inputs arrive late.** See [Stream & sessions](/troubleshooting/streaming#stream-lag).
 
 ## Related {#related}
 

@@ -37,6 +37,7 @@ On both platforms the device picks the app that handles the URL, as it would for
 
 - **The notice appeared but the screen you wanted did not open.** The app is what reads the URL. Check with its developers that it handles that path. On Android, **Deeplink opened** can also appear when no app on the device registered the URL scheme.
 - **A `no booted device` or `No booted device` error appears.** The device is still booting, or the session has dropped. Try again once the progress message on the info card is gone.
+- **The session keeps dropping.** See [Stream & sessions](/troubleshooting/streaming).
 
 ## Related {#related}
 

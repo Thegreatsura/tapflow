@@ -1,20 +1,40 @@
 ---
 title: Troubleshooting
-description: Fixes for tapflow problems, grouped by area — install and agents, iOS simulator, Android emulator, builds, streaming, and sign-in — and how to read the relay's logs.
+description: Find a tapflow problem by its symptom, check the Mac with tapflow doctor, and read the relay's logs. Fixes are grouped by area — install and agents, iOS simulator, Android emulator, builds, streaming, and sign-in.
 ---
 
 # Troubleshooting
 
-Problems are grouped by area, one page each:
+Find the symptom below, or start with `tapflow doctor` on the Mac where it happens.
 
-- [Install & agents](/troubleshooting/install-and-agents)
-- [iOS simulator](/troubleshooting/ios-simulator)
-- [Android emulator](/troubleshooting/android-emulator)
-- [Builds & uploads](/troubleshooting/builds)
-- [Stream & sessions](/troubleshooting/streaming)
-- [Sign-in & accounts](/troubleshooting/accounts)
+## Start with `tapflow doctor` {#start-with-doctor}
 
-## Viewing logs
+On the agent Mac, `tapflow doctor` checks Node.js, the port, Xcode and the simulator, the Android SDK and an AVD, and prints what to fix for each failure. Pass `ios` or `android` to check one platform. The checks are listed in the [CLI reference](/reference/cli#tapflow-doctor), and each failure is explained under [`tapflow doctor` failures](/troubleshooting/install-and-agents#tapflow-doctor-failures).
+
+```sh
+tapflow doctor
+tapflow doctor ios
+```
+
+## Find your symptom {#symptoms}
+
+| Symptom | See |
+|---|---|
+| An agent does not appear in the dashboard, or cannot connect | [Agent cannot connect to the relay](/troubleshooting/install-and-agents#agent-cannot-connect-to-the-relay) |
+| `tapflow agent start` says an agent is already running | [It says an agent is already running](/troubleshooting/install-and-agents#agent-already-running) |
+| The relay reads a configuration or database you did not expect | [Unexpected configuration or database](/troubleshooting/install-and-agents#the-relay-is-using-a-configuration-or-database-you-did-not-expect) |
+| Opening an iOS build fails with `spawn unknown error` | [iOS simulator](/troubleshooting/ios-simulator#spawn-unknown-error) |
+| The iOS simulator does not boot | [Service version mismatch](/troubleshooting/ios-simulator#ios-simulator-service-version-mismatch), [cannot be located on disk](/troubleshooting/ios-simulator#simulator-data-missing) |
+| The Android stream does not start | [Android emulator](/troubleshooting/android-emulator#stream-does-not-start-or-encoder-crashes) |
+| An upload fails with `400` | [Builds & uploads](/troubleshooting/builds#_400-error-on-upload) |
+| An APK does not install on an Apple Silicon Mac (`INSTALL_FAILED_NO_MATCHING_ABIS`) | [Builds & uploads](/troubleshooting/builds#install-failed-no-matching-abis-—-apk-not-compatible-with-apple-silicon-emulator) |
+| The stream lags, stutters or looks blurry | [Stream & sessions](/troubleshooting/streaming#stream-lag) |
+| A session ends by itself | [Session ends automatically](/troubleshooting/streaming#session-ends-automatically) |
+| A device will not go offline | [Network control](/testing/network-control#troubleshooting) |
+| An invitation or password reset link does not work | [Sign-in & accounts](/troubleshooting/accounts) |
+| Everyone was signed out after an upgrade | [Signed out after upgrading](/troubleshooting/accounts#signed-out-after-upgrading) |
+
+## View the relay's logs {#viewing-logs}
 
 On the relay host, inspect its activity with the commands below. The relay does not show its logs to other machines.
 
