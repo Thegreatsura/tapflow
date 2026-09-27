@@ -20,6 +20,7 @@ import { config } from '../lib/config'
 // - the collision guard dropped from migration 014 → the migration case (the relay fails to boot)
 // - earlier tokens not spent in `issuePasswordReset` → "only the newest link works"
 // - `sessionCookie` removed from change-password → "keeps this browser signed in"
+// - the token DELETE removed from `handleDoReset` → "a reset revokes every personal access token"
 // - the `pwv` comparison removed from `getAuth` → the three "password change" cases
 // The socket half (`revalidatePrincipal`, `onAuthChanged` on reset and change) is in authRevalidation.test.ts.
 
@@ -103,6 +104,7 @@ describe('team accounts', () => {
   beforeEach(async () => {
     const db = getDb()
     db.prepare('DELETE FROM invitations').run()
+    db.prepare('DELETE FROM personal_access_tokens').run()
     db.prepare('DELETE FROM users').run()
     db.prepare("INSERT INTO users (id, email, display_name, role, password_hash) VALUES (1, 'admin@test.local', 'Admin', 'Admin', ?)").run(makePasswordHash('admin-password'))
     db.prepare("INSERT INTO users (id, email, display_name, role, password_hash) VALUES (2, 'alice@test.local', 'Alice', 'QA', ?)").run(makePasswordHash('alice-password'))
@@ -243,6 +245,23 @@ describe('team accounts', () => {
       expect((await request(port, 'GET', '/api/v1/auth/me', undefined, before)).status).toBe(401)
       const login = await request(port, 'POST', '/api/v1/auth/login', { email: 'alice@test.local', password: 'fresh-password' })
       expect((await request(port, 'GET', '/api/v1/auth/me', undefined, login.setCookie)).status).toBe(200)
+    })
+
+    it('a reset revokes every personal access token of the member, and no one else\'s', async () => {
+      const seed = getDb().prepare("INSERT INTO personal_access_tokens (user_id, name, token_hash, scope) VALUES (?, 't', ?, ?)")
+      seed.run(2, 'h-api', 'view,builds:write')
+      seed.run(2, 'h-agent', 'agent')
+      seed.run(1, 'h-admin', 'agent')
+      const r = await request(port, 'POST', '/api/v1/team/members/2/send-reset', undefined, admin())
+      await request(port, 'POST', '/api/v1/auth/reset-password', { token: r.body.token, password: 'fresh-password' })
+      expect(getDb().prepare('SELECT user_id, token_hash FROM personal_access_tokens').all()).toEqual([{ user_id: 1, token_hash: 'h-admin' }])
+    })
+
+    it('a self-service change keeps the member\'s personal access tokens', async () => {
+      getDb().prepare("INSERT INTO personal_access_tokens (user_id, name, token_hash, scope) VALUES (2, 't', 'h-ci', 'view,builds:write')").run()
+      const here = (await request(port, 'POST', '/api/v1/auth/login', { email: 'alice@test.local', password: 'alice-password' })).setCookie!
+      expect((await request(port, 'POST', '/api/v1/auth/change-password', { currentPassword: 'alice-password', newPassword: 'fresh-password' }, here)).status).toBe(200)
+      expect(getDb().prepare('SELECT COUNT(*) AS n FROM personal_access_tokens WHERE user_id = 2').get()).toEqual({ n: 1 })
     })
 
     it('a self-service change keeps this browser signed in and signs out the others', async () => {

@@ -216,7 +216,7 @@ Body (JSON):
 { "ok": true }
 ```
 
-The user is signed out of every browser and signs in again with the new password.
+The user is signed out of every browser and signs in again with the new password. Their personal access tokens are revoked, and agents connected with them are disconnected; the user issues new ones.
 
 
 ### `POST /api/v1/team/members/:id/send-reset`
