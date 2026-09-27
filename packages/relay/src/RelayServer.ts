@@ -13,7 +13,7 @@ import { directionOf, parseInbound } from '@tapflowio/protocol/validate'
 import type { ParsedInbound, ParseFailure, ParseResult } from '@tapflowio/protocol/validate'
 import { Router, json } from './router.js'
 import { requireViewAuth, requireAuth, getAuth, verifyPat, touchPat, findPat, findUser } from './middleware/auth.js'
-import { AGENT_SCOPE, WS_AGENT_OWNER_REASON, WS_SCOPE_REASON, classifyConnection, revalidatePrincipal, type SocketPrincipal } from './lib/connectionAuth.js'
+import { AGENT_SCOPE, WS_ACCESS_CHANGED_REASON, WS_AGENT_OWNER_REASON, WS_SCOPE_REASON, classifyConnection, isAffectedBy, revalidatePrincipal, type AuthChange, type SocketPrincipal } from './lib/connectionAuth.js'
 import { isTunnelIngress, markTunnelIngress, resolveClientAddress, resolveRequestClient } from './lib/clientAddress.js'
 import { BuildTicketStore } from './lib/buildTickets.js'
 import { resolveBuildFile } from './lib/buildFiles.js'
@@ -672,16 +672,23 @@ export class RelayServer {
 
   /**
    * Injected into the handlers whose write can take access away — member update and removal, token
-   * revocation, a password reset or change — and called after the write commits. It carries no argument on
-   * purpose: the sweep re-derives every socket's standing from the database, so no handler has to know
-   * which sockets its change affects.
+   * revocation, a password reset or change — and called after the write commits. The sweep re-derives
+   * every socket's standing from the database, so when the database answers, no handler has to know which
+   * sockets its change affects.
+   *
+   * `affected` names the credential the write just reduced (`AuthChange`), and matters only when a lookup
+   * fails: the sockets resting on that credential are closed anyway (fail closed), because the one thing
+   * known for certain is that it just went down. Scoped to what the write touched, so revoking an unused
+   * CI token cannot take down the owner's agents and every session running on them. Every other socket is
+   * left alone as before.
    */
-  private readonly onAuthChanged = (): void => {
-    this.revalidateSockets(this.wss.clients)
+  private readonly onAuthChanged = (affected?: AuthChange): void => {
+    this.revalidateSockets(this.wss.clients, affected)
   }
 
-  private revalidateSockets(clients: Iterable<WebSocket>): void {
+  private revalidateSockets(clients: Iterable<WebSocket>, affected?: AuthChange): void {
     const now = Math.floor(Date.now() / 1000)
+    let fault: unknown = null
     for (const ws of clients) {
       const principal = this.principals.get(ws)
       if (!principal || this.revokedSockets.has(ws) || ws.readyState !== WebSocket.OPEN) continue
@@ -704,12 +711,17 @@ export class RelayServer {
         }
       } catch (err) {
         // A database fault is not a revocation: closing every socket on a transient `SQLITE_BUSY` would
-        // disconnect the whole team. The next sweep asks again.
-        logger.error('socket re-validation failed:', err)
-        return
+        // disconnect the whole team, so the others wait for the next sweep. The exception is the member
+        // whose access this sweep was run for: a write just took it away, and letting their socket keep
+        // sending until the database recovers is the hole this closes. Keep going rather than stopping at
+        // the first fault, or a socket of that member later in the set would never be reached.
+        fault ??= err
+        if (affected && isAffectedBy(principal, affected)) this.closeForAuth(ws, WS_ACCESS_CHANGED_REASON)
+        continue
       }
       if (reason !== null) this.closeForAuth(ws, reason)
     }
+    if (fault !== null) logger.error('socket re-validation failed:', fault)
   }
 
   private closeForAuth(ws: WebSocket, reason: string): void {

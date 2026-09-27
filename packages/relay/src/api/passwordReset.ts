@@ -6,6 +6,7 @@ import { requireRole } from '../middleware/auth.js'
 import { makePasswordHash } from './auth.js'
 import { sendMail } from '../lib/mailer.js'
 import { json, readJson } from '../router.js'
+import type { AuthChange } from '../lib/connectionAuth.js'
 import { config, type TapflowConfig } from '../lib/config.js'
 import { buildInviteBaseUrl, forTeammates, resolvePublicBaseUrl, type TunnelRuntime } from '../lib/publicUrl.js'
 import { SYNTHETIC_EMAIL_DOMAIN } from '../lib/email.js'
@@ -85,7 +86,7 @@ export function handleVerifyReset(req: http.IncomingMessage, res: http.ServerRes
 export async function handleDoReset(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  onAuthChanged: () => void = () => {},
+  onAuthChanged: (affected?: AuthChange) => void = () => {},
 ): Promise<void> {
   const body = await readJson<{ token: string; password: string }>(req)
   if (!body.token || !body.password) return json(res, 400, { error: 'token and password required' })
@@ -112,7 +113,7 @@ export async function handleDoReset(
   // The new hash has already ended the user's sessions (`passwordVersion`) and the tokens are gone;
   // this closes their open sockets, token-authenticated agents included, now rather than on the next
   // heartbeat.
-  onAuthChanged()
+  onAuthChanged({ userId: row.user_id })
 
   json(res, 200, { ok: true })
 }
