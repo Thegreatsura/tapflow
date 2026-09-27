@@ -58,9 +58,7 @@ tapflow agent start --relay ws://192.168.x.x:4000
 
 ### 사전 요구사항
 
-- macOS
-- iOS Simulator Runtime이 설치된 Xcode
-- Node.js ≥ 22
+[시스템 요구사항](/ko/operate/requirements#ios)에 적힌 버전의 macOS와 Xcode가 설치된 Apple Silicon Mac이 필요하며 iOS Simulator 런타임도 설치되어 있어야 합니다.
 
 ### 시뮬레이터 확인
 
@@ -89,8 +87,7 @@ tapflow devices
 
 ### 사전 요구사항
 
-- Android SDK 설치 (`ANDROID_HOME` 설정 또는 `adb`가 `$PATH`에 있어야 함)
-- `google_apis/arm64-v8a` 시스템 이미지 (android-35)를 사용하는 AVD
+[시스템 요구사항](/ko/operate/requirements#android)에 적힌 Android SDK와 AVD가 필요합니다. `tapflow setup android`가 둘 다 설치합니다.
 
 ### AVD 생성
 

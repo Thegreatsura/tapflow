@@ -57,20 +57,9 @@ Simulators are booted and managed through the dashboard. The agent reports every
 
 ## Monitoring
 
-Track CPU and RAM usage per agent from the **Mac Resources** tab in the dashboard.
-Select a host to see its CPU and RAM, each as a time-series chart (1h / 6h / 24h / 7d).
+The dashboard's **Mac Resources** page (`/mac-resources`) shows CPU and RAM usage for each Mac agent, so you can spot an overloaded host before more sessions land on it.
 
-For a quick CLI check:
-
-```sh
-tapflow status
-```
-
-## Mac Resources
-
-**Route**: `/mac-resources`
-
-CPU and RAM usage for each Mac agent. Useful for spotting overloaded hosts before assigning more sessions.
+<a id="mac-resources"></a>
 
 | Element | Description |
 |---|---|
@@ -79,3 +68,9 @@ CPU and RAM usage for each Mac agent. Useful for spotting overloaded hosts befor
 | Range selector | **1h** / **6h** / **24h** / **7d** — switches the visible window. |
 
 Data is sampled once per minute and retained for 30 days.
+
+To check from the terminal which agents and devices are connected (it does not report CPU or RAM):
+
+```sh
+tapflow status
+```

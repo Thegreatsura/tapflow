@@ -86,31 +86,7 @@ Tailscale은 브라우저→릴레이 경로만 제공합니다. 에이전트(�
 
 ### HTTPS로 더 부드러운 스트림 켜기 (선택)
 
-기본 접속은 평문 HTTP이고 tailnet 주소는 외부 주소로 분류되므로 팀원은 1000px로 줄인 스트림을 WASM 디코더로 받습니다. Tailscale의 무료 HTTPS로 종단하면 터널 포트를 거쳐 들어오므로 Smooth 프로파일(원본 해상도, 하드웨어 디코딩)로 전환됩니다([스트림 품질](/ko/operate/streaming-quality) 참고). Tailscale이 `*.ts.net` 인증서를 자동 발급·갱신하므로 도메인이나 DNS 토큰이 필요 없습니다.
-
-1. Tailscale admin 콘솔의 **DNS** 설정에서 **MagicDNS**와 **HTTPS Certificates**를 켭니다. 머신 이름이 공개 Certificate Transparency 기록에 남는다는 점에 동의해야 합니다.
-2. 릴레이 Mac에서 릴레이의 **터널 포트** 앞에 HTTPS를 둡니다. 기본값은 `4001`이고, `TAPFLOW_TUNNEL_PORT`를 정했거나 릴레이 자신이 4001을 쓰면 4002로 비켜섭니다. 시작 배너에 실제로 잡은 포트가 나오니 아래 명령에는 그 번호를 쓰세요. Tailscale이 인증서를 자동 관리하므로 별도 발급 명령은 필요 없습니다:
-
-```sh
-tailscale serve --bg 4001
-```
-
-::: warning tailscale serve는 4000이 아니라 터널 포트로
-`tailscale serve`는 릴레이 Mac 안에서 릴레이로 연결합니다. `4000` 포트에서는 릴레이가 이 연결을 로컬로 보고 로그인을 요구하지 않습니다. 터널 포트에서는 모든 연결을 원격으로 봅니다. 예전 설정이 `4000`을 serve하고 있다면 `tailscale serve reset`을 실행한 뒤 위 명령을 다시 실행하세요. 예전 설정이 남아 있는 동안 `tapflow start`가 경고합니다.
-:::
-
-3. `tapflow.config.json`의 `publicUrl`을 HTTPS 주소로 바꿔 배너·안내 URL을 맞춥니다:
-
-```json
-{
-  "tunnel": {
-    "provider": "tailscale",
-    "publicUrl": "https://your-hostname.tailnet.ts.net"
-  }
-}
-```
-
-팀원이 이 HTTPS 주소로 접속하면 Smooth 프로파일로 스트리밍됩니다. 릴레이 자체는 HTTP로 두며 `tls` 설정은 필요 없습니다. TLS는 Tailscale이 앞단에서 종단합니다.
+기본 Tailscale 주소는 평문 HTTP이고 tailnet 주소는 외부 주소로 분류되므로 팀원은 1000px로 줄인 스트림을 소프트웨어로 디코딩해 받습니다. Tailscale의 무료 HTTPS로 릴레이를 제공하면 Smooth 프로파일로 바뀝니다. 절차는 [Tailscale 경유 HTTPS](/ko/operate/https#tailscale)에 있습니다.
 
 ## VPS + rathole
 
