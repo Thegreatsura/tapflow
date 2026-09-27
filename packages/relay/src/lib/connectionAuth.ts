@@ -11,8 +11,26 @@ export const WS_SCOPE_REASON =
 /** An `agent` token is issued by an Admin and is only as good as that Admin role, checked at every use. */
 export const WS_AGENT_OWNER_REASON =
   "Unauthorized: this agent token's owner is no longer an Admin; an Admin must issue a new agent token"
-/** The member whose access a write just reduced, handed to the socket sweep that follows it. */
-export interface AuthChange { userId: number }
+/**
+ * The credential a write just reduced, handed to the socket sweep that follows it. Scoped to what the write
+ * touched: revoking one token says nothing about the owner's other tokens or their session, and a
+ * password change ends sessions but keeps tokens.
+ */
+export type AuthChange =
+  /** Every credential of the member: a role change, removal, or password reset (which revokes tokens too). */
+  | { userId: number; scope?: undefined }
+  /** One token. */
+  | { userId: number; scope: 'token'; patId: number }
+  /** The member's signed-in sessions, not their tokens: a self-service password change. */
+  | { userId: number; scope: 'sessions' }
+
+/** Whether a socket rests on the credential `change` reduced. */
+export function isAffectedBy(principal: SocketPrincipal, change: AuthChange): boolean {
+  if (principal.userId !== change.userId) return false
+  if (change.scope === 'token') return principal.via === 'pat' && principal.patId === change.patId
+  if (change.scope === 'sessions') return principal.via === 'cookie'
+  return true
+}
 
 /**
  * An open socket of a member whose access was just reduced, when the database could not be read to say

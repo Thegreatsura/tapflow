@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   classifyConnection,
   revalidatePrincipal,
+  isAffectedBy,
   WS_REJECT_REASON,
   WS_SCOPE_REASON,
   WS_AGENT_OWNER_REASON,
@@ -167,5 +168,26 @@ describe('revalidatePrincipal', () => {
   it('a socket that has not introduced itself is judged as a fresh handshake', () => {
     expect(revalidatePrincipal(pat, undefined, live([AGENT_SCOPE], 'QA'), now)).toBe(WS_AGENT_OWNER_REASON)
     expect(revalidatePrincipal(pat, undefined, live([AGENT_SCOPE], 'Admin'), now)).toBeNull()
+  })
+})
+
+describe('isAffectedBy', () => {
+  const cookie: SocketPrincipal = { via: 'cookie', userId: 2, pwv: 'v' }
+  const pat: SocketPrincipal = { via: 'pat', userId: 2, patId: 7 }
+  const otherPat: SocketPrincipal = { via: 'pat', userId: 2, patId: 8 }
+
+  it('a change to the whole member reaches every socket of theirs, and no one else\'s', () => {
+    expect([cookie, pat, otherPat].map((p) => isAffectedBy(p, { userId: 2 }))).toEqual([true, true, true])
+    expect(isAffectedBy(cookie, { userId: 3 })).toBe(false)
+  })
+
+  it('one revoked token reaches only the sockets on that token', () => {
+    const change = { userId: 2, scope: 'token', patId: 7 } as const
+    expect([cookie, pat, otherPat].map((p) => isAffectedBy(p, change))).toEqual([false, true, false])
+  })
+
+  it('a password change reaches the member\'s sessions, not their tokens', () => {
+    const change = { userId: 2, scope: 'sessions' } as const
+    expect([cookie, pat, otherPat].map((p) => isAffectedBy(p, change))).toEqual([true, false, false])
   })
 })

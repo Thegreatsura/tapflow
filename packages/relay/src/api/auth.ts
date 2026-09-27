@@ -100,7 +100,7 @@ export async function handleChangePassword(
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(makePasswordHash(body.newPassword), auth.userId)
   // The new hash ends every session issued under the old one, this browser's included — so this browser
   // gets a fresh cookie, and the others (a stolen one among them) are signed out. Open sockets follow.
-  onAuthChanged({ userId: auth.userId })
+  onAuthChanged({ userId: auth.userId, scope: 'sessions' })
   res.writeHead(200, { 'Content-Type': 'application/json', 'Set-Cookie': sessionCookie(auth) })
   res.end(JSON.stringify({ ok: true }))
 }

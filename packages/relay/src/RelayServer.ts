@@ -13,7 +13,7 @@ import { directionOf, parseInbound } from '@tapflowio/protocol/validate'
 import type { ParsedInbound, ParseFailure, ParseResult } from '@tapflowio/protocol/validate'
 import { Router, json } from './router.js'
 import { requireViewAuth, requireAuth, getAuth, verifyPat, touchPat, findPat, findUser } from './middleware/auth.js'
-import { AGENT_SCOPE, WS_ACCESS_CHANGED_REASON, WS_AGENT_OWNER_REASON, WS_SCOPE_REASON, classifyConnection, revalidatePrincipal, type AuthChange, type SocketPrincipal } from './lib/connectionAuth.js'
+import { AGENT_SCOPE, WS_ACCESS_CHANGED_REASON, WS_AGENT_OWNER_REASON, WS_SCOPE_REASON, classifyConnection, isAffectedBy, revalidatePrincipal, type AuthChange, type SocketPrincipal } from './lib/connectionAuth.js'
 import { isTunnelIngress, markTunnelIngress, resolveClientAddress, resolveRequestClient } from './lib/clientAddress.js'
 import { BuildTicketStore } from './lib/buildTickets.js'
 import { resolveBuildFile } from './lib/buildFiles.js'
@@ -672,14 +672,15 @@ export class RelayServer {
 
   /**
    * Injected into the handlers whose write can take access away — member update and removal, token
-   * revocation, a password reset or change — and called after the write commits. It carries no argument on
-   * purpose: the sweep re-derives every socket's standing from the database, so no handler has to know
-   * which sockets its change affects.
+   * revocation, a password reset or change — and called after the write commits. The sweep re-derives
+   * every socket's standing from the database, so when the database answers, no handler has to know which
+   * sockets its change affects.
    *
-   * `affected` names the member whose access the write just reduced. It changes nothing when the
-   * database answers. It matters only when a lookup fails: that member's sockets are closed anyway (fail
-   * closed), because the one thing known for certain is that their access just went down, while every
-   * other socket is left alone as before.
+   * `affected` names the credential the write just reduced (`AuthChange`), and matters only when a lookup
+   * fails: the sockets resting on that credential are closed anyway (fail closed), because the one thing
+   * known for certain is that it just went down. Scoped to what the write touched, so revoking an unused
+   * CI token cannot take down the owner's agents and every session running on them. Every other socket is
+   * left alone as before.
    */
   private readonly onAuthChanged = (affected?: AuthChange): void => {
     this.revalidateSockets(this.wss.clients, affected)
@@ -715,7 +716,7 @@ export class RelayServer {
         // sending until the database recovers is the hole this closes. Keep going rather than stopping at
         // the first fault, or a socket of that member later in the set would never be reached.
         fault ??= err
-        if (affected && principal.userId === affected.userId) this.closeForAuth(ws, WS_ACCESS_CHANGED_REASON)
+        if (affected && isAffectedBy(principal, affected)) this.closeForAuth(ws, WS_ACCESS_CHANGED_REASON)
         continue
       }
       if (reason !== null) this.closeForAuth(ws, reason)

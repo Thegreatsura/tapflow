@@ -87,6 +87,6 @@ export function handleRevokeToken(
 
   if (result.changes === 0) return json(res, 404, { error: 'Token not found' })
   // Closes the sockets that were opened with it.
-  onAuthChanged({ userId: auth.userId })
+  onAuthChanged({ userId: auth.userId, scope: 'token', patId: Number(params.id) })
   json(res, 204, null)
 }

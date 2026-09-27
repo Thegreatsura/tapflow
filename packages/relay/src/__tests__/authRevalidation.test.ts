@@ -305,9 +305,36 @@ describe('open sockets are re-validated', () => {
       const { token } = JSON.parse((await request(relayPort, 'POST', '/api/v1/team/members/4/send-reset', adminCookie)).body) as { token: string }
       expect((await request(relayPort, 'POST', '/api/v1/auth/reset-password', {}, { token, password: 'new-password-2' })).status).toBe(200)
       expect((await request(relayPort, 'DELETE', '/api/v1/team/members/4', adminCookie)).status).toBe(204)
-      expect(named).toEqual([{ userId: 4 }, { userId: 2 }, { userId: 3 }, { userId: 4 }, { userId: 4 }])
+      expect(named).toEqual([
+        { userId: 4 },
+        { userId: 2, scope: 'token', patId: pat.id },
+        { userId: 3, scope: 'sessions' },
+        { userId: 4 },
+        { userId: 4 },
+      ])
     } finally {
       relay.onAuthChanged = original
+    }
+  })
+
+  // Mutation: `isAffectedBy` ignoring the scope → the owner's session closes too.
+  it('a database fault after revoking one token closes that token\'s socket, not the owner\'s others', async () => {
+    const revoked = seedToken(2, 'view')
+    const kept = seedToken(2, 'view')
+    const onRevoked = await remote({ authorization: `Bearer ${revoked.raw}` })
+    const onKept = await remote({ authorization: `Bearer ${kept.raw}` })
+    const session = await remote({ cookie: cookieFor(2) })
+    const revokedClosed = closedWithin(onRevoked)
+    const keptClosed = closedWithin(onKept, 500)
+    const sessionClosed = closedWithin(session, 500)
+    getDb().close()
+    try {
+      (server as unknown as { onAuthChanged: (a: object) => void }).onAuthChanged({ userId: 2, scope: 'token', patId: revoked.id })
+      expect(await revokedClosed).toEqual({ code: 1008, reason: WS_ACCESS_CHANGED_REASON })
+      expect(await keptClosed).toBeNull()
+      expect(await sessionClosed).toBeNull()
+    } finally {
+      openDb()
     }
   })
 
