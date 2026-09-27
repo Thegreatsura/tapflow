@@ -1,6 +1,6 @@
 ---
 title: Team, roles & tokens
-description: "The dashboard's Settings pages for Admins: workspace and apps, the member list with roles, invitations and password resets, and personal access tokens for CI and remote agents."
+description: "The dashboard's Settings pages: workspace and apps, the member list with roles, invitations and password resets (Admin), and personal access tokens for CI and remote agents (Admin, Developer, QA)."
 ---
 
 # Team, roles & tokens
@@ -32,8 +32,8 @@ Once signed in as Admin, go to **Settings → Team** and create invite links:
 
 1. Click **Invite member**.
 2. Enter the team member's email and select a role. The role defaults to **QA**.
-   - **Admin** — can do everything except remove their own account. Inviting members, changing roles, removing members, resetting passwords, workspace settings and the **Settings → Tokens** page are Admin-only.
-   - **Developer**, **QA** — can add, edit and delete apps, upload builds, change a build's status, schedule build deletion and manage webhooks. The two roles have the same permissions.
+   - **Admin** — can do everything except remove their own account. Inviting members, changing roles, removing members, resetting passwords, workspace settings and issuing **Agent** tokens are Admin-only.
+   - **Developer**, **QA** — can add, edit and delete apps, upload builds, change a build's status, schedule build deletion, manage webhooks and create their own API tokens in **Settings → Tokens**. The two roles have the same permissions.
    - **Viewer** — read-only. Can view builds, test them on a simulator or emulator in a QA Session, and comment. Cannot change builds or apps, and can neither see nor change webhooks.
 
    Commenting and starting sessions are open to every signed-in member, whatever their role. A role change applies right away to the API endpoints that check roles, without the member signing in again.
@@ -43,7 +43,7 @@ When you opened the dashboard at `localhost` on the relay host, the invite link 
 
 ## Tokens
 
-Personal access tokens (PATs) for CI/CD scripts and API access. The sidebar shows this page to **Admin** only.
+Personal access tokens (PATs) for CI/CD scripts and API access. The sidebar shows this page to **Admin**, **Developer** and **QA**; each member sees and revokes only their own tokens. The **Agent** type is offered to Admins only.
 
 - **New token** — enter a name, an **Expiration**, and a Type. Choose 7, 30, 60 or 90 days, a custom number (1–365 days), or **No expiration**; the default is 30 days. A token with no expiration stays valid until you revoke it, so keep CI tokens to 90 days or less. The list marks these tokens **No expiration** so you can find and clean them up. **API** is for CI uploads and API access (scope `view, builds:write`); **Agent** connects remote Mac agents. The token is shown once — copy it immediately.
 - **Revoke** — instantly invalidates the token.

@@ -8,6 +8,8 @@ import { withQuery } from './withQuery'
 import { resetTeammateBasesForTests } from '@/lib/publicLink'
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+// The page offers the Agent type to Admins only; these cases are about an Admin's dialog.
+vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: { id: 1, email: 'a@test.local', displayName: null, avatarUrl: null, role: 'Admin' }, loading: false }) }))
 
 function renderTokens() {
   return render(withQuery(

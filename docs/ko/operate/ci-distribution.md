@@ -32,7 +32,7 @@ tapflow는 빌드 도구가 아니라 완성된 아티팩트를 다룹니다. �
 | 항목 | 설명 |
 |------|------|
 | tapflow 릴레이 | 실행 중이고 CI 환경에서 접근 가능해야 합니다 |
-| 개인 액세스 토큰(PAT) | **Settings → Tokens**에서 API 종류로 생성합니다(`builds:write` 권한 포함). 이 메뉴는 Admin에게만 보입니다 |
+| 개인 액세스 토큰(PAT) | **Settings → Tokens**에서 API 종류로 생성합니다(`builds:write` 권한 포함). 이 메뉴는 Admin, Developer, QA에게 보입니다 |
 
 ## CI가 릴레이에 도달하려면 {#how-ci-reaches-the-relay}
 
@@ -50,7 +50,7 @@ CI 잡이 릴레이의 `POST /api/v1/builds`에 접근할 수 있어야 합니�
 
 ## 1. 토큰 생성
 
-대시보드의 **Settings → Tokens → New token**에서 생성합니다. Tokens 메뉴는 Admin에게만 보이므로 Admin 계정으로 진행하세요.
+대시보드의 **Settings → Tokens → New token**에서 생성합니다. Tokens 메뉴는 Admin, Developer, QA에게 보이며 토큰은 만든 사람의 것이 됩니다.
 
 - **Name**: `GitHub Actions`처럼 용도를 알 수 있는 이름
 - **Expiration**: 기본 30일. 7·30·60·90일, 직접 입력(1~365일), **No expiration** 중에서 고를 수 있으며 CI용이라면 90일 이하를 권장합니다.

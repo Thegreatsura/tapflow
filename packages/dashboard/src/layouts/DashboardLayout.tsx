@@ -5,6 +5,7 @@ import { AppSidebar } from '@/components/AppSidebar'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { Separator } from '@/components/ui/separator'
 import { useAuth } from '@/hooks/useAuth'
+import { maySeeSettingsPage } from '@/lib/settingsAccess'
 import { BreadcrumbProvider, useBreadcrumb } from '@/hooks/useBreadcrumb'
 
 function DashboardHeader() {
@@ -39,13 +40,12 @@ export function DashboardLayout() {
   if (loading) return null
   if (!user) return <Navigate to="/login" replace />
 
-  const adminOnlyPaths = ['/settings/team', '/settings/tokens']
-  if (adminOnlyPaths.some((p) => location.pathname.startsWith(p)) && user.role !== 'Admin') {
+  if (!maySeeSettingsPage(location.pathname, user.role)) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="text-center space-y-2">
           <p className="text-lg font-semibold">Access Denied</p>
-          <p className="text-sm text-muted-foreground">This page is only accessible to Admins.</p>
+          <p className="text-sm text-muted-foreground">Your role does not have access to this page.</p>
         </div>
       </div>
     )

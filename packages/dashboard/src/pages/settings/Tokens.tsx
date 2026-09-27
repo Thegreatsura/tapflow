@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { useAuth } from '@/hooks/useAuth'
 import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -60,6 +61,7 @@ function expiresInDays(data: FormData): number | undefined {
 
 export function TokenSettings() {
   const queryClient = useQueryClient()
+  const isAdmin = useAuth().user?.role === 'Admin'
   const tokensQuery = useQuery({ queryKey: queryKeys.tokens, queryFn: getTokens })
   const tokens = tokensQuery.data ?? []
   const view = listView(tokensQuery)
@@ -227,7 +229,8 @@ export function TokenSettings() {
                     <SelectTrigger id="token-type"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="api">API — CI uploads &amp; API access</SelectItem>
-                      <SelectItem value="agent">Agent — connect remote device agents (Admin only)</SelectItem>
+                      {/* The relay refuses the `agent` scope to anyone but an Admin; offering it would only fail. */}
+                      {isAdmin && <SelectItem value="agent">Agent — connect remote device agents (Admin only)</SelectItem>}
                     </SelectContent>
                   </Select>
                 </div>
