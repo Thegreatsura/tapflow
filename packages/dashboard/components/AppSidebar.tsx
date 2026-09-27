@@ -38,6 +38,7 @@ const settingsItems = [
 
 const referenceItems = [
   // Whoever opens the dashboard is usually a teammate, so the page written for them, not the site root.
+  // No `#fragment`, so docsAnchors.test.mjs does not check it: renaming that page needs a moves.json redirect.
   { label: 'Docs', href: 'https://www.tapflow.dev/get-started/teammates', icon: BookOpen },
 ]
 
