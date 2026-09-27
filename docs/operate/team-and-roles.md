@@ -25,7 +25,7 @@ Visible to **Admin** only.
 - **Invite member** — send an email invite or generate a copy-paste link. Invites expire after 7 days.
 - **Change role** — reassign any member's role (Admin / Developer / QA / Viewer).
 - **Remove member** — permanently deletes the account. The member is signed out everywhere at once, and their open device sessions and any agents connected with their tokens are disconnected. You cannot remove yourself.
-- **Reset pwd** — send a password reset email to a specific member. Requires SMTP.
+- **Reset pwd** — create a password reset link for a member. The link appears in a dialog to copy and share, and is also emailed when SMTP is configured. It works once, for 2 hours, and making a new one turns off the earlier one. The reset signs the member out everywhere.
 
 <a id="_3-invite-your-team"></a>
 
@@ -40,7 +40,7 @@ Once signed in as Admin, go to **Settings → Team** and create invite links:
    - **Viewer** — read-only. Can view builds, test them on a simulator or emulator in a QA Session, and comment. Cannot change builds or apps, and can neither see nor change webhooks.
 
    Commenting and starting sessions are open to every signed-in member, whatever their role. A role change applies right away to the API endpoints that check roles, without the member signing in again.
-3. Click **Generate invite link**. The link appears in the dialog, and is also copied to your clipboard when the browser allows it. If SMTP is configured, the member also receives an invite email with a link to set their password.
+3. Click **Generate invite link**. The link appears in the dialog, and is also copied to your clipboard when the browser allows it. If SMTP is configured, the member also receives an invite email with a link to set their password. An email that already belongs to a member is refused, and the dialog says so under the email field.
 
 When you opened the dashboard at `localhost` on the relay host, the invite link carries the relay host's LAN address. A relay inside a Docker container cannot know its LAN address, so the link uses the address in your browser's address bar. When a tunnel or `relay.url` is configured, the link uses that address. If SMTP isn't configured, copy the link shown in the dialog and share it directly; see [Configuration](/reference/configuration) to set up SMTP. What an invited teammate does next is in [For teammates](/get-started/teammates).
 

@@ -74,7 +74,7 @@ Click your name at the bottom of the sidebar and choose **Settings**.
 - **Profile**: change **Nickname** and **Avatar**, then click **Save changes**.
 - **Password**: enter **Current password**, **New password** and **Confirm new password**.
 
-If you forget your password, ask an Admin. When tapflow can send email (SMTP is set up), the Admin clicks **Reset pwd** in **Settings → Team** and you get a reset link by email, valid for 2 hours. When it cannot send email, there is no way to send a reset link from the dashboard yet; whoever runs tapflow can [set up SMTP](/reference/configuration#smtp), and then the Admin can use **Reset pwd**. **Log out** is in the same menu.
+If you forget your password, ask an Admin. The Admin clicks **Reset pwd** in **Settings → Team** and sends you the reset link it shows. When tapflow can send email (SMTP is set up), the link also arrives by email. The link works once, for 2 hours. After the reset you are signed out everywhere, so sign in again with the new password. **Log out** is in the same menu.
 
 ## Next steps {#next-steps}
 
