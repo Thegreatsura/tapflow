@@ -21,6 +21,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useAuth } from '@/hooks/useAuth'
+import { maySeeSettingsPage } from '@/lib/settingsAccess'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getSettings, queryKeys } from '@/lib/queries'
 import { UserAvatar } from '@/components/UserAvatar'
@@ -31,9 +32,9 @@ const navItems = [
 ]
 
 const settingsItems = [
-  { label: 'Default', href: '/settings/default', icon: Settings, adminOnly: false },
-  { label: 'Team', href: '/settings/team', icon: Users, adminOnly: true },
-  { label: 'Tokens', href: '/settings/tokens', icon: KeyRound, adminOnly: true },
+  { label: 'Default', href: '/settings/default', icon: Settings },
+  { label: 'Team', href: '/settings/team', icon: Users },
+  { label: 'Tokens', href: '/settings/tokens', icon: KeyRound },
 ]
 
 const referenceItems = [
@@ -46,7 +47,6 @@ export function AppSidebar() {
   const { pathname } = useLocation()
   const navigate = useNavigate()
   const { user } = useAuth()
-  const isAdmin = user?.role === 'Admin'
   const { resolvedTheme } = useTheme()
   const defaultLogo = resolvedTheme === 'dark' ? '/logo-dark.svg' : '/logo.svg'
   // The same query Default settings reads, so a saved workspace shows here without a reload.
@@ -94,7 +94,7 @@ export function AppSidebar() {
           <SidebarGroupLabel>Settings</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {settingsItems.filter((item) => !item.adminOnly || isAdmin).map((item) => (
+              {settingsItems.filter((item) => maySeeSettingsPage(item.href, user?.role)).map((item) => (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton asChild isActive={pathname === item.href} tooltip={item.label}>
                     <Link to={item.href}>

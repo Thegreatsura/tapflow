@@ -34,7 +34,7 @@ The MCP server is a local process that bridges the LLM agent to your self-hosted
 
 - A running tapflow relay.
 - A **personal access token (PAT)** created in the dashboard.
-  Go to **Settings → Tokens → New token** and choose the **API** Type. Only Admins see the Tokens page.
+  Go to **Settings → Tokens → New token** and choose the **API** Type. The Tokens page is shown to Admins, Developers and QA.
 
 ## Installation
 

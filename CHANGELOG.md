@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Developers and QA can create their own tokens in Settings → Tokens.** The page used to be shown to Admins only, so a CI token for an uploader had to be an Admin's. Each member sees and revokes only their own tokens, the **Agent** type is still offered to Admins only, and Viewers still do not see the page.
+
 - **Email addresses are compared without regard to letter case or surrounding spaces.** Sign-in, invitations and the first admin account all store and match the normalized address, and addresses already stored are normalized on upgrade. Two accounts whose addresses differ only in case are left as they are, each signing in by its exact address, and the relay names them at start so an Admin can remove one. The boot path and `POST /api/v1/auth/init` now store the same value for the same address (#715).
 
 - **Documentation links in the dashboard and the iOS agent point at the reorganized docs.** The Standard-mode notice opens the new HTTPS page, the sidebar's **Docs** opens the page for teammates, and the CoreSimulator error names the iOS Simulator troubleshooting page.

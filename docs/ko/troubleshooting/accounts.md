@@ -32,7 +32,7 @@ v0.26.0으로 업그레이드하면 모두 한 번 다시 로그인해야 합니
 
 ## 비밀번호 재설정 후 토큰이 동작하지 않음 {#tokens-revoked-by-reset}
 
-비밀번호를 재설정하면 그 멤버의 개인 액세스 토큰이 CI 토큰과 에이전트 토큰까지 모두 폐기되고 그 토큰으로 연결된 에이전트는 `Unauthorized: this token was revoked or has expired, or its owner was removed`와 함께 끊깁니다. 탈취된 계정을 가졌던 사람이 만든 토큰이 남지 않게 하기 위해서입니다. 로그인한 뒤 **Settings → Tokens**(Admin 전용이며 다른 멤버는 [`POST /api/v1/tokens`](/ko/reference/api#post-api-v1-tokens)를 씁니다)에서 토큰을 새로 발급해 CI 시크릿과 각 원격 에이전트의 `--token` 등 기존 토큰이 있던 자리에 넣으세요. **Settings**에서 직접 비밀번호를 바꾸면 토큰은 유지됩니다.
+비밀번호를 재설정하면 그 멤버의 개인 액세스 토큰이 CI 토큰과 에이전트 토큰까지 모두 폐기되고 그 토큰으로 연결된 에이전트는 `Unauthorized: this token was revoked or has expired, or its owner was removed`와 함께 끊깁니다. 탈취된 계정을 가졌던 사람이 만든 토큰이 남지 않게 하기 위해서입니다. 로그인한 뒤 **Settings → Tokens**(Viewer는 [`POST /api/v1/tokens`](/ko/reference/api#post-api-v1-tokens)를 씁니다)에서 토큰을 새로 발급해 CI 시크릿과 각 원격 에이전트의 `--token` 등 기존 토큰이 있던 자리에 넣으세요. **Settings**에서 직접 비밀번호를 바꾸면 토큰은 유지됩니다.
 
 ## 대소문자만 다른 계정이 두 개 있음 {#accounts-differ-in-case}
 

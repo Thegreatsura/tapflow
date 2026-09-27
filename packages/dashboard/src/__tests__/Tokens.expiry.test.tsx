@@ -8,6 +8,8 @@ import type { ApiToken } from '@/lib/types'
 import { withQuery } from './withQuery'
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+// The page offers the Agent type to Admins only; these cases are about an Admin's dialog.
+vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: { id: 1, email: 'a@test.local', displayName: null, avatarUrl: null, role: 'Admin' }, loading: false }) }))
 
 const WARNING = /stays valid until you revoke it/i
 

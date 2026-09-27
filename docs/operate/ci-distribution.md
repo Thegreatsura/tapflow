@@ -32,7 +32,7 @@ tapflow works on the built artifact, not the build tool. A native Xcode or Gradl
 | Requirement | Notes |
 |-------------|-------|
 | tapflow relay | Running and reachable from your CI environment |
-| Personal access token (PAT) | Create an API-type token in **Settings → Tokens** (it carries `builds:write`). Only Admins see this page |
+| Personal access token (PAT) | Create an API-type token in **Settings → Tokens** (it carries `builds:write`). Admins, Developers and QA see this page |
 
 ## How CI reaches the relay {#how-ci-reaches-the-relay}
 
@@ -50,7 +50,7 @@ Deploying the relay to fly.io, Railway, or similar puts the agent→relay path o
 
 ## 1. Generate a token
 
-In the dashboard, go to **Settings → Tokens → New token**. Only Admins see the Tokens page, so use an Admin account.
+In the dashboard, go to **Settings → Tokens → New token**. The Tokens page is shown to Admins, Developers and QA; the token belongs to whoever creates it.
 
 - **Name**: something descriptive, e.g. `GitHub Actions`
 - **Expiration**: 30 days by default. Pick 7, 30, 60 or 90 days, a custom number (1–365), or **No expiration**. For CI, 90 days or less is recommended.
