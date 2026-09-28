@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A shutdown requested without joining the session gets its answer.** An MCP client could shut down a device nobody held, but the result went only to the session's holder, so the client waited 30 seconds and reported a timeout for a shutdown that had happened. If the agent goes away for good before answering, the caller is told the outcome is unknown.
 
-- **An in-flight `device:boot` fails fast when its session rebounds instead of burning its full deadline.** The rebinding agent never saw the parked boot, so it can never be answered. The failure carries the rebound cause and reads as environmental; every other in-flight request keeps waiting for its reply on the new socket, and a boot issued after the rebound restores the binding as before.
+- **A `device:boot` stranded by an agent restart is settled by the relay, which answers it fast with the rebound cause.** The relay tracks in-flight boots by the agent socket they reached and answers only those tied to the replaced agent with a correlated `device:boot-error`, after `session:rebound` — so a boot the new agent is already handling completes instead of failing with "never saw this request". The failure reads as environmental; every other in-flight request keeps waiting for its reply on the new socket, and a boot issued after the rebound restores the binding as before. **Mixed versions:** a new client against an older relay waits out the boot deadline again, as before #865; slower but correct, and intentional, since the relay and the clients upgrade separately.
 
 ## [0.26.1] - 2026-09-27
 
