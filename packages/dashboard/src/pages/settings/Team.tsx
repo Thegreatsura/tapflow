@@ -94,6 +94,7 @@ export function TeamSettings() {
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null)
 
   const { register, handleSubmit, control, reset, setError, formState: { errors, isSubmitting, submitCount } } = useForm<InviteData>({
+    shouldFocusError: false, // FormErrorCount focuses, once the field is described (#824)
     resolver: zodResolver(inviteSchema),
     defaultValues: { email: '', role: 'QA' },
   })
@@ -112,7 +113,7 @@ export function TeamSettings() {
       })
       // The relay refuses an address that already has an account: an invitation never changes one.
       if (res.status === 409) {
-        setError('email', { message: 'Already a member. Change their role in the list instead.' }, { shouldFocus: true })
+        setError('email', { message: 'Already a member. Change their role in the list instead.' })
         return
       }
       if (!res.ok) throw new Error(`Server error: ${res.status}`)

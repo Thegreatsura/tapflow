@@ -30,6 +30,7 @@ export function Setup() {
   const defaultLogo = resolvedTheme === 'dark' ? '/logo-dark.svg' : '/logo.svg'
 
   const { register, handleSubmit, setError, formState: { errors, isSubmitting, submitCount } } = useForm<FormData>({
+    shouldFocusError: false, // FormErrorCount focuses, once the field is described (#824)
     resolver: zodResolver(schema),
   })
 

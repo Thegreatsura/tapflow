@@ -15,11 +15,12 @@ import { cn } from '@/lib/utils'
  * it is mounted early.
  *
  * **A description per field, an alert for the form.** A field's message is its input's
- * `aria-describedby` target and nothing more — read when focus reaches the field, which react-hook-form
- * moves to the first invalid one on submit. It used to be a polite live region as well, and that read the
- * focused field's message twice (#824); what the live region covered — Enter in a field that already has
- * focus, and the fields focus never reaches — is now `FormErrorCount`'s, which says how many and not
- * which. `assertive` belongs only to `errors.root`: no field owns it and focus never moves to it, so the
+ * `aria-describedby` target and nothing more — read when focus reaches the field, which `FormErrorCount`
+ * moves to the first invalid one on submit, after the render that describes it (react-hook-form's own
+ * focus arrives before the error does, which is why every form here turns it off). It used to be a polite live region as well, and that read the
+ * focused field's message twice (#824). What the live region covered is now `FormErrorCount`'s: it
+ * announces how many fields need attention, led by the message of a field that already had focus (Enter
+ * pressed in it), since no focus event will read that one. `assertive` belongs only to `errors.root`: no field owns it and focus never moves to it, so the
  * alert is its only channel.
  *
  * **Callers gate on `?.message`, never on the error object.** An error with no message would

@@ -36,6 +36,7 @@ export function Invite() {
   const avatarRef = useRef<HTMLInputElement>(null)
 
   const { register, handleSubmit, control, setError, formState: { errors, isSubmitting, submitCount } } = useForm<FormData>({
+    shouldFocusError: false, // FormErrorCount focuses, once the field is described (#824)
     resolver: zodResolver(schema),
     defaultValues: { displayName: '', avatar: null },
   })

@@ -75,6 +75,7 @@ export function DefaultSettings() {
   // `values` rather than a reset from an effect. `keepDirtyValues`: a refetch on window focus must
   // not overwrite what someone is typing.
   const workspaceForm = useForm<WorkspaceData>({
+    shouldFocusError: false, // FormErrorCount focuses, once the field is described (#824)
     resolver: zodResolver(workspaceSchema),
     defaultValues: { teamName: '', logo: null },
     values: settingsQuery.data ? { teamName: settingsQuery.data.team_name, logo: null } : undefined,
@@ -102,6 +103,7 @@ export function DefaultSettings() {
   const avatarRef = useRef<HTMLInputElement>(null)
 
   const profileForm = useForm<ProfileData>({
+    shouldFocusError: false, // FormErrorCount focuses, once the field is described (#824)
     resolver: zodResolver(profileSchema),
     defaultValues: { displayName: '', avatar: null },
     values: user ? { displayName: user.displayName ?? '', avatar: null } : undefined,
@@ -123,6 +125,7 @@ export function DefaultSettings() {
   }
 
   const passwordForm = useForm<PasswordData>({
+    shouldFocusError: false, // FormErrorCount focuses, once the field is described (#824)
     resolver: zodResolver(passwordSchema),
   })
 

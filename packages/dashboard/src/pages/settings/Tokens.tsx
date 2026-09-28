@@ -82,6 +82,7 @@ export function TokenSettings() {
 
   const expiryWarningId = useId()
   const { register, control, handleSubmit, reset, formState: { errors, isSubmitting, submitCount } } = useForm<FormData>({
+    shouldFocusError: false, // FormErrorCount focuses, once the field is described (#824)
     resolver: zodResolver(schema),
     defaultValues: { name: '', expiry: '30', expiresDays: '30' },
   })

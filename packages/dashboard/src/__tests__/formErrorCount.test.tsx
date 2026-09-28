@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { withQuery } from './withQuery'
@@ -82,16 +82,66 @@ describe('a refused submit', () => {
     expect(region.textContent?.trim()).toBe('2 fields need attention')
   })
 
-  it('changes the region on a second refusal with the same count, so it is announced again', async () => {
+  it('empties the region and refills it on a second refusal with the same count', async () => {
+    // Clear, then set in a later task (W3C ARIA19): the same text written twice is not a change a screen
+    // reader is obliged to announce, and a whitespace difference is not a reliable one either.
     const { container } = await renderSetup()
     const region = countRegion(container)
     await submit()
-    await waitFor(() => expect(region.textContent?.trim()).toBe('2 fields need attention'))
-    const first = region.textContent
+    await waitFor(() => expect(region).toHaveTextContent('2 fields need attention'))
 
+    const texts: string[] = []
+    const observer = new MutationObserver(() => texts.push(region.textContent ?? ''))
+    observer.observe(region, { childList: true, characterData: true, subtree: true })
     await submit()
-    await waitFor(() => expect(region.textContent).not.toBe(first))
-    expect(region.textContent?.trim()).toBe('2 fields need attention')
+    await waitFor(() => expect(texts.at(-1)).toBe('2 fields need attention'))
+    observer.disconnect()
+    expect(texts).toContain('')
+  })
+})
+
+// CodeRabbit on #890: react-hook-form focuses the first invalid field *before* it publishes the errors,
+// so focus arrived at an input with no description yet, and its own retry re-focuses an element that
+// already has focus, which fires nothing. With the field's live region gone that read the error zero
+// times. So the forms take focus themselves, after the render that describes the field — and these
+// record what the input was described as **at the focus event**, not after everything settled.
+describe('focus after a refused submit', () => {
+  /** Every focus event on `el`, with the description it had at that moment. */
+  function recordFocus(el: HTMLElement) {
+    const seen: string[] = []
+    el.addEventListener('focus', () => {
+      const id = el.getAttribute('aria-describedby')
+      seen.push(id ? document.getElementById(id)?.textContent ?? '' : '')
+    })
+    return seen
+  }
+
+  it('arrives at the first invalid field once it already names its error', async () => {
+    await renderSetup()
+    const email = screen.getByLabelText(/admin email/i)
+    const seen = recordFocus(email)
+    await submit()
+
+    await waitFor(() => expect(email).toHaveFocus())
+    expect(seen).toEqual(['Enter a valid email'])
+  })
+
+  it('says the error of the field that already had focus, once, without moving focus', async () => {
+    // No focus event fires for an element that already has focus, so the live region says that error.
+    // Not blur-then-focus: a screen reader may see no change, and on a phone the keyboard would drop.
+    const { container } = await renderSetup()
+    const region = countRegion(container)
+    const email = screen.getByLabelText(/admin email/i)
+    await userEvent.type(email, 'not-an-email')
+    const seen = recordFocus(email)
+    // What Enter does — submit the form, focus untouched. jsdom does not perform implicit submission for
+    // `{Enter}` (measured: nothing submitted), so the submit is fired directly with focus left on the field.
+    expect(email).toHaveFocus()
+    fireEvent.submit(email.closest('form')!)
+
+    await waitFor(() => expect(region).toHaveTextContent('Enter a valid email. 2 fields need attention'))
+    expect(seen).toEqual([])
+    expect(email).toHaveFocus()
   })
 })
 
@@ -156,5 +206,8 @@ describe('every form with field errors carries a count', () => {
     const src = fs.readFileSync(path.join(root, file), 'utf8')
     const forms = (src.match(/<form[\s>]/g) ?? []).length
     expect((src.match(/<FormErrorCount /g) ?? []).length).toBe(forms)
+    // And react-hook-form's own focus is off, or it reaches the field before its error does.
+    expect((src.match(/shouldFocusError: false/g) ?? []).length).toBe(forms)
+    expect(src).not.toMatch(/shouldFocus: true/)
   })
 })
