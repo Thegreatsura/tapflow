@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FieldError } from '@/components/ui/field-error'
+import { FormErrorCount } from '@/components/ui/form-error-count'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -92,7 +93,7 @@ export function TeamSettings() {
   const [inviteOpen, setInviteOpen] = useState(false)
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null)
 
-  const { register, handleSubmit, control, reset, setError, formState: { errors, isSubmitting } } = useForm<InviteData>({
+  const { register, handleSubmit, control, reset, setError, formState: { errors, isSubmitting, submitCount } } = useForm<InviteData>({
     resolver: zodResolver(inviteSchema),
     defaultValues: { email: '', role: 'QA' },
   })
@@ -271,6 +272,7 @@ export function TeamSettings() {
                   <FieldError id="role-error" message={errors.role?.message} />
                 </div>
                 <Button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Creating link…' : 'Generate invite link'}</Button>
+                <FormErrorCount errors={errors} submitCount={submitCount} />
               </form>
             )}
           </DialogContent>

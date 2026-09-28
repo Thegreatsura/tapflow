@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A screen reader reads a form's field errors once, not twice.** After a refused submit the field that receives focus had its error read as its description and again as a live announcement. Each field's error is now its description only, and a hidden announcement per form says how many fields need attention, which still covers Enter pressed in a field that already has focus and the fields focus never reaches. Nothing changes on screen.
+
 - **A device shutdown that fails now says so.** iOS used to answer a failed `simctl shutdown` with nothing, so the caller waited out its deadline; Android answered a failed `adb emu kill` with success while the emulator kept running. Both now send `device:shutdown-error`, and when `adb emu kill` fails Android checks the process table before answering, so an emulator that was already exiting still reports done. The stream has already been stopped by then, and the message says so. **Upgrade the relay before the agents**: a relay older than this release drops the new error, so a failed shutdown on an upgraded Android agent goes unanswered instead of being reported as a success.
 
 - **A shutdown requested without joining the session gets its answer.** An MCP client could shut down a device nobody held, but the result went only to the session's holder, so the client waited 30 seconds and reported a timeout for a shutdown that had happened. If the agent goes away for good before answering, the caller is told the outcome is unknown.

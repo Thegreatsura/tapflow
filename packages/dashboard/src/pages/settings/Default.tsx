@@ -9,6 +9,7 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
 import { FieldError } from '@/components/ui/field-error'
+import { FormErrorCount } from '@/components/ui/form-error-count'
 import { FieldHint } from '@/components/ui/field-hint'
 import { PASSWORD_HINT, PASSWORD_MIN_LENGTH, PASSWORD_TOO_SHORT, describedBy } from '@/lib/password'
 import { Label } from '@/components/ui/label'
@@ -238,6 +239,7 @@ export function DefaultSettings() {
                   {workspaceForm.formState.isSubmitting ? 'Saving…' : 'Save changes'}
                 </Button>
               </div>
+              <FormErrorCount errors={workspaceForm.formState.errors} submitCount={workspaceForm.formState.submitCount} />
             </form>
           </CardContent>
         </Card>
@@ -295,6 +297,7 @@ export function DefaultSettings() {
                 {profileForm.formState.isSubmitting ? 'Saving…' : 'Save changes'}
               </Button>
             </div>
+            <FormErrorCount errors={profileForm.formState.errors} submitCount={profileForm.formState.submitCount} />
           </form>
         </CardContent>
       </Card>
@@ -326,6 +329,7 @@ export function DefaultSettings() {
                 {passwordForm.formState.isSubmitting ? 'Saving…' : 'Change password'}
               </Button>
             </div>
+            <FormErrorCount errors={passwordForm.formState.errors} submitCount={passwordForm.formState.submitCount} />
           </form>
         </CardContent>
       </Card>

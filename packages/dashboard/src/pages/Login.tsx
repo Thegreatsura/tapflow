@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { FieldError } from '@/components/ui/field-error'
+import { FormErrorCount } from '@/components/ui/form-error-count'
 import { PASSWORD_MIN_LENGTH, PASSWORD_TOO_SHORT } from '@/lib/password'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
@@ -29,7 +30,7 @@ export function Login() {
   const status = useQuery({ queryKey: queryKeys.authStatus, queryFn: getAuthStatus, staleTime: Infinity })
   const queryClient = useQueryClient()
 
-  const { register, handleSubmit, setError, formState: { errors, isSubmitting } } = useForm<FormData>({
+  const { register, handleSubmit, setError, formState: { errors, isSubmitting, submitCount } } = useForm<FormData>({
     resolver: zodResolver(schema),
   })
 
@@ -94,6 +95,7 @@ export function Login() {
             <Button type="submit" size="lg" disabled={isSubmitting} className="w-full mt-1">
               {isSubmitting ? 'Signing in…' : 'Sign in'}
             </Button>
+            <FormErrorCount errors={errors} submitCount={submitCount} />
           </form>
         </CardContent>
         </Card>
