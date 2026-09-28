@@ -7,11 +7,13 @@ import { z } from 'zod'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FieldError } from '@/components/ui/field-error'
+import { FieldHint } from '@/components/ui/field-hint'
+import { PASSWORD_HINT, PASSWORD_MIN_LENGTH, PASSWORD_TOO_SHORT, describedBy } from '@/lib/password'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 const schema = z.object({
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  password: z.string().min(PASSWORD_MIN_LENGTH, PASSWORD_TOO_SHORT),
   confirm: z.string(),
 }).refine((d) => d.password === d.confirm, {
   message: 'Passwords do not match',
@@ -84,7 +86,8 @@ export function ResetPassword() {
           <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
             <div className="grid gap-2">
               <Label htmlFor="password">New password</Label>
-              <Input id="password" type="password" aria-required="true" autoComplete="new-password" aria-invalid={!!errors.password} aria-describedby={errors.password ? 'password-error' : undefined} {...register('password')} />
+              <Input id="password" type="password" aria-required="true" autoComplete="new-password" aria-invalid={!!errors.password} aria-describedby={describedBy('password-hint', 'password-error', !!errors.password)} {...register('password')} />
+              {!errors.password && <FieldHint id="password-hint">{PASSWORD_HINT}</FieldHint>}
               <FieldError id="password-error" message={errors.password?.message} />
             </div>
             <div className="grid gap-2">
