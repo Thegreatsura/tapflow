@@ -207,6 +207,13 @@ type Unacked = Inbound<
   | 'input:rotate' | 'input:posture' | 'input:keyboard:toggle'
 >
 
+/** Just past `mcp-server`'s 30s shutdown deadline, so an entry outlives every caller still waiting on it. */
+const SHUTDOWN_REQUESTER_TTL_MS = 35_000
+/** Said when a session ends with a shutdown unanswered — which is not the same as the shutdown failing. */
+const SHUTDOWN_OUTCOME_LOST =
+  'The session ended before its agent confirmed the shutdown, so whether the device shut down is unknown.'
+const shutdownRequesterKey = (sessionId: string, requestId: string): string => `${sessionId}\n${requestId}`
+
 export class RelayServer {
   private httpServer: http.Server | https.Server
   /**
@@ -330,6 +337,25 @@ export class RelayServer {
     sessionId: string
     resolve: (elements: UIElement[]) => void
     reject: (err: Error) => void
+    timer: ReturnType<typeof setTimeout>
+  }>()
+  /**
+   * Who asked for each correlated `device:shutdown` still waiting on its agent (#567). The agent's answer
+   * goes to the session's `browserSocket`, and a caller that never joined — an MCP client shutting down a
+   * session nobody holds, which `mayShutDown` permits — has no socket there, so it waited out its 30s for a
+   * shutdown that had happened. Keyed by session **and** id, because the id is chosen by the client and
+   * would alone let one session's answer reach another session's caller.
+   *
+   * **Settled when the session is removed, never when the agent socket drops — the opposite of a boot.**
+   * Both agents reconnect without restarting, and a shutdown that finishes after the reconnect is answered
+   * on the new socket, so an agent going away or being rebound is not evidence that the answer is lost.
+   * For a boot it is (#885): the binding a boot creates is exactly what a rebind loses. Folding the two
+   * into one rule would tell a caller its shutdown failed for a device that then powered off.
+   */
+  private readonly shutdownRequesters = new Map<string, {
+    sessionId: string
+    requestId: string
+    ws: WebSocket
     timer: ReturnType<typeof setTimeout>
   }>()
 
@@ -603,6 +629,8 @@ export class RelayServer {
     // already stopped.
     for (const requester of this.networkStateRequesters.values()) requester.dispose()
     this.networkStateRequesters.clear()
+    for (const entry of this.shutdownRequesters.values()) clearTimeout(entry.timer)
+    this.shutdownRequesters.clear()
     const closeTunnel = new Promise<void>((resolve, reject) => {
       // Not listening means `start()` never reached it, or its listen failed; `close()` would reject.
       if (!this.tunnelServer?.listening) return resolve()
@@ -1069,6 +1097,7 @@ export class RelayServer {
     ws.on('close', () => {
       this.wsRoles.delete(ws)
       this.wsExternal.delete(ws)
+      this.forgetShutdownRequesters(ws)
       // Agent main socket disconnected → hold its sessions open for a moment in case the agent is
       // coming back (#426), rather than ending them where they stand.
       if (this.holdAgentSocket(ws)) return
@@ -1266,7 +1295,11 @@ export class RelayServer {
       // `session:leave-error` would grow the wire for a message no consumer reads — and `session:end` has
       // no in-repo sender at all, so it would be a reply to nobody.
       case 'session:end': {
-        if (this.ownsSession(ws, this.sessions.get(msg.sessionId))) {
+        const ended = this.sessions.get(msg.sessionId)
+        if (this.ownsSession(ws, ended)) {
+          // Silently: the holder ended it, and the shutdown may still complete on the device — saying it
+          // failed would be a guess. The caller keeps its own deadline, as it did before #567.
+          if (ended) this.settleShutdownRequesters(ended, null)
           this.sessions.remove(msg.sessionId)
           this.forgetSessionState(msg.sessionId)
         }
@@ -1361,6 +1394,18 @@ export class RelayServer {
         if (session.browserSocket?.readyState === WebSocket.OPEN) {
           session.browserSocket.send(JSON.stringify(raw))
         }
+        this.answerShutdownRequester(session, msg.requestId, raw)
+        break
+      }
+      case 'device:shutdown-error': {
+        // The agent's half of the pair (#455). Device status is left alone: the shutdown was attempted
+        // and not confirmed, so the device may well still be running.
+        const session = this.sessions.get(msg.sessionId)
+        if (!session) break
+        if (session.browserSocket?.readyState === WebSocket.OPEN) {
+          session.browserSocket.send(JSON.stringify(raw))
+        }
+        this.answerShutdownRequester(session, msg.requestId, raw)
         break
       }
       case 'device:ready': {
@@ -1501,6 +1546,7 @@ export class RelayServer {
           })
           break
         }
+        this.rememberShutdownRequester(ws, target.session.id, msg.requestId)
         target.session.agentSocket.send(JSON.stringify(msg))
         break
       }
@@ -1660,6 +1706,53 @@ export class RelayServer {
    * Messages the relay merely *forwards* do not use this: they are re-serialised unchanged, so
    * they keep their inbound type and there is nothing new to check.
    */
+  private rememberShutdownRequester(ws: WebSocket, sessionId: string, requestId: string | undefined): void {
+    // The idle timer's shutdown and the dashboard's teardown carry no id, and nobody waits on either.
+    if (requestId === undefined) return
+    const key = shutdownRequesterKey(sessionId, requestId)
+    const prior = this.shutdownRequesters.get(key)
+    if (prior) clearTimeout(prior.timer)
+    // Bounds an entry an older agent will never answer — it has no failure reply to send.
+    const timer = setTimeout(() => this.shutdownRequesters.delete(key), SHUTDOWN_REQUESTER_TTL_MS)
+    this.shutdownRequesters.set(key, { sessionId, requestId, ws, timer })
+  }
+
+  /** Hands the agent's answer to whoever asked for it, when that is not the holder — who already has it. */
+  private answerShutdownRequester(session: Session, requestId: string | undefined, raw: Readonly<Record<string, unknown>>): void {
+    if (requestId === undefined) return
+    const key = shutdownRequesterKey(session.id, requestId)
+    const entry = this.shutdownRequesters.get(key)
+    if (!entry) return
+    clearTimeout(entry.timer)
+    this.shutdownRequesters.delete(key)
+    // Compared now rather than at dispatch: a caller that has joined since holds the session, and was sent
+    // this a line ago.
+    if (entry.ws === session.browserSocket) return
+    if (entry.ws.readyState === WebSocket.OPEN) entry.ws.send(JSON.stringify(raw))
+  }
+
+  /**
+   * The session is being removed, so an answer from its agent — if one ever comes — is dropped at
+   * `sessions.get`. `message` null settles in silence; otherwise a caller that never joined is told.
+   */
+  private settleShutdownRequesters(session: Session, message: string | null): void {
+    for (const [key, entry] of this.shutdownRequesters) {
+      if (entry.sessionId !== session.id) continue
+      clearTimeout(entry.timer)
+      this.shutdownRequesters.delete(key)
+      if (message === null || entry.ws === session.browserSocket) continue
+      this.sendTo(entry.ws, { type: 'device:shutdown-error', sessionId: session.id, requestId: entry.requestId, message })
+    }
+  }
+
+  private forgetShutdownRequesters(ws: WebSocket): void {
+    for (const [key, entry] of this.shutdownRequesters) {
+      if (entry.ws !== ws) continue
+      clearTimeout(entry.timer)
+      this.shutdownRequesters.delete(key)
+    }
+  }
+
   private sendTo(socket: WebSocket, msg: RelayOutbound): void {
     if (socket.readyState !== WebSocket.OPEN) return
     socket.send(JSON.stringify(msg))
@@ -1769,7 +1862,10 @@ export class RelayServer {
         })
       }
     }
+    // After `session:terminated`, so a caller that holds the session is settled by that — it carries the
+    // better diagnosis — and only a caller that never joined hears from `settleShutdownRequesters`.
     for (const s of agentSessions) {
+      this.settleShutdownRequesters(s, SHUTDOWN_OUTCOME_LOST)
       this.sessions.remove(s.id)
       this.forgetSessionState(s.id)
     }
@@ -1829,6 +1925,7 @@ export class RelayServer {
     }
     // Their in-flight requests are addressed to a process that is gone, and the eviction above can
     // no longer see them. Nothing else would ever settle these.
+    // Shutdowns are deliberately not settled here — see `shutdownRequesters` for why they follow the session.
     if (rebound.size > 0) this.rejectPending(new Set(rebound.values()), 'Agent restarted')
 
     // A device can be back under an agent this session cannot be rebound to — identity is
@@ -1843,6 +1940,7 @@ export class RelayServer {
         if (s.browserSocket) {
           this.sendTo(s.browserSocket, { type: 'session:terminated', sessionId: s.id, reason: 'agent-disconnected' })
         }
+        this.settleShutdownRequesters(s, SHUTDOWN_OUTCOME_LOST)
         this.sessions.remove(s.id)
         this.forgetSessionState(s.id)
       }

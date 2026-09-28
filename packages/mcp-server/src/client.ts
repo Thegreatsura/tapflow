@@ -757,9 +757,10 @@ export class TapflowClient {
   }
 
   // Powers the session's booted device down (agent runs simctl/adb shutdown, replies device:shutdown-done).
-  // payload carries deviceId, matching the agent handler and the relay's own shutdown path. **The agent has
-  // no failure reply**: Android replies done regardless, iOS surfaces a failed shutdown as a wait timeout.
-  // `device:shutdown-error` is the relay's, and only the relay's — see its declaration.
+  // payload carries deviceId, matching the agent handler and the relay's own shutdown path. Both halves have
+  // two producers: the relay answers a shutdown it cannot deliver (#542) or whose session ended first, and the
+  // agents answer one they could not confirm (#455) — see `DeviceShutdownError` for the four outcomes. An agent older than that still answers a failure with
+  // nothing, which is what the deadline below is for.
   async shutdownDevice(sessionId: string, deviceId: string): Promise<void> {
     // Kept after #542, with a different job. The relay answers an undispatchable shutdown now, so this is no
     // longer the difference between a diagnosis and 30s of nothing — it saves a round trip and says more

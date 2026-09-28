@@ -850,6 +850,7 @@ export type RelayOrAgentToBrowser =
   | InputTypeError
   | NetworkError
   | ClipboardError
+  | DeviceShutdownError
 
 export interface AgentsListed {
   type: 'agents:listed'
@@ -948,7 +949,7 @@ export interface GenericError extends SessionScoped {
 }
 
 /**
- * A `device:shutdown` the relay could not deliver.
+ * A `device:shutdown` that did not end with the device off — or may not have.
  *
  * **The pair's error member, added late and by a different producer than its `-done`.** Every other
  * browser-originated command answers when the relay cannot dispatch it; this one resolved its session
@@ -956,12 +957,15 @@ export interface GenericError extends SessionScoped {
  * reported `Request timed out` with no cause (#542). There was no shape to answer *with*, which is why
  * fixing it was a protocol change rather than a relay one.
  *
- * **`RelayToBrowser`, not `RelayOrAgentToBrowser`**, unlike `DeviceBootError` beside it. Both agents ack
- * a shutdown they cannot perform by simply not sending `device:shutdown-done`; neither has a failure
- * path that produces a message. Declaring it in the shared union would claim a producer that does not
- * exist, and would add an `AgentToBrowser` member with no forwarding case — which is exactly what
- * `browserInboundRouting.test.mjs`'s second assertion exists to report. If an agent later grows one,
- * moving the member is one line and that check enforces the case at the same time.
+ * **Two producers and four outcomes**, which is why it sits in `RelayOrAgentToBrowser` beside
+ * `DeviceBootError` (#455), and the wire does not say which:
+ * - the relay could not dispatch it — nothing reached the device;
+ * - the relay dispatched it and the session ended before the agent answered — the outcome is unknown;
+ * - an agent attempted it and could not confirm it — both tear the session's stream down *before* they
+ *   try, so the device may still be running with nothing streaming from it;
+ * - an agent held no state for the session — nothing was attempted.
+ *
+ * So a consumer that renders it must not claim the device was left untouched, nor that it is still up.
  *
  * `requestId` is optional because **the request's is** — the relay originates `device:shutdown` from its
  * own idle timer, so a reply cannot demand a field the request need not carry. Absent here means the
@@ -981,7 +985,6 @@ export type RelayToBrowser =
   | SessionTerminated
   | SessionAgentAway
   | SessionRebound
-  | DeviceShutdownError
   | GenericError
 
 export interface DeviceBooting {

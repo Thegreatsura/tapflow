@@ -46,12 +46,11 @@ interface Options {
  * boots the device — see the timer body for why that distinction is the difference between a slow
  * restart and a device left powered off with nothing in the app that will bring it back.
  *
- * **Silence is a reachable answer here, not a hang to be defended against.** Both agents open
- * `handleDeviceShutdown` with `if (!state) return` — no `device:shutdown-done`, no error, nothing —
- * and `IOSAgent`'s own catch logs a failed `simctl shutdown` and sends nothing either. That is
- * deliberate on the protocol's side: `DeviceShutdownError` is declared `RelayToBrowser`, and its doc
- * says both agents "ack a shutdown they cannot perform by simply not sending `device:shutdown-done`".
- * So without this the control spins for the rest of the session on a shutdown nobody will answer.
+ * **Silence is still a reachable answer, not a hang to be defended against.** Both agents now answer a
+ * shutdown they could not confirm with `device:shutdown-error` (#455), but an agent from before that
+ * change answers a failed one with nothing at all, and the relay and agents are upgraded separately.
+ * A `simctl shutdown` that hangs is silent on every version. So without this the control can still spin
+ * for the rest of the session on a shutdown nobody will answer.
  *
  * 20s because the agent awaits the real shutdown before answering — `simctl shutdown` on a busy Mac,
  * or `adb emu kill` on an emulator mid-write. Generous on purpose: being early means saying something
@@ -130,8 +129,10 @@ export function useDeviceReboot({ sessionId, deviceId, deviceReady, send, handle
       requestId.current = null
       setPending(false)
       if (msg.type === 'device:shutdown-error') {
-        // The device is still up: the relay refused to dispatch, so nothing reached it. Said rather
-        // than rendered, because the control it came from goes back to looking exactly as it did.
+        // Not restarted, whoever sent it — but not necessarily untouched: the shutdown may never have been
+        // delivered, or may have been attempted with the stream already stopped (see `DeviceShutdownError`).
+        // The message says which, so this sentence claims only what every outcome shares.
+        // Said rather than rendered, because the control it came from goes back to looking as it did.
         onErrorRef.current(`The device was not restarted. ${msg.message}`)
         return
       }

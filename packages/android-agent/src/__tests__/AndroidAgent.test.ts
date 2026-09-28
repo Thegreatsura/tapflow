@@ -137,7 +137,7 @@ import { WebSocket, WebSocketServer } from 'ws'
 import { RelayServer, initDb, closeDb } from '@tapflowio/relay'
 import { hasEnvelope, readEnvelopeFlags, CODEC_H264, CODEC_JPEG } from '@tapflowio/agent-core/utils'
 import { AndroidAgent, pickAndroidBackend, parseSpsFromNal, toNaturalPoint } from '../AndroidAgent'
-import { isPosturable } from '@tapflowio/agent-core'
+import { isPosturable, SHUTDOWN_NO_SESSION_STATE } from '@tapflowio/agent-core'
 import type { SkinRotation } from '../emulator/EmulatorGrpcClient'
 import { AdbWrapper } from '../AdbWrapper'
 import { ScrcpySession } from '../scrcpy/ScrcpySession'
@@ -2504,6 +2504,119 @@ describe('AndroidAgent', () => {
         expect(msg['payload']).toMatchObject({ deviceId: 'avd:Pixel_8_API_34' })
         expect(shutdownSpy).toHaveBeenCalledWith('emulator-5554')
         expect(adb.getSerial('avd:Pixel_8_API_34')).toBeUndefined() // serial cleared
+      })
+
+      // #455. A failed `emu kill` used to be logged as "already gone?" and answered done, so a caller was
+      // told the device was off while the emulator kept running. Whether it is gone is now asked of the
+      // process table, which is what Full reset already trusts for the same question.
+      describe('a kill that fails is judged by whether the emulator is still there', () => {
+        const owned = () => (agent as unknown as { ownedDevices: Set<string> }).ownedDevices
+        beforeEach(() => {
+          ;(agent as unknown as { shutdownSettleMs: number }).shutdownSettleMs = 60
+          // Module-level mocks: the Full reset tests above call both, and counts would carry over.
+          vi.mocked(probeEmulator).mockClear()
+          vi.mocked(stopEmulatorProcess).mockClear()
+        })
+        afterEach(() => vi.mocked(probeEmulator).mockReturnValue({ state: 'gone' }))
+
+        it('answers shutdown-error while the emulator is still running, and keeps it', async () => {
+          vi.spyOn(adb, 'shutdown').mockRejectedValue(new Error('console refused'))
+          vi.mocked(probeEmulator).mockReturnValue({ state: 'running', pid: 4321 })
+          owned().add('avd:Pixel_8_API_34')
+
+          const done = waitForTypeOrNull(browser, 'device:shutdown-done', 400)
+          const err = waitForType(browser, 'device:shutdown-error')
+          inject({ type: 'device:shutdown', requestId: 'rq-kill', payload: { deviceId: 'avd:Pixel_8_API_34' } })
+          const msg = await err
+          expect(msg['requestId']).toBe('rq-kill')
+          expect(msg['message']).toContain('console refused')
+          expect(await done, 'a failed shutdown must not also claim success').toBeNull()
+          // The process table is keyed by AVD name; the `avd:` id would match nothing and read as gone.
+          expect(probeEmulator).toHaveBeenCalledWith('Pixel_8_API_34')
+          expect(adb.getSerial('avd:Pixel_8_API_34')).toBe('emulator-5554')
+          expect(owned().has('avd:Pixel_8_API_34')).toBe(true)
+        })
+
+        it('answers shutdown-error when it cannot tell', async () => {
+          vi.spyOn(adb, 'shutdown').mockRejectedValue(new Error('console refused'))
+          vi.mocked(probeEmulator).mockReturnValue({ state: 'unknown' })
+
+          const err = waitForType(browser, 'device:shutdown-error')
+          inject({ type: 'device:shutdown', requestId: 'rq-unknown', payload: { deviceId: 'avd:Pixel_8_API_34' } })
+          expect((await err)['requestId']).toBe('rq-unknown')
+          // A missing or failing pgrep does not start working inside the window, so it is asked once.
+          expect(probeEmulator).toHaveBeenCalledTimes(1)
+        })
+
+        it('leaves the device to a boot that started while it was confirming', async () => {
+          // Back pressed mid-boot, then the device re-picked inside the window. Without the check the
+          // probe's later `gone` is answered done — telling the relay the device is down in the middle
+          // of the new boot — and clears the serial that boot is about to use.
+          vi.spyOn(adb, 'shutdown').mockRejectedValue(new Error('device offline'))
+          vi.mocked(probeEmulator)
+            .mockImplementationOnce(() => { getState().bootSeq += 1; return { state: 'running', pid: 4321 } })
+            .mockReturnValue({ state: 'gone' })
+
+          const done = waitForTypeOrNull(browser, 'device:shutdown-done', 400)
+          const err = waitForType(browser, 'device:shutdown-error')
+          inject({ type: 'device:shutdown', requestId: 'rq-overtaken', payload: { deviceId: 'avd:Pixel_8_API_34' } })
+          const msg = await err
+          expect(msg['requestId']).toBe('rq-overtaken')
+          expect(msg['message']).toContain('A boot started')
+          expect(await done).toBeNull()
+          expect(adb.getSerial('avd:Pixel_8_API_34')).toBe('emulator-5554')
+        })
+
+        it('answers done once an emulator that was already exiting is gone', async () => {
+          // The usual reason `emu kill` fails: adb has let go of an emulator qemu is still tearing down.
+          // Asked once, straight after the failure, the process table still shows it.
+          vi.spyOn(adb, 'shutdown').mockRejectedValue(new Error('device offline'))
+          vi.mocked(probeEmulator)
+            .mockReturnValueOnce({ state: 'running', pid: 4321 })
+            .mockReturnValue({ state: 'gone' })
+
+          const done = waitForType(browser, 'device:shutdown-done')
+          inject({ type: 'device:shutdown', requestId: 'rq-exiting', payload: { deviceId: 'avd:Pixel_8_API_34' } })
+          expect((await done)['requestId']).toBe('rq-exiting')
+          expect(adb.getSerial('avd:Pixel_8_API_34')).toBeUndefined()
+        })
+
+        it('answers shutdown-error with no serial while an emulator is still running', async () => {
+          // No console to send the kill to — an adb server restart, or an emulator still coming up — used
+          // to skip the kill and answer done regardless.
+          const shutdown = vi.spyOn(adb, 'shutdown')
+          adb.clearSerial('avd:Pixel_8_API_34')
+          vi.mocked(probeEmulator).mockReturnValue({ state: 'running', pid: 4321 })
+
+          const err = waitForType(browser, 'device:shutdown-error')
+          inject({ type: 'device:shutdown', requestId: 'rq-noserial', payload: { deviceId: 'avd:Pixel_8_API_34' } })
+          expect((await err)['requestId']).toBe('rq-noserial')
+          expect(shutdown).not.toHaveBeenCalled()
+          // Not signalled either: a hard stop is reserved for Full reset, where the data is about to go.
+          expect(stopEmulatorProcess).not.toHaveBeenCalled()
+        })
+
+        it('answers done with no serial when nothing is running', async () => {
+          adb.clearSerial('avd:Pixel_8_API_34')
+          const done = waitForType(browser, 'device:shutdown-done')
+          inject({ type: 'device:shutdown', requestId: 'rq-noserial-gone', payload: { deviceId: 'avd:Pixel_8_API_34' } })
+          expect((await done)['requestId']).toBe('rq-noserial-gone')
+        })
+      })
+
+      it('answers a correlated shutdown it has no session state for, and only that one', async () => {
+        const sessionId = agent.sessionId
+        internals(agent).deviceStates.clear()
+
+        const silent = waitForTypeOrNull(browser, 'device:shutdown-error', 300)
+        internals(agent).handleRelayMessage({ type: 'device:shutdown', sessionId, payload: { deviceId: 'avd:Pixel_8_API_34' } })
+        expect(await silent, 'nobody waits on an uncorrelated shutdown').toBeNull()
+
+        const err = waitForType(browser, 'device:shutdown-error')
+        internals(agent).handleRelayMessage({ type: 'device:shutdown', sessionId, requestId: 'rq-nostate', payload: { deviceId: 'avd:Pixel_8_API_34' } })
+        const msg = await err
+        expect(msg['requestId']).toBe('rq-nostate')
+        expect(msg['message']).toBe(SHUTDOWN_NO_SESSION_STATE)
       })
     })
 
