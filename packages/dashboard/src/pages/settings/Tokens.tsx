@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FieldError } from '@/components/ui/field-error'
+import { FormErrorCount } from '@/components/ui/form-error-count'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -80,7 +81,8 @@ export function TokenSettings() {
   const [dialogStatus, setDialogStatus] = useState('')
 
   const expiryWarningId = useId()
-  const { register, control, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<FormData>({
+  const { register, control, handleSubmit, reset, formState: { errors, isSubmitting, submitCount } } = useForm<FormData>({
+    shouldFocusError: false, // FormErrorCount focuses, once the field is described (#824)
     resolver: zodResolver(schema),
     defaultValues: { name: '', expiry: '30', expiresDays: '30' },
   })
@@ -238,6 +240,7 @@ export function TokenSettings() {
                   Scope: <Badge variant="secondary">{tokenType === 'agent' ? 'agent' : 'view, builds:write'}</Badge>
                 </p>
                 <Button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Creating…' : 'Create token'}</Button>
+                <FormErrorCount errors={errors} submitCount={submitCount} />
               </form>
             )}
           </DialogContent>

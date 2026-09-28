@@ -8,6 +8,7 @@ import { useTheme } from 'next-themes'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FieldError } from '@/components/ui/field-error'
+import { FormErrorCount } from '@/components/ui/form-error-count'
 import { FieldHint } from '@/components/ui/field-hint'
 import { PASSWORD_HINT, PASSWORD_MIN_LENGTH, PASSWORD_TOO_SHORT, describedBy } from '@/lib/password'
 import { Label } from '@/components/ui/label'
@@ -28,7 +29,8 @@ export function Setup() {
   const { resolvedTheme } = useTheme()
   const defaultLogo = resolvedTheme === 'dark' ? '/logo-dark.svg' : '/logo.svg'
 
-  const { register, handleSubmit, setError, formState: { errors, isSubmitting } } = useForm<FormData>({
+  const { register, handleSubmit, setError, formState: { errors, isSubmitting, submitCount } } = useForm<FormData>({
+    shouldFocusError: false, // FormErrorCount focuses, once the field is described (#824)
     resolver: zodResolver(schema),
   })
 
@@ -135,6 +137,7 @@ aria-describedby={errors.confirm ? 'confirm-error' : undefined}
                 <Button type="submit" size="lg" disabled={isSubmitting} className="w-full mt-1">
                   {isSubmitting ? 'Creating account…' : 'Create admin account'}
                 </Button>
+                <FormErrorCount errors={errors} submitCount={submitCount} />
               </form>
             )}
           </CardContent>

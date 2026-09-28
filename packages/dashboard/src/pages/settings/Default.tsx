@@ -9,6 +9,7 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
 import { FieldError } from '@/components/ui/field-error'
+import { FormErrorCount } from '@/components/ui/form-error-count'
 import { FieldHint } from '@/components/ui/field-hint'
 import { PASSWORD_HINT, PASSWORD_MIN_LENGTH, PASSWORD_TOO_SHORT, describedBy } from '@/lib/password'
 import { Label } from '@/components/ui/label'
@@ -74,6 +75,7 @@ export function DefaultSettings() {
   // `values` rather than a reset from an effect. `keepDirtyValues`: a refetch on window focus must
   // not overwrite what someone is typing.
   const workspaceForm = useForm<WorkspaceData>({
+    shouldFocusError: false, // FormErrorCount focuses, once the field is described (#824)
     resolver: zodResolver(workspaceSchema),
     defaultValues: { teamName: '', logo: null },
     values: settingsQuery.data ? { teamName: settingsQuery.data.team_name, logo: null } : undefined,
@@ -101,6 +103,7 @@ export function DefaultSettings() {
   const avatarRef = useRef<HTMLInputElement>(null)
 
   const profileForm = useForm<ProfileData>({
+    shouldFocusError: false, // FormErrorCount focuses, once the field is described (#824)
     resolver: zodResolver(profileSchema),
     defaultValues: { displayName: '', avatar: null },
     values: user ? { displayName: user.displayName ?? '', avatar: null } : undefined,
@@ -122,6 +125,7 @@ export function DefaultSettings() {
   }
 
   const passwordForm = useForm<PasswordData>({
+    shouldFocusError: false, // FormErrorCount focuses, once the field is described (#824)
     resolver: zodResolver(passwordSchema),
   })
 
@@ -238,6 +242,7 @@ export function DefaultSettings() {
                   {workspaceForm.formState.isSubmitting ? 'Saving…' : 'Save changes'}
                 </Button>
               </div>
+              <FormErrorCount errors={workspaceForm.formState.errors} submitCount={workspaceForm.formState.submitCount} />
             </form>
           </CardContent>
         </Card>
@@ -295,6 +300,7 @@ export function DefaultSettings() {
                 {profileForm.formState.isSubmitting ? 'Saving…' : 'Save changes'}
               </Button>
             </div>
+            <FormErrorCount errors={profileForm.formState.errors} submitCount={profileForm.formState.submitCount} />
           </form>
         </CardContent>
       </Card>
@@ -326,6 +332,7 @@ export function DefaultSettings() {
                 {passwordForm.formState.isSubmitting ? 'Saving…' : 'Change password'}
               </Button>
             </div>
+            <FormErrorCount errors={passwordForm.formState.errors} submitCount={passwordForm.formState.submitCount} />
           </form>
         </CardContent>
       </Card>
