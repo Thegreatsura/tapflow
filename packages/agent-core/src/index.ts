@@ -25,6 +25,7 @@ export {
   type BootAbandonReason,
   bootAbandonMessage,
   BOOT_NO_SESSION_STATE,
+  SHUTDOWN_NO_SESSION_STATE,
 } from './types.js'
 export type { AudioFormat, AudioFrame, AudioSampleFormat, AudioChannels } from './types.js'
 export type { DeviceAgent, DeviceAgentConstructor } from './DeviceAgent.js'

@@ -55,7 +55,8 @@ export function SessionList({ onSelect }: Props) {
         return next
       })
     } else if (msg.type === 'device:shutdown-error') {
-      // The relay could not deliver the shutdown — no such session, or its agent is gone (#542). Before
+      // The shutdown did not end with the device off: the relay could not deliver it (#542), or the agent
+      // tried and could not confirm it (#455). Before
       // that message existed this arrived as nothing at all, and `device:shutdown-done` is the only thing
       // that clears `shutting`, so the row sat on "Shutting down…" with both buttons hidden for good. The
       // same inert row the `error` branch below was written for, reached by the other door.

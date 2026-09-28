@@ -12,7 +12,7 @@ import type {
 import fs from 'fs'
 import path from 'path'
 import { tmpdir } from 'os'
-import { createLogger, PlatformError, ValidationError, bootAbandonMessage, BOOT_NO_SESSION_STATE, downloadBuild } from '@tapflowio/agent-core'
+import { createLogger, PlatformError, ValidationError, bootAbandonMessage, BOOT_NO_SESSION_STATE, SHUTDOWN_NO_SESSION_STATE, downloadBuild } from '@tapflowio/agent-core'
 import { outcomeMessage, wireReason, type InputOutcome } from './inputOutcome.js'
 import {
   MAX_CLIPBOARD_BYTES, clipboardByteLength,
@@ -430,6 +430,9 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
   private readonly token?: string
   private readonly handshakeTimeoutMs: number
   private readonly lean: boolean
+  /** How long a shutdown whose kill failed watches for the emulator to finish exiting. A field so tests can
+   *  shorten it — see `handleDeviceShutdown` for why it waits at all. */
+  private shutdownSettleMs = 3_000
 
   constructor(options: AndroidAgentOptions = {}, adb?: AdbWrapper) {
     this.adb = adb ?? new AdbWrapper()
@@ -2042,26 +2045,77 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
 
   private async handleDeviceShutdown(sessionId: string, avdId: string, requestId?: string): Promise<void> {
     const state = this.deviceStates.get(sessionId)
-    if (!state) return
+    if (!state) {
+      // Answered only when someone asked: nothing was attempted, and the idle timer's id-less shutdown has no
+      // waiter to tell. A failure below is answered either way — `SessionList` sends without an id and needs
+      // the error to clear its row.
+      if (requestId) this.sendMsg({ type: 'device:shutdown-error', sessionId, requestId, message: SHUTDOWN_NO_SESSION_STATE })
+      return
+    }
 
-    this.bumpBootSeq(state, 'shut-down')
+    const seq = this.bumpBootSeq(state, 'shut-down')
     this.cleanupDeviceState(state)
 
+    // **A failed kill is judged by the process table, not assumed benign** (#455). It used to be logged as
+    // "already gone?" and answered done — often right, and exactly why the case where it was wrong stayed
+    // invisible: a caller told the device was off while the emulator kept running. No serial at all used to
+    // skip the kill and answer done the same way; an adb server restart or an emulator still coming up
+    // reaches it. Nothing is signalled here — a hard stop is Full reset's, where the data is about to go.
     const serial = this.adb.getSerial(avdId)
+    let killFailure: string | null = serial ? null : 'adb has no console for it'
     if (serial) {
-      // best-effort — emulator may already be gone
       await this.adb.shutdown(serial).catch((e: unknown) => {
-        logger.warn('emu kill failed (already gone?):', (e as Error).message)
+        killFailure = (e as Error).message
       })
-      this.adb.clearSerial(avdId)
-      this.ownedDevices.delete(avdId)
     }
+    if (killFailure !== null) {
+      const probe = await this.settledProbe(avdId.replace(/^avd:/, ''))
+      // **A boot may have started during the probe** — a tester pressing Back mid-boot and re-picking the
+      // device inside the window. Its emulator is not ours to report on, and a late done would tell the
+      // relay the device is down in the middle of that boot. The asker still gets an answer; nothing else.
+      if (state.bootSeq !== seq || this.deviceStates.get(sessionId) !== state) {
+        if (requestId) {
+          this.sendMsg({ type: 'device:shutdown-error', sessionId, requestId, message: 'A boot started before the shutdown could be confirmed, so it was not completed.' })
+        }
+        return
+      }
+      if (probe !== 'gone') {
+        logger.warn(`emu kill failed and the emulator is ${probe === 'running' ? 'still running' : 'unaccounted for'}:`, killFailure)
+        // The stream is already torn down above, so the device may be up with nothing coming from it — and
+        // it is still ours, which is why the serial and ownership are kept.
+        this.sendMsg({
+          type: 'device:shutdown-error',
+          sessionId,
+          requestId,
+          message: probe === 'running'
+            ? `The emulator did not shut down, and its stream has been stopped: ${killFailure}`
+            : `Could not confirm the emulator shut down (process lookup unavailable), and its stream has been stopped: ${killFailure}`,
+        })
+        return
+      }
+    }
+    if (serial) this.adb.clearSerial(avdId)
+    this.ownedDevices.delete(avdId)
     this.sendMsg({
       type: 'device:shutdown-done',
       sessionId,
       requestId,
       payload: { deviceId: avdId },
     })
+  }
+
+  /** `probeEmulator`, asked until it says `gone` or `shutdownSettleMs` passes. **Asked more than once
+   *  because the usual reason `emu kill` fails is benign**: adb has already let go of an emulator qemu is
+   *  still tearing down, so one look straight after the failure reads it as running. Not `waitForExit`,
+   *  whose deadline is sized for a boot. */
+  private async settledProbe(avdName: string): Promise<'running' | 'gone' | 'unknown'> {
+    const deadline = Date.now() + this.shutdownSettleMs
+    for (;;) {
+      const { state } = probeEmulator(avdName)
+      // Only `running` can change in the window; `unknown` is a missing or failing pgrep, and stays so.
+      if (state !== 'running' || Date.now() >= deadline) return state
+      await new Promise((r) => setTimeout(r, Math.min(250, this.shutdownSettleMs)))
+    }
   }
 
   // Ack a terminal input. `input:done` = the input reached a live channel on a booted device (not a

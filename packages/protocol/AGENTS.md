@@ -189,8 +189,11 @@ made the first draft of this pair wrong.
 **The shutdown half had no failure member until #542, and that absence was doing work.** The relay resolved
 that one command's session inline instead of through the shared resolver, so a shutdown it could not deliver
 was dropped in silence — and there was no shape to answer with, which is what kept it a protocol change
-rather than a relay one. `device:shutdown-error` is that shape: relay-produced only, because neither agent
-has a failure path that emits a message, and `requestId?` because the request's own correlator is optional.
+rather than a relay one. `device:shutdown-error` is that shape, and `requestId?` because the request's own
+correlator is optional. It was relay-produced only until #455, when both agents started answering a shutdown
+they could not confirm and the relay started telling a caller whose session ended mid-shutdown. It now covers
+four outcomes the wire does not tell apart — not delivered, outcome unknown, attempted and unconfirmed, not
+attempted — listed at the declaration, so a consumer may say the device was not shut down and nothing more.
 It is the one member of this pair a consumer **should** correlate — `shutdownDevice` awaits both halves on
 one predicate, since matching only `-done` would leave the fix invisible to the caller it was written for.
 

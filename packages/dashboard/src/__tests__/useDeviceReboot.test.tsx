@@ -98,9 +98,9 @@ describe('useDeviceReboot', () => {
   })
 
   it('gives up when neither reply arrives', () => {
-    // Silence is a reachable answer, not a hang: both agents open `handleDeviceShutdown` with
-    // `if (!state) return`, and `DeviceShutdownError` is declared `RelayToBrowser` so no agent can
-    // send one. Without this the control spins for the rest of the session.
+    // Silence is still a reachable answer, not a hang: an agent from before #455 answers a failed
+    // shutdown with nothing, and a hung `simctl shutdown` is silent on every version. Without this the
+    // control spins for the rest of the session.
     vi.useFakeTimers()
     const { view, booted, errors } = setup()
     act(() => { view.result.current.reboot() })

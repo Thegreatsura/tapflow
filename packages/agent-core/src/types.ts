@@ -151,6 +151,11 @@ export function bootAbandonMessage(reason: BootAbandonReason): string {
 export const BOOT_NO_SESSION_STATE =
   'No device state for this session on the agent — re-join the session before booting.'
 
+/** The same situation on the shutdown path (#455). Nothing was attempted, so the device is exactly as it
+ *  was — which is the one agent-side shutdown failure that may say so. */
+export const SHUTDOWN_NO_SESSION_STATE =
+  'No device state for this session on the agent, so no shutdown was attempted — re-join the session first.'
+
 
 // ── Audio frames ────────────────────────────────────────────────────────────
 //

@@ -170,9 +170,9 @@ describe('browser-inbound routing matches the protocol union', () => {
   // empty set. L2 shipped exactly that mistake in the other direction — a lazy regex truncated a
   // nested literal to 6 of 11 fields and the by-name assertion passed anyway.
   it('the parser reached every forward site', () => {
-    expect(forwarded.size).toBe(25)
+    expect(forwarded.size).toBe(26)
     const sends = (relaySrc.match(/browserSocket\.send\(JSON\.stringify\(raw\)\)/g) ?? []).length
-    expect(sends).toBe(9) // 7 single-label blocks + the 13-label block + the owner-gated block
+    expect(sends).toBe(10) // 8 single-label blocks + the 13-label block + the owner-gated block
   })
 
   // The other half of the rule above, and the one a count cannot see: a forward that switched back to
@@ -210,7 +210,7 @@ describe('browser-inbound routing matches the protocol union', () => {
 
   it('RelayOrAgentToBrowser is shared by both directions rather than copied', () => {
     const shared = unionMembers(protocolSrc, 'RelayOrAgentToBrowser')
-    expect(shared.size).toBe(13)
+    expect(shared.size).toBe(14)
     for (const name of ['RelayToBrowser', 'AgentToBrowser']) {
       expect(protocolSrc).toContain(`export type ${name} =\n  | RelayOrAgentToBrowser`)
     }
@@ -267,6 +267,8 @@ describe('browser-inbound routing matches the protocol union', () => {
       // does not hold, and the waiters key on this pair rather than on `input:error`.
       'input:type-error': 'message reason? requestId sessionId',
       'clipboard:error': 'message payload? requestId sessionId',
+      // Moved here from RelayToBrowser (#455): both agents answer a shutdown they could not confirm.
+      'device:shutdown-error': 'message requestId? sessionId',
     },
     BrowserToRelay: {
       'agents:list': '',
@@ -309,11 +311,6 @@ describe('browser-inbound routing matches the protocol union', () => {
       'session:terminated': 'reason sessionId',
       'session:agent-away': 'sessionId',
       'session:rebound': 'capabilities sessionId',
-      // Added with the member (#542). The loop below iterates *this map's* keys, so a union member absent
-      // here is field-checked by nothing — and `message` turning optional would then pass the whole suite,
-      // leaving a diagnosis with no cause, which is the failure #542 was opened for wearing a fix's
-      // clothes. That the map is not held to the union is its own gap, tracked separately.
-      'device:shutdown-error': 'message requestId? sessionId',
       error: 'message reason sessionId',
     },
   }

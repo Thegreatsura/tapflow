@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A device shutdown that fails now says so.** iOS used to answer a failed `simctl shutdown` with nothing, so the caller waited out its deadline; Android answered a failed `adb emu kill` with success while the emulator kept running. Both now send `device:shutdown-error`, and when `adb emu kill` fails Android checks the process table before answering, so an emulator that was already exiting still reports done. The stream has already been stopped by then, and the message says so. **Upgrade the relay before the agents**: a relay older than this release drops the new error, so a failed shutdown on an upgraded Android agent goes unanswered instead of being reported as a success.
+
+- **A shutdown requested without joining the session gets its answer.** An MCP client could shut down a device nobody held, but the result went only to the session's holder, so the client waited 30 seconds and reported a timeout for a shutdown that had happened. If the agent goes away for good before answering, the caller is told the outcome is unknown.
+
+- **An in-flight `device:boot` fails fast when its session rebounds instead of burning its full deadline.** The rebinding agent never saw the parked boot, so it can never be answered. The failure carries the rebound cause and reads as environmental; every other in-flight request keeps waiting for its reply on the new socket, and a boot issued after the rebound restores the binding as before.
+
 ## [0.26.1] - 2026-09-27
 
 ### Security
@@ -72,8 +80,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`POST /api/v1/tokens` rejects an invalid `expires_in_days` with a 400.** A negative count used to create a token that had already expired, a value too large for a date failed without a proper response, and an empty or blank string (an unset CI variable) silently created a token that never expires. Omitting it, `null` or `0` still means no expiry, a numeric string like `"30"` still works, and the API has no 365-day cap like the dialog's: only a count too large to be a date is refused.
 
 ### Fixed
-
-- **An in-flight `device:boot` fails fast when its session rebounds instead of burning its full deadline.** The rebinding agent never saw the parked boot, so it can never be answered. The failure carries the rebound cause and reads as environmental; every other in-flight request keeps waiting for its reply on the new socket, and a boot issued after the rebound restores the binding as before.
 
 - **`tapflow flow run --session` points at where a session id can be found.** Its help and the error for a `--device` name matching more than one device said to look in `tapflow status`, which prints no session ids. Both now name the MCP server's `list_devices`.
 

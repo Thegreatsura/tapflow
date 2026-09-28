@@ -4,7 +4,7 @@ import http from 'http'
 import os from 'os'
 import path from 'path'
 import { spawnSync } from 'child_process'
-import { ValidationError, PlatformError, MAX_CLIPBOARD_BYTES } from '@tapflowio/agent-core'
+import { ValidationError, PlatformError, MAX_CLIPBOARD_BYTES, SHUTDOWN_NO_SESSION_STATE } from '@tapflowio/agent-core'
 import { ClipboardTooLargeError } from '../SimctlWrapper.js'
 import { SimulatorNetwork } from '../SimulatorNetwork.js'
 
@@ -1840,6 +1840,67 @@ describe('IOSAgent', () => {
           type: 'device:shutdown', sessionId: agent.sessionId, payload: { deviceId: 'dev-1' },
         }))
         expect((await done)['requestId']).toBeUndefined()
+
+        agent.disconnect(); browser.close()
+      })
+
+      // #455: the catch used to log and send nothing, so a caller waited out its deadline on a device
+      // that was still running — with its stream already torn down, since the teardown comes first.
+      it('answers a failed shutdown with device:shutdown-error, not silence', async () => {
+        const simctl = mockSimctl(true)
+        ;(simctl.shutdown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('simctl exploded'))
+        const { agent, browser } = await joined(simctl)
+        // Owned by the boot this suite's sessions come from, so the assertion below has something to keep.
+        ;(agent as unknown as { ownedDevices: Set<string> }).ownedDevices.add('dev-1')
+
+        const done = waitForTypeOrNull(browser, 'device:shutdown-done', 300)
+        const err = waitForType(browser, 'device:shutdown-error')
+        browser.send(JSON.stringify({
+          type: 'device:shutdown', sessionId: agent.sessionId, requestId: 'down-fail',
+          payload: { deviceId: 'dev-1' },
+        }))
+        const msg = await err
+        expect(msg['requestId']).toBe('down-fail')
+        expect(msg['message']).toContain('simctl exploded')
+        expect(await done, 'a failed shutdown must not also claim success').toBeNull()
+        // The device is still running, so it is still ours — see the comment on the success path.
+        expect((agent as unknown as { ownedDevices: Set<string> }).ownedDevices.has('dev-1')).toBe(true)
+
+        agent.disconnect(); browser.close()
+      })
+
+      it('answers a correlated shutdown it has no session state for', async () => {
+        const simctl = mockSimctl(true)
+        const { agent, browser } = await joined(simctl)
+        // Read first: `sessionId` is derived from the device states this clears.
+        const sessionId = agent.sessionId
+        internals(agent).deviceStates.clear()
+
+        const err = waitForType(browser, 'device:shutdown-error')
+        browser.send(JSON.stringify({
+          type: 'device:shutdown', sessionId, requestId: 'down-nostate',
+          payload: { deviceId: 'dev-1' },
+        }))
+        const msg = await err
+        expect(msg['requestId']).toBe('down-nostate')
+        expect(msg['message']).toBe(SHUTDOWN_NO_SESSION_STATE)
+        expect(simctl.shutdown).not.toHaveBeenCalled()
+
+        agent.disconnect(); browser.close()
+      })
+
+      it('stays silent on an uncorrelated shutdown it has no session state for', async () => {
+        // The relay's idle timer sends this one, and nobody is waiting on it. An answer would reach the
+        // holder's viewer as an error about a shutdown it never asked for.
+        const { agent, browser } = await joined(mockSimctl(true))
+        const sessionId = agent.sessionId
+        internals(agent).deviceStates.clear()
+
+        const err = waitForTypeOrNull(browser, 'device:shutdown-error', 300)
+        browser.send(JSON.stringify({
+          type: 'device:shutdown', sessionId, payload: { deviceId: 'dev-1' },
+        }))
+        expect(await err).toBeNull()
 
         agent.disconnect(); browser.close()
       })

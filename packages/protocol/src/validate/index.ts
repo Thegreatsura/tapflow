@@ -58,7 +58,7 @@ import type {
   AppLaunchError, AppLaunchToRelay, ClipboardData, ClipboardError, ClipboardRead, ClipboardWrite,
   NetworkError, NetworkSet, NetworkState,
   ClipboardWriteDone, DeviceBoot, DeviceBootError, DeviceBooting, DeviceReady, DeviceShutdown,
-  DeviceShutdownDone, InputButton, InputDone, InputError, InputKey, InputKeyboardToggle,
+  DeviceShutdownDone, DeviceShutdownError, InputButton, InputDone, InputError, InputKey, InputKeyboardToggle,
   InputPinchEnd, InputPinchMove, InputPinchStart, InputPosture, InputRotate, InputTouchEnd, InputTouchMove,
   InputTouchStart, InputType, InputTypeDone, InputTypeError, KeyboardToggled, OpenUrl, OpenUrlDone,
   OpenUrlError, ScreenshotDone, ScreenshotError, SessionChrome, SessionDeviceInfo, SessionEnd,
@@ -82,7 +82,7 @@ const point = z.object({ x: z.number(), y: z.number() })
 
 // ── envelope-tier builders ───────────────────────────────────────────────────
 //
-// Four shapes cover all 22 forward-only messages. Getting one wrong is a compile error at its
+// Four shapes cover all 26 forward-only messages. Getting one wrong is a compile error at its
 // assertion below rather than something that shows up as a dropped frame in production.
 
 /** `{ type, sessionId }` — no correlator on the interface. */
@@ -262,7 +262,7 @@ const AGENT_CONSUMED = {
   }),
 } as const
 
-/** The 22 the relay only forwards. Envelope tier — see the header for why there is no exception. */
+/** The 26 the relay only forwards. Envelope tier — see the header for why there is no exception. */
 const AGENT_FORWARDED = {
   'session:chrome': env('session:chrome'),
   'session:deviceInfo': env('session:deviceInfo'),
@@ -277,6 +277,8 @@ const AGENT_FORWARDED = {
   'device:booting': env('device:booting'),
   'device:shutdown-done': envCo('device:shutdown-done'),
   'device:boot-error': envCo('device:boot-error'),
+  // `envCo` for the reason its `-done` is: the relay's idle timer sends the request with no id (#455).
+  'device:shutdown-error': envCo('device:shutdown-error'),
   'app:install-done': envC('app:install-done'),
   'app:install-error': envC('app:install-error'),
   'app:launch-done': envC('app:launch-done'),
@@ -548,6 +550,7 @@ type _DeviceReady = Assert<E<'device:ready', DeviceReady>>
 type _DeviceBooting = Assert<E<'device:booting', DeviceBooting>>
 type _DeviceShutdownDone = Assert<E<'device:shutdown-done', DeviceShutdownDone>>
 type _DeviceBootError = Assert<E<'device:boot-error', DeviceBootError>>
+type _DeviceShutdownError = Assert<E<'device:shutdown-error', DeviceShutdownError>>
 type _AppInstallDone = Assert<E<'app:install-done', AppInstallDone>>
 type _AppInstallError = Assert<E<'app:install-error', AppInstallError>>
 type _AppLaunchDone = Assert<E<'app:launch-done', AppLaunchDone>>

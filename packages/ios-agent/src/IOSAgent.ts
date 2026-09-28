@@ -6,7 +6,7 @@ import { randomUUID } from 'crypto'
 import { spawnSync } from 'child_process'
 import { WebSocket } from 'ws'
 import type { BootAbandonReason, ClipboardErrorPayload, Device, DeviceAgent, NetworkControlCapability, NetworkStatePayload, UIElement } from '@tapflowio/agent-core'
-import { createLogger, PlatformError, ValidationError, bootAbandonMessage, BOOT_NO_SESSION_STATE, downloadBuild } from '@tapflowio/agent-core'
+import { createLogger, PlatformError, ValidationError, bootAbandonMessage, BOOT_NO_SESSION_STATE, SHUTDOWN_NO_SESSION_STATE, downloadBuild } from '@tapflowio/agent-core'
 import type {
   AgentControlOutbound, InputErrorReason, ClipboardReplyBody, OpenUrlReplyBody,
   AppInstallReplyBody, AppLaunchReplyBody, AppClearStateReplyBody,
@@ -928,7 +928,13 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
 
   private async handleDeviceShutdown(sessionId: string, deviceId: string, requestId?: string): Promise<void> {
     const state = this.deviceStates.get(sessionId)
-    if (!state) return
+    if (!state) {
+      // Answered only when someone asked: nothing was attempted, and the idle timer's id-less shutdown has no
+      // waiter to tell. A failure below is answered either way — `SessionList` sends without an id and needs
+      // the error to clear its row.
+      if (requestId) this.sendMsg({ type: 'device:shutdown-error', sessionId, requestId, message: SHUTDOWN_NO_SESSION_STATE })
+      return
+    }
 
     this.bumpBootSeq(state, 'shut-down')
     // **Said here as well as in `cleanupDeviceState`, because this path does not go through it.**
@@ -973,6 +979,15 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
       logger.error('shutdown failed:', message)
+      // "Already shut down" never reaches here — `SimctlWrapper.shutdown` absorbs it — so this is a device
+      // that is still running, with its stream already torn down above. Said, because silence left the
+      // caller waiting out its deadline (#455).
+      this.sendMsg({
+        type: 'device:shutdown-error',
+        sessionId,
+        requestId,
+        message: `The simulator did not shut down, and its stream has been stopped: ${message}`,
+      })
     }
   }
 
