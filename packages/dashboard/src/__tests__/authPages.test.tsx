@@ -161,14 +161,27 @@ describe('Invite', () => {
 
   it('an address that already has an account is told so, with the way to sign in', async () => {
     await submitInvite(json({ error: 'This email already has an account. Sign in instead.' }, 409))
-    expect(await screen.findByText(/already has an account/i)).toBeInTheDocument()
+    // By role as well as text: the message has to be announced, not only shown (#822).
+    expect(await screen.findByText(/already has an account/i)).toHaveAttribute('role', 'alert')
     expect(screen.getByRole('link', { name: /go to sign in/i })).toHaveAttribute('href', '/login')
   })
 
   it('any other refusal shows the reason the relay gave', async () => {
     await submitInvite(json({ error: 'Invitation expired or not found' }, 410))
-    expect(await screen.findByText('Invitation expired or not found')).toBeInTheDocument()
+    expect(await screen.findByText('Invitation expired or not found')).toHaveAttribute('role', 'alert')
     expect(screen.queryByRole('link', { name: /go to sign in/i })).not.toBeInTheDocument()
+  })
+
+  it('a submit that cannot reach the relay says so', async () => {
+    fetchMock.mockImplementation((url: RequestInfo | URL) => (
+      String(url).includes('/verify') ? Promise.resolve(json({ role: 'QA' })) : Promise.reject(new TypeError('network down'))
+    ))
+    renderAt('/invite?token=abc', '/invite', <Invite />)
+    await screen.findByText('Set up your account')
+    await userEvent.type(screen.getByLabelText(/^password$/i), 'password123')
+    await userEvent.type(screen.getByLabelText(/confirm password/i), 'password123')
+    await userEvent.click(screen.getByRole('button', { name: /create account/i }))
+    expect(await screen.findByText('Network error. Please try again.')).toHaveAttribute('role', 'alert')
   })
 })
 
