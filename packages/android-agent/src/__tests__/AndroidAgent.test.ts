@@ -21,15 +21,18 @@ vi.mock('../AndroidTouchHelper', () => ({
 let scrcpyCloseOnCreate = false
 let scrcpyStartError: Error | null = null
 let scrcpyStreamController: ReadableStreamDefaultController<ScrcpyFrame> | null = null
+/** Each `start()` takes the next gate, if any, and waits on it — how a test parks one boot mid-stream. */
+const scrcpyStartGates: Promise<void>[] = []
 
 vi.mock('../scrcpy/ScrcpySession', () => ({
   ScrcpySession: vi.fn(function () { return ({
     start: vi.fn().mockImplementation(() => {
       const err = scrcpyStartError
       scrcpyStartError = null
-      return err
+      const gate = scrcpyStartGates.shift() ?? Promise.resolve()
+      return gate.then(() => err
         ? Promise.reject(err)
-        : Promise.resolve({ deviceName: 'TestDevice', width: 1080, height: 2400 })
+        : { deviceName: 'TestDevice', width: 1080, height: 2400 })
     }),
     stop: vi.fn(),
     video: {
@@ -77,6 +80,8 @@ vi.mock('@tapflowio/audiotap-helper', () => ({
 // gRPC backend mocks (emulator host-encode path). Inert for the scrcpy-pinned tests; exercised by
 // the 'gRPC backend' describe, which unpins TAPFLOW_ANDROID_BACKEND.
 let grpcStartError: Error | null = null
+/** As `scrcpyStartGates`, for `EmulatorVideo.start()`; a gate that rejects fails that start. */
+const grpcStartGates: Promise<void>[] = []
 let grpcFramesController: ReadableStreamDefaultController<ScrcpyFrame> | null = null
 
 // Guest clipboard the mocked emulator reports back (clipboard bridge tests drive these).
@@ -122,9 +127,10 @@ vi.mock('../emulator/EmulatorVideo', () => ({
     start: vi.fn().mockImplementation(() => {
       const err = grpcStartError
       grpcStartError = null
-      return err
+      const gate = grpcStartGates.shift() ?? Promise.resolve()
+      return gate.then(() => err
         ? Promise.reject(err)
-        : Promise.resolve({ width: 1080, height: 2400, cornerRadius: 0 })
+        : { width: 1080, height: 2400, cornerRadius: 0 })
     }),
     frames: vi.fn(() => new ReadableStream<ScrcpyFrame>({ start(c) { grpcFramesController = c } })),
     requestIdr: vi.fn(),
@@ -1467,6 +1473,220 @@ describe('AndroidAgent', () => {
     // Optional means the compiler enforces nothing — `<Pair>ReplyBody` cannot be built for a field an
     // object is allowed to omit — and `correlatedRequestsGated` derives only required declarations, so
     // it does not see this pair either. These tests are the entire enforcement of the echo here.
+    // ── #587 / #611: a boot owns the stream it starts, and only that ─────────────────────────────
+    //
+    // `handleDeviceBoot` checks its seq after every await, but `startVideoStream` wrote to the shared
+    // state across awaits of its own. Two overlapping boots then left one session with nobody to stop
+    // it — or the older boot wrote over the newer one's.
+    describe('a boot owns the stream it starts', () => {
+      /** A gate and the handles that open it. */
+      function gate() {
+        let open!: () => void
+        let fail!: (e: Error) => void
+        const promise = new Promise<void>((resolve, reject) => { open = resolve; fail = reject })
+        return { promise, open, fail }
+      }
+      const sessions = () => vi.mocked(ScrcpySession).mock.results.map((r) => r.value as { stop: ReturnType<typeof vi.fn> })
+      const videos = () => vi.mocked(EmulatorVideo).mock.results.map((r) => r.value as { stop: ReturnType<typeof vi.fn> })
+      const stateOf = (agent: AndroidAgent) => internals(agent).deviceStates.values().next().value as TestState & {
+        scrcpySession: unknown; emulatorVideo: unknown; grpcClient: unknown; rotation: number | null; skin: unknown
+      }
+      // Read per test, not when this block is collected: the suite's `beforeAll` pins scrcpy after that.
+      let pinned: string | undefined
+      beforeEach(() => { pinned = process.env.TAPFLOW_ANDROID_BACKEND })
+      afterEach(() => {
+        process.env.TAPFLOW_ANDROID_BACKEND = pinned
+        scrcpyStartGates.length = 0
+        grpcStartGates.length = 0
+      })
+
+      it('stops the session a superseded boot started, and leaves the newer one alone (scrcpy)', async () => {
+        const { agent, browser } = await joinedAgent(mockAdb(true))
+        const before = sessions().length
+        const a = gate()
+        scrcpyStartGates.push(a.promise)
+
+        browser.send(boot(agent.sessionId, 'rq-a'))
+        await vi.waitFor(() => expect(sessions().length).toBe(before + 1))
+        const superseded = waitForType(browser, 'device:boot-error')
+        browser.send(boot(agent.sessionId, 'rq-b'))
+        expect((await waitForType(browser, 'device:ready'))['requestId']).toBe('rq-b')
+
+        a.open()
+        expect((await superseded)['requestId']).toBe('rq-a')
+        const [sessionA, sessionB] = sessions().slice(before)
+        expect(sessionA!.stop, "A's scrcpy server would outlive the boot that started it").toHaveBeenCalled()
+        expect(sessionB!.stop).not.toHaveBeenCalled()
+        expect(stateOf(agent).scrcpySession, 'A must not write over the session B owns').toBe(sessionB)
+
+        agent.disconnect(); browser.close()
+      })
+
+      it('stops what it started when both boots are still starting (scrcpy)', async () => {
+        const { agent, browser } = await joinedAgent(mockAdb(true))
+        const before = sessions().length
+        const a = gate()
+        const b = gate()
+        scrcpyStartGates.push(a.promise, b.promise)
+
+        browser.send(boot(agent.sessionId, 'rq-a'))
+        await vi.waitFor(() => expect(sessions().length).toBe(before + 1))
+        const superseded = waitForType(browser, 'device:boot-error')
+        browser.send(boot(agent.sessionId, 'rq-b'))
+        // B opens its own stream socket first, which takes longer than `waitFor`'s one-second default.
+        await vi.waitFor(() => expect(sessions().length).toBe(before + 2), { timeout: 4000 })
+
+        a.open()
+        expect((await superseded)['requestId']).toBe('rq-a')
+        b.open()
+        expect((await waitForType(browser, 'device:ready'))['requestId']).toBe('rq-b')
+        const [sessionA, sessionB] = sessions().slice(before)
+        expect(sessionA!.stop).toHaveBeenCalled()
+        expect(stateOf(agent).scrcpySession).toBe(sessionB)
+
+        agent.disconnect(); browser.close()
+      })
+
+      it("does not fall back to scrcpy over the newer boot when the older one's capture ends (gRPC)", async () => {
+        // B's cleanup stops A's capture mid-start, so A's start rejects with an ordinary error — and
+        // the gRPC→scrcpy fallback used to take that as its cue, tearing down what was by then B's.
+        process.env.TAPFLOW_ANDROID_BACKEND = 'grpc'
+        const { agent, browser } = await joinedAgent(mockAdb(true))
+        const videosBefore = videos().length
+        const sessionsBefore = sessions().length
+        const a = gate()
+        grpcStartGates.push(a.promise)
+
+        browser.send(boot(agent.sessionId, 'rq-a'))
+        await vi.waitFor(() => expect(videos().length).toBe(videosBefore + 1))
+        const superseded = waitForType(browser, 'device:boot-error')
+        browser.send(boot(agent.sessionId, 'rq-b'))
+        expect((await waitForType(browser, 'device:ready'))['requestId']).toBe('rq-b')
+        const touchB = stateOf(agent).touchHelper
+
+        a.fail(new Error('capture ended'))
+        expect((await superseded)['requestId']).toBe('rq-a')
+        const videoB = videos()[videosBefore + 1]!
+        expect(videoB.stop).not.toHaveBeenCalled()
+        expect(stateOf(agent).emulatorVideo).toBe(videoB)
+        expect(stateOf(agent).touchHelper, "A's fallback stopped B's touch channel").toBe(touchB)
+        expect(sessions().length, 'A started a scrcpy session for a boot it had lost').toBe(sessionsBefore)
+
+        agent.disconnect(); browser.close()
+      })
+
+      it('does not write its screen geometry into the session that replaced it (gRPC)', async () => {
+        process.env.TAPFLOW_ANDROID_BACKEND = 'grpc'
+        const adb = mockAdb(true)
+        const reading = gate()
+        let first = true
+        vi.spyOn(adb, 'getDisplayMetrics').mockImplementation(async () => {
+          if (first) { first = false; await reading.promise }
+          return { natural: { width: 1080, height: 2400 }, current: { width: 2400, height: 1080 }, rotation: 90 as const }
+        })
+        const { agent, browser } = await joinedAgent(adb)
+
+        browser.send(boot(agent.sessionId, 'rq-a'))
+        await vi.waitFor(() => expect(first).toBe(false))
+        // B lands on scrcpy, which never writes a rotation or a skin — so any it has are A's.
+        process.env.TAPFLOW_ANDROID_BACKEND = 'scrcpy'
+        const superseded = waitForType(browser, 'device:boot-error')
+        browser.send(boot(agent.sessionId, 'rq-b'))
+        expect((await waitForType(browser, 'device:ready'))['requestId']).toBe('rq-b')
+
+        reading.open()
+        expect((await superseded)['requestId']).toBe('rq-a')
+        expect(stateOf(agent).rotation).toBeNull()
+        expect(stateOf(agent).skin).toBeNull()
+
+        agent.disconnect(); browser.close()
+      })
+
+      it('normalises a boot that arrives while a stream restart is waiting (gRPC)', async () => {
+        // The restart used to be a flag on the shared state, and the boot read it as its own.
+        process.env.TAPFLOW_ANDROID_BACKEND = 'grpc'
+        const adb = mockAdb(true)
+        // A device that folds gets stood upright by the normalisation; that write is what is counted.
+        const upright = vi.spyOn(adb, 'setRotation').mockResolvedValue(undefined)
+        const { agent, browser } = await joinedAgent(adb)
+        vi.spyOn(agent as unknown as { listPostures(id: string): Promise<unknown[]> }, 'listPostures')
+          .mockResolvedValue([{ id: 'half-open', label: 'Half open' }])
+        browser.send(boot(agent.sessionId, 'rq-a'))
+        await waitForType(browser, 'device:ready')
+        expect(upright).toHaveBeenCalledTimes(1)
+
+        grpcFramesController!.close() // the stream dies; the restart waits 1.5s before starting again
+        await vi.waitFor(() => expect(stateOf(agent).restarting).toBe(true))
+        browser.send(boot(agent.sessionId, 'rq-b'))
+        expect((await waitForType(browser, 'device:ready'))['requestId']).toBe('rq-b')
+        expect(upright, 'the new boot skipped normalisation').toHaveBeenCalledTimes(2)
+
+        agent.disconnect(); browser.close()
+      }, 8000)
+
+      it('still restarts the newer stream when it dies after an older restart gave up', async () => {
+        // A restart that loses its seq returns without touching `restarting`, because by then the
+        // flag is the newer boot's. So that boot's cleanup has to lower it — left up, its own stream's
+        // death would never restart, for the life of the session.
+        const { agent, browser } = await joinedAgent(mockAdb(true))
+        browser.send(boot(agent.sessionId, 'rq-a'))
+        await waitForType(browser, 'device:ready')
+
+        scrcpyStreamController!.close() // A's stream dies; its restart waits 1.5s
+        await vi.waitFor(() => expect(stateOf(agent).restarting).toBe(true))
+        browser.send(boot(agent.sessionId, 'rq-b'))
+        await waitForType(browser, 'device:ready')
+        await new Promise((r) => setTimeout(r, 1700)) // the old restart wakes, sees it lost, and returns
+
+        const before = sessions().length
+        scrcpyStreamController!.close() // B's stream dies
+        await vi.waitFor(() => expect(sessions().length).toBe(before + 1), { timeout: 4000 })
+
+        agent.disconnect(); browser.close()
+      }, 12000)
+
+      it('answers a boot whose emulator stopped before its stream could start (#611)', async () => {
+        const adb = mockAdb(true)
+        const listed = vi.mocked(adb.listDevices)
+        const real = listed.getMockImplementation()!
+        let n = 0
+        listed.mockImplementation(async () => {
+          // The second read is the one after the stop a Full reset began: adb has let go of it.
+          if (++n === 2) adb.clearSerial('avd:Pixel_8_API_34')
+          return real()
+        })
+        const { agent, browser } = await joinedAgent(adb)
+
+        const info = waitForTypeOrNull(browser, 'session:deviceInfo', 400)
+        const ready = waitForTypeOrNull(browser, 'device:ready', 400)
+        browser.send(boot(agent.sessionId, 'rq-611'))
+        const e = await waitForType(browser, 'device:boot-error')
+        expect(e['requestId']).toBe('rq-611')
+        expect(String(e['message'])).toContain('no longer lists the emulator')
+        expect(await ready, 'ready with no stream behind it').toBeNull()
+        expect(await info, 'announced as booted before the check').toBeNull()
+
+        agent.disconnect(); browser.close()
+      })
+
+      it('reports a stream it cannot restart because the emulator is gone', async () => {
+        const adb = mockAdb(true)
+        const { agent, browser } = await joinedAgent(adb)
+        browser.send(boot(agent.sessionId, 'rq-a'))
+        await waitForType(browser, 'device:ready')
+
+        const dead = waitForType(browser, 'device:boot-error')
+        adb.clearSerial('avd:Pixel_8_API_34')
+        scrcpyStreamController!.close()
+        const e = await dead
+        expect(e['requestId'], 'no boot is behind a dead stream').toBeUndefined()
+        // Its own report, not the generic one the restart falls through to after its 1.5s wait.
+        expect(String(e['message'])).toContain('could not be restarted')
+
+        agent.disconnect(); browser.close()
+      })
+    })
+
     describe('lifecycle replies echo the boot/shutdown correlator', () => {
       async function joined(adb: AdbWrapper) {
         const agent = new AndroidAgent({}, adb)
@@ -3967,23 +4187,36 @@ describe('what the delta review found', () => {
   })
 
   it('does not unfold the device when a dead stream restarts', async () => {
-    // `normaliseOnBoot` sits at the top of `startGrpcVideoStream`, which the auto-restart also
-    // reaches — and there the tester is mid-test. A hiccup in the pump is not a reason to throw
-    // away the posture and rotation they were working in.
+    // `startGrpcVideoStream` is reached by the auto-restart as well as by a boot — and there the
+    // tester is mid-test. A hiccup in the pump is not a reason to throw away the posture and rotation
+    // they were working in. Decided by the caller since #587 rather than by a flag on the state,
+    // which a new boot arriving during an old restart read as its own.
     const adb = mockAdb(true)
     vi.spyOn(adb, 'printDeviceStates').mockResolvedValue(
       `DeviceState{identifier=0, name='CLOSED'}\nDeviceState{identifier=1, name='HALF_OPENED'}`)
     vi.spyOn(adb, 'deviceState').mockResolvedValue(`Committed state: DeviceState{identifier=0, name='CLOSED'}`)
+    vi.spyOn(adb, 'getDisplayMetrics').mockResolvedValue(metrics(0))
     const setPosture = vi.spyOn(adb, 'setPosture').mockResolvedValue(undefined)
     const setRotation = vi.spyOn(adb, 'setRotation').mockResolvedValue(undefined)
     const agent = new AndroidAgent({}, adb)
-    const state = { deviceId: 'avd:Pixel_8_API_34', landscape: true, restarting: true } as unknown as TestState
+    const state = {
+      deviceId: 'avd:Pixel_8_API_34', sessionId: 's1', landscape: true, booted: true,
+      reconciling: false, screenWatch: null,
+    } as unknown as TestState
+    const start = (restart: boolean) => (agent as unknown as {
+      startGrpcVideoStream(s: TestState, ws: unknown, serial: string, owns: () => boolean, o: { restart: boolean }): Promise<void>
+    }).startGrpcVideoStream(state, { readyState: 1, send: () => {} }, 'emulator-5554', () => true, { restart })
 
-    await internals(agent).normaliseOnBoot(state, 'emulator-5554')
-
-    expect(setPosture).not.toHaveBeenCalled()
-    expect(setRotation).not.toHaveBeenCalled()
-    expect(state.landscape).toBe(true)
+    try {
+      await start(true)
+      expect(setPosture).not.toHaveBeenCalled()
+      expect(setRotation).not.toHaveBeenCalled()
+      // The twin: the same call as a boot does normalise, so the restart case is not passing by accident.
+      await start(false)
+      expect(setPosture).toHaveBeenCalled()
+    } finally {
+      if (state.screenWatch) clearInterval(state.screenWatch)
+    }
   })
 
   it('re-describes the screen after carrying the rotation across', async () => {
