@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
@@ -75,6 +75,14 @@ describe('a rebind settles only the boots its old agent was supposed to answer (
 
   function pendingBootCount() {
     return (server as unknown as { pendingBoots: Map<string, unknown> }).pendingBoots.size
+  }
+
+  /** A server whose boot horizon is milliseconds, so expiry is observable without waiting out 180s. */
+  async function restartWithShortBootTtl() {
+    await server.stop()
+    server = new RelayServer({ port: 0, pendingBootTtlMs: 60 })
+    await server.start()
+    port = (server.address() as { port: number }).port
   }
 
   it('fails a boot dispatched to the old agent, after session:rebound and with its correlator', async () => {
@@ -205,6 +213,60 @@ describe('a rebind settles only the boots its old agent was supposed to answer (
 
     browser.send(JSON.stringify({ type: 'session:end', sessionId }))
     await barrier(browser)
+    expect(pendingBootCount()).toBe(0)
+
+    first.agent.close(); browser.close()
+  })
+
+  it('expires an unanswered boot silently at the horizon', async () => {
+    // A live agent that never replies pins the entry past every caller that could have waited
+    // on it (both clients time out at 180s). Expiry forgets bookkeeping only: it manufactures
+    // no `device:boot-error`, because the client timeout owns that failure.
+    await restartWithShortBootTtl()
+
+    const first = await register([DEV_A])
+    const sessionId = first.byDevice.get('devA')!
+    const browser = await join(sessionId)
+
+    boot(browser, sessionId, 'rq-stale')
+    await waitForType<DeviceBoot>(first.agent, 'device:boot')
+    expect(pendingBootCount()).toBe(1)
+
+    await new Promise((r) => setTimeout(r, 150))
+    expect(pendingBootCount()).toBe(0)
+    await barrier(browser)
+    expect(await waitForTypeOrNull(browser, 'device:boot-error', 0)).toBeNull()
+
+    first.agent.close(); browser.close()
+  })
+
+  it('cancels the expiry timer when a cleanup path settles the boot first', async () => {
+    // Deletion alone cannot prove this — an uncleared timer firing later is a no-op delete —
+    // so the cleared handle itself is the assertion.
+    await restartWithShortBootTtl()
+
+    const first = await register([DEV_A])
+    const sessionId = first.byDevice.get('devA')!
+    const browser = await join(sessionId)
+
+    boot(browser, sessionId, 'rq-c')
+    await waitForType<DeviceBoot>(first.agent, 'device:boot')
+    const timer = (server as unknown as { pendingBoots: Map<string, { timer: unknown }> })
+      .pendingBoots.values().next().value!.timer
+
+    const cleared: unknown[] = []
+    const realClearTimeout = globalThis.clearTimeout
+    const spy = vi.spyOn(globalThis, 'clearTimeout')
+      .mockImplementation(((h: unknown) => { cleared.push(h); return realClearTimeout(h as never) }) as typeof clearTimeout)
+    try {
+      first.agent.send(JSON.stringify({
+        type: 'device:ready', sessionId, requestId: 'rq-c', payload: { deviceId: 'devA' },
+      }))
+      await waitForType<DeviceReady>(browser, 'device:ready')
+    } finally {
+      spy.mockRestore()
+    }
+    expect(cleared).toContain(timer)
     expect(pendingBootCount()).toBe(0)
 
     first.agent.close(); browser.close()

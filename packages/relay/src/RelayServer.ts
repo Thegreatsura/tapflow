@@ -209,6 +209,14 @@ type Unacked = Inbound<
 
 /** Just past `mcp-server`'s 30s shutdown deadline, so an entry outlives every caller still waiting on it. */
 const SHUTDOWN_REQUESTER_TTL_MS = 35_000
+/**
+ * How long a tracked boot lives without an answer. The same horizon as both clients'
+ * `BOOT_DEADLINE_MS`: past it the caller has already timed out, so the entry is pure
+ * bookkeeping. Expiry forgets silently — it sends no failure, because the client timeout
+ * owns that case. This bounds the map, not the boot: it changes nothing about how long a
+ * boot may take, which is #588's question, not this one's.
+ */
+const PENDING_BOOT_TTL_MS = 180_000
 /** Said when a session ends with a shutdown unanswered — which is not the same as the shutdown failing. */
 const SHUTDOWN_OUTCOME_LOST =
   'The session ended before its agent confirmed the shutdown, so whether the device shut down is unknown.'
@@ -320,6 +328,9 @@ export class RelayServer {
   private readonly backpressureBytes: number
   private readonly screenshotTimeoutMs: number
   private readonly agentGraceMs: number
+  /** How long a tracked boot lives without an answer. An option so tests can shrink the
+   *  180s horizon; production always takes the default. */
+  private readonly pendingBootTtlMs: number
   private readonly corsAllowed: Set<string>
   // One-shot warning when XFF arrives on a loopback socket but TAPFLOW_TRUSTED_PROXIES is unset.
   private warnedProxyMisconfig = false
@@ -370,18 +381,21 @@ export class RelayServer {
    * tied to the replaced socket and leaves a boot dispatched to the new socket alone.
    *
    * Cleared when a correlated `device:ready` or `device:boot-error` arrives, when the boot is
-   * invalidated at rebind, and when its session is evicted with its agent socket. An absent
-   * `requestId` answers no request (protocol/AGENTS.md 「Lifecycle correlation」), so id-less
-   * replies clear nothing. A leftover entry is harmless: its id names no waiter, so both clients
-   * and the dashboard drop the synthetic error it would produce.
+   * invalidated at rebind, when its session is forgotten or evicted — and by its own expiry
+   * (`PENDING_BOOT_TTL_MS`) when none of those happen first, so a live agent that never answers
+   * cannot pin the entry past every caller that could have waited on it. An absent `requestId`
+   * answers no request (protocol/AGENTS.md 「Lifecycle correlation」), so id-less replies clear
+   * nothing. A leftover entry is harmless: its id names no waiter, so both clients and the
+   * dashboard drop the synthetic error it would produce.
    */
   private readonly pendingBoots = new Map<string, {
     sessionId: string
     requestId: string
     agentSocket: WebSocket
+    timer: ReturnType<typeof setTimeout>
   }>()
 
-  constructor(private readonly options: { port: number; publicDir?: string; uploadsDir?: string; idleTimeoutMs?: number; wsBackpressureBytes?: number; screenshotTimeoutMs?: number; uiTreeTimeoutMs?: number; trustedProxies?: string[]; corsOrigins?: string[]; tls?: { cert: string; key: string }; agentGraceMs?: number; tunnel?: TunnelRuntime; tunnelPort?: number }) {
+  constructor(private readonly options: { port: number; publicDir?: string; uploadsDir?: string; idleTimeoutMs?: number; wsBackpressureBytes?: number; screenshotTimeoutMs?: number; uiTreeTimeoutMs?: number; trustedProxies?: string[]; corsOrigins?: string[]; tls?: { cert: string; key: string }; agentGraceMs?: number; pendingBootTtlMs?: number; tunnel?: TunnelRuntime; tunnelPort?: number }) {
     // 0 on both sides is two ephemeral ports, which is what the tests ask for.
     if (options.tunnelPort !== undefined && options.tunnelPort !== 0 && options.tunnelPort === options.port) {
       throw new Error(`The tunnel port (${options.tunnelPort}) must differ from the relay port. Set TAPFLOW_TUNNEL_PORT to another port.`)
@@ -404,6 +418,7 @@ export class RelayServer {
     const graceEnv = graceRaw ? Number(graceRaw) : NaN
     const graceUsable = Number.isFinite(graceEnv) && graceEnv >= 0
     this.agentGraceMs = options.agentGraceMs ?? (graceUsable ? graceEnv : DEFAULT_AGENT_GRACE_MS)
+    this.pendingBootTtlMs = options.pendingBootTtlMs ?? PENDING_BOOT_TTL_MS
     // Say so rather than only documenting it. Both times this parsing was wrong the symptom was
     // the same — the hold switched off and nothing mentioned it — and somebody who types `15s` is
     // reading their terminal, not the configuration table.
@@ -653,6 +668,9 @@ export class RelayServer {
     this.networkStateRequesters.clear()
     for (const entry of this.shutdownRequesters.values()) clearTimeout(entry.timer)
     this.shutdownRequesters.clear()
+    // Same argument as the holds above: an expiry firing after `stop()` would run against a dead
+    // server, and an unref'd 180s timer still outlives the test runner's process.
+    for (const key of this.pendingBoots.keys()) this.forgetBoot(key)
     const closeTunnel = new Promise<void>((resolve, reject) => {
       // Not listening means `start()` never reached it, or its listen failed; `close()` would reject.
       if (!this.tunnelServer?.listening) return resolve()
@@ -1819,7 +1837,20 @@ export class RelayServer {
 
   /** Record a boot against the agent socket it was dispatched to. The door guarantees both ids. */
   private rememberBoot(sessionId: string, requestId: string, agentSocket: WebSocket): void {
-    this.pendingBoots.set(this.bootKey(sessionId, requestId), { sessionId, requestId, agentSocket })
+    const key = this.bootKey(sessionId, requestId)
+    // Replacing, not doubling: a client never reuses a correlator, but forgetting the old timer
+    // here is what keeps a replaced entry from firing after its successor was settled.
+    this.forgetBoot(key)
+    const timer = setTimeout(() => this.forgetBoot(key), this.pendingBootTtlMs)
+    this.pendingBoots.set(key, { sessionId, requestId, agentSocket, timer })
+  }
+
+  /** The one way an entry leaves: every removal path funnels through here so no timer survives it. */
+  private forgetBoot(key: string): void {
+    const pending = this.pendingBoots.get(key)
+    if (!pending) return
+    clearTimeout(pending.timer)
+    this.pendingBoots.delete(key)
   }
 
   /**
@@ -1829,7 +1860,7 @@ export class RelayServer {
    */
   private settleBoot(sessionId: string | undefined, requestId: string | undefined): void {
     if (typeof sessionId !== 'string' || typeof requestId !== 'string') return
-    this.pendingBoots.delete(this.bootKey(sessionId, requestId))
+    this.forgetBoot(this.bootKey(sessionId, requestId))
   }
 
   /**
@@ -1842,7 +1873,7 @@ export class RelayServer {
     if (oldSockets.size === 0) return
     for (const [key, pending] of this.pendingBoots.entries()) {
       if (!oldSockets.has(pending.agentSocket)) continue
-      this.pendingBoots.delete(key)
+      this.forgetBoot(key)
       const session = this.sessions.get(pending.sessionId)
       // `sendTo` skips a socket that is not OPEN, and a session nobody has joined has no
       // `browserSocket` at all — either way the entry is still gone, so nothing later answers
@@ -1867,7 +1898,7 @@ export class RelayServer {
    */
   private forgetEvictedBoots(sessionIds: Set<string>): void {
     for (const [key, pending] of this.pendingBoots.entries()) {
-      if (sessionIds.has(pending.sessionId)) this.pendingBoots.delete(key)
+      if (sessionIds.has(pending.sessionId)) this.forgetBoot(key)
     }
   }
 
