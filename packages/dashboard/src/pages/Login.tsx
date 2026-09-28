@@ -10,11 +10,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { FieldError } from '@/components/ui/field-error'
+import { PASSWORD_MIN_LENGTH, PASSWORD_TOO_SHORT } from '@/lib/password'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 const schema = z.object({
   email: z.string().email('Enter a valid email'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  password: z.string().min(PASSWORD_MIN_LENGTH, PASSWORD_TOO_SHORT),
 })
 type FormData = z.infer<typeof schema>
 

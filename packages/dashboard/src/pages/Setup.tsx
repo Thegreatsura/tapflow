@@ -8,12 +8,14 @@ import { useTheme } from 'next-themes'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FieldError } from '@/components/ui/field-error'
+import { FieldHint } from '@/components/ui/field-hint'
+import { PASSWORD_HINT, PASSWORD_MIN_LENGTH, PASSWORD_TOO_SHORT, describedBy } from '@/lib/password'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 const schema = z.object({
   email: z.string().email('Enter a valid email'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  password: z.string().min(PASSWORD_MIN_LENGTH, PASSWORD_TOO_SHORT),
   confirm: z.string(),
 }).refine((d) => d.password === d.confirm, {
   message: 'Passwords do not match',
@@ -111,9 +113,10 @@ aria-describedby={errors.email ? 'email-error' : undefined}
                     type="password"
                     autoComplete="new-password"
 aria-required="true" aria-invalid={!!errors.password}
-aria-describedby={errors.password ? 'password-error' : undefined}
+aria-describedby={describedBy('password-hint', 'password-error', !!errors.password)}
 {...register('password')}
                   />
+                  {!errors.password && <FieldHint id="password-hint">{PASSWORD_HINT}</FieldHint>}
                   <FieldError id="password-error" message={errors.password?.message} />
                 </div>
                 <div className="grid gap-2">

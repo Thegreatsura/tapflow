@@ -9,6 +9,8 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
 import { FieldError } from '@/components/ui/field-error'
+import { FieldHint } from '@/components/ui/field-hint'
+import { PASSWORD_HINT, PASSWORD_MIN_LENGTH, PASSWORD_TOO_SHORT, describedBy } from '@/lib/password'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -44,7 +46,7 @@ type ProfileData = z.infer<typeof profileSchema>
 
 const passwordSchema = z.object({
   currentPassword: z.string().min(1, 'Enter your current password'),
-  newPassword: z.string().min(8, 'Password must be at least 8 characters'),
+  newPassword: z.string().min(PASSWORD_MIN_LENGTH, PASSWORD_TOO_SHORT),
   confirmPassword: z.string(),
 }).refine((d) => d.newPassword === d.confirmPassword, {
   message: 'Passwords do not match',
@@ -309,7 +311,8 @@ export function DefaultSettings() {
             </div>
             <div className="grid gap-2">
               <Label htmlFor="new-password">New password</Label>
-              <Input id="new-password" type="password" aria-required="true" autoComplete="new-password" aria-invalid={!!passwordForm.formState.errors.newPassword} aria-describedby={passwordForm.formState.errors.newPassword ? 'newPassword-error' : undefined} {...passwordForm.register('newPassword')} />
+              <Input id="new-password" type="password" aria-required="true" autoComplete="new-password" aria-invalid={!!passwordForm.formState.errors.newPassword} aria-describedby={describedBy('newPassword-hint', 'newPassword-error', !!passwordForm.formState.errors.newPassword)} {...passwordForm.register('newPassword')} />
+              {!passwordForm.formState.errors.newPassword && <FieldHint id="newPassword-hint">{PASSWORD_HINT}</FieldHint>}
               <FieldError id="newPassword-error" message={passwordForm.formState.errors.newPassword?.message} />
             </div>
             <div className="grid gap-2">

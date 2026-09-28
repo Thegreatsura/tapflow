@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Every form that sets a password says how long it must be before you submit.** The first-admin setup, invitation, password reset and the password change in **Settings** show "Use at least 8 characters" under the new password field. Before, the rule appeared only as an error after a submit had been refused. Screen readers hear it as the field's description. A refused submit replaces it in the same place with the error, which states the rule itself.
+
 ### Fixed
 
 - **A device shutdown that fails now says so.** iOS used to answer a failed `simctl shutdown` with nothing, so the caller waited out its deadline; Android answered a failed `adb emu kill` with success while the emulator kept running. Both now send `device:shutdown-error`, and when `adb emu kill` fails Android checks the process table before answering, so an emulator that was already exiting still reports done. The stream has already been stopped by then, and the message says so. **Upgrade the relay before the agents**: a relay older than this release drops the new error, so a failed shutdown on an upgraded Android agent goes unanswered instead of being reported as a success.
