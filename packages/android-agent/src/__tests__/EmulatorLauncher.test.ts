@@ -216,6 +216,12 @@ describe('probeEmulator', () => {
     vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: '4321\n', error: undefined } as never)
     expect(probeEmulator('Pixel')).toEqual({ state: 'running', pid: 4321 })
   })
+  // Measured: real `spawnSync` throws `ERR_INVALID_ARG_VALUE` for an argv holding a NUL rather than
+  // returning it as `error`, and the shutdown path then answered nothing. The name is a browser's.
+  it('reads a name no argv can carry as "unknown", without spawning', () => {
+    expect(probeEmulator('Pixel\0_8')).toEqual({ state: 'unknown' })
+    expect(spawnSync).not.toHaveBeenCalled()
+  })
 })
 
 describe('findEmulatorPid', () => {

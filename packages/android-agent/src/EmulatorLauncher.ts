@@ -57,6 +57,10 @@ export function probeEmulator(avdName: string): EmulatorProbe {
   // wrong emulator and here would mean sending SIGTERM to it. POSIX character classes rather than
   // `\b`, because `pgrep -f` matches with an extended regex and word boundaries are not portable
   // there. Metacharacters in the name are escaped so an AVD like "Pixel.7" cannot alter the pattern.
+  // A NUL cannot travel in an argv, so `spawnSync` **throws** on it instead of reporting through `error`,
+  // and every caller reads the result rather than catching. The name comes from a device id a browser
+  // sent (`device:shutdown` validates it only as a string), and a throw there answered nothing at all.
+  if (avdName.includes('\0')) return { state: 'unknown' }
   const esc = avdName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const r = spawnSync(
     'pgrep',
