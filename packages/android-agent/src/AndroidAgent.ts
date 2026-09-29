@@ -1333,7 +1333,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
   ): Promise<void> {
     const serial = this.adb.getSerial(state.deviceId)
     // Was a silent return, and the boot went on to answer `device:ready` for a stream that never
-    // started (#611). The boot checks this before announcing anything; this is the backstop.
+    // started (#611). The boot checks this before describing the device or declaring it ready; this is the backstop.
     if (!serial) throw new PlatformError(EMULATOR_GONE)
 
     // Emulator: capture via gRPC streamScreenshot + Mac VideoToolbox (bypasses the guest SW H.264
@@ -1878,7 +1878,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
 
       const refreshed = await this.adb.listDevices()
       if (seq !== state.bootSeq) { this.abandonBoot(state, seq, sessionId, requestId); return }
-      // **Before anything is announced** (#611). `target` was read before this boot waited on anything,
+      // **Before the device is described or declared ready** (#611) — `device:booting` has gone out already. `target` was read before this boot waited on anything,
       // and a Full reset another boot began can have stopped the emulator since — adb still listed it
       // as up, so this boot skipped the launch. Without a serial there is no stream to start, and the
       // boot used to answer `device:ready` for one. The emulator is really down, so a retry launches it.
