@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- **SMTP credentials can no longer leak between mail transports.** The relay now uses Nodemailer 10.0.2, fixing a process-global DNS cache that reused one transport's TLS server name for another ([GHSA-6vj9-mwq6-2f5v](https://github.com/advisories/GHSA-6vj9-mwq6-2f5v)). The relay sends invitation and password reset mail through one SMTP configuration, so the cross-tenant case the advisory describes is unlikely here, but it is the version to run.
+- **SMTP credentials can no longer leak between mail transports.** The relay now uses Nodemailer 10.0.2, fixing a process-global DNS cache that reused one transport's TLS server name for another ([GHSA-6vj9-mwq6-2f5v](https://github.com/advisories/GHSA-6vj9-mwq6-2f5v)). The relay sends invitation and password reset mail through one SMTP configuration, so the cross-tenant case the advisory describes is unlikely here — but upgrade the relay regardless.
 
 ## [0.26.1] - 2026-09-27
 
