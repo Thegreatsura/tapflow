@@ -323,10 +323,19 @@ open, which is why none of them says "retry" without a hedge (#491).
 
 `input:keyboard:toggle` is **not** in the set, and the reason is not that it has no reply — it has one on
 iOS, `keyboard:toggled`, with a consumer that sets session state. Its **failure half** is missing: the
-`.catch` only logs, so the pending flag never clears and the button latches off (#517). Correlating a pair
-whose failure half does not exist would leave it half-correlated, and the half that is missing is
-platform-asymmetric — Android's toggle has no device-side effect at all, so what its failure even means is a
-decision that slice has to make. `#517` is the prerequisite.
+agent's `.catch` only logs, and a session it holds no state for drops the message. The dashboard no longer
+latches on that — the toggle's wait has an 8s deadline that releases the button and says the device did
+not answer. The button keeps showing the last state the device confirmed; where the keyboard actually is,
+is unknown (#517,
+`DeviceViewer.keyboardDeadline.test.tsx`) — but the silence is still there, and a failure costs the tester
+those 8 seconds.
+
+So correlating this pair still needs the failure reply first. **This paragraph is that prerequisite now**, not
+#517: the issue closed on the dashboard half, and older changelogs that name it as the prerequisite predate
+that. Correlating one whose failure half does not
+exist would leave it half-correlated, and the half that is missing is platform-asymmetric — Android's
+toggle has no device-side effect at all, so what its failure even means is a decision that slice has to
+make, together with the reply's shape.
 
 ## `error` is the session-start refusal, not an escape hatch
 
