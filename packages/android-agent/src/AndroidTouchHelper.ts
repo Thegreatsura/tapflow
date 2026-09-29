@@ -43,7 +43,9 @@ export class AndroidTouchHelper {
   ) {}
 
   start(): void {}
-  stop(): void {}
+  // Forgets an open gesture (#487). `touching` was cleared only by `touchEnd`, so a helper torn down
+  // mid-gesture kept it — and answered the next end it received with a tap at the abandoned position.
+  stop(): void { this.touching = false }
 
   // Memoised on the *promise*, not on the result: resolving-only caching lets every terminal frame
   // that arrives before the first lookup returns spawn its own `wm size` child, which is the extra

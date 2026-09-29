@@ -167,6 +167,7 @@ interface TestState {
   streamWs: WebSocket | null
   touchHelper: {
     pressButton: ReturnType<typeof vi.fn>
+    touchMove: ReturnType<typeof vi.fn>
     touchEnd: ReturnType<typeof vi.fn>
     pinchEnd: ReturnType<typeof vi.fn>
   } | null
@@ -2320,6 +2321,8 @@ describe('AndroidAgent', () => {
 
       it('maps touch:move to device px', () => {
         const control = getState().scrcpySession!.control
+        // Opened first: a move with no gesture behind it is dropped (#487).
+        inject({ type: 'input:touch:start', payload: { x: 0.25, y: 0.75 } })
         inject({ type: 'input:touch:move', payload: { x: 0.5, y: 0.5 } })
         expect(control.touchMove).toHaveBeenCalledWith(0, 540, 1200)
       })
@@ -2357,6 +2360,7 @@ describe('AndroidAgent', () => {
 
       it('maps pinch:move and pinch:end', () => {
         const control = getState().scrcpySession!.control
+        inject({ type: 'input:pinch:start', payload: { f0: { x: 0.4, y: 0.4 }, f1: { x: 0.6, y: 0.6 } } })
         inject({ type: 'input:pinch:move', payload: { f0: { x: 0.5, y: 0.5 }, f1: { x: 0.5, y: 0.5 } } })
         expect(control.pinchMove).toHaveBeenCalledWith(540, 1200, 540, 1200)
         inject({ type: 'input:pinch:end', requestId: 'rq-pinch' })
@@ -2608,6 +2612,7 @@ describe('AndroidAgent', () => {
         state.grpcClient = null
 
         const errored = waitForType(browser, 'input:error')
+        inject({ type: 'input:pinch:start', payload: { f0: { x: 0.4, y: 0.4 }, f1: { x: 0.6, y: 0.6 } } })
         inject({ type: 'input:pinch:end', requestId: 'rq-in19', payload: { f0: { x: 0.5, y: 0.5 }, f1: { x: 0.5, y: 0.5 } } })
 
         expect((await errored)['message']).toContain('not supported')
@@ -2673,6 +2678,141 @@ describe('AndroidAgent', () => {
         }
         // Re-verified rather than trusting a cache that the first attempt must not have written.
         expect(listDevices.mock.calls.length).toBeGreaterThanOrEqual(2)
+      })
+    })
+
+    // #487: a gesture's opening and closing frames used to pick their backend by different
+    // conditions, so one gesture could open on the adb helper and close on the pointer channel — a
+    // touch-up with no touch-down answered `delivered`, and the helper left mid-gesture tapped the
+    // abandoned position on the next end it got. The backend is now chosen once, when it opens.
+    describe('a gesture stays on the backend that opened it', () => {
+      const control = () => getState().scrcpySession!.control as unknown as Record<string, ReturnType<typeof vi.fn>>
+      const helper = () => getState().touchHelper!
+      const replaceSession = () => {
+        // A fresh channel, as a stream restart leaves behind: same kind, different identity.
+        getState().scrcpySession = new ScrcpySession() as unknown as TestState['scrcpySession']
+      }
+
+      it('closes on the helper a gesture that opened there, even once the channel is back', async () => {
+        const state = getState()
+        const session = state.scrcpySession
+        state.scrcpySession = null            // the restart window: helper up, channel not yet
+        inject({ type: 'input:touch:start', payload: { x: 0.25, y: 0.75 } })
+        state.scrcpySession = session         // the channel arrives before the finger lifts
+
+        const done = waitForType(browser, 'input:done')
+        inject({ type: 'input:touch:end', requestId: 'rq-g1', payload: { x: 0.25, y: 0.75 } })
+        await done
+        expect(helper().touchEnd).toHaveBeenCalled()
+        expect(control().touchUp, 'a touch-up with no touch-down').not.toHaveBeenCalled()
+      })
+
+      it('answers no-gesture when the channel that opened it has been replaced', async () => {
+        inject({ type: 'input:touch:start', payload: { x: 0.25, y: 0.75 } })
+        const old = control()
+        replaceSession()
+
+        const err = waitForType(browser, 'input:error')
+        inject({ type: 'input:touch:end', requestId: 'rq-g2', payload: { x: 0.25, y: 0.75 } })
+        expect((await err)['reason']).toBe('no-gesture')
+        expect(old.touchUp).not.toHaveBeenCalled()
+        // Released on the channel serving now, where the gesture was: a gRPC emulator keeps the pointer
+        // down across the client a restart replaced, and the next press would read as a drag from here.
+        expect(control().touchUp).toHaveBeenCalledWith(0, 270, 1800)
+        expect(helper().touchEnd).not.toHaveBeenCalled()
+      })
+
+      it('answers no-gesture, not channel-down, when a restart has emptied everything', async () => {
+        // The touch-down did land, on the channel the restart just dropped; the stream heals by itself
+        // a moment later. `channel-down` would toast "not reaching this device" and tell MCP to reconnect.
+        inject({ type: 'input:touch:start', payload: { x: 0.25, y: 0.75 } })
+        const state = getState()
+        state.scrcpySession = null
+        state.touchHelper = null
+
+        const err = waitForType(browser, 'input:error')
+        inject({ type: 'input:touch:end', requestId: 'rq-g3', payload: { x: 0.25, y: 0.75 } })
+        expect((await err)['reason']).toBe('no-gesture')
+      })
+
+      it('does not tap where an abandoned helper gesture was', async () => {
+        const state = getState()
+        const session = state.scrcpySession
+        state.scrcpySession = null
+        inject({ type: 'input:touch:start', payload: { x: 0.9, y: 0.1 } }) // opens on the helper…
+        state.scrcpySession = session
+        inject({ type: 'input:touch:start', payload: { x: 0.5, y: 0.5 } }) // …and a new one replaces it
+        const done = waitForType(browser, 'input:done')
+        inject({ type: 'input:touch:end', requestId: 'rq-g4a', payload: { x: 0.5, y: 0.5 } })
+        await done
+
+        // The stray end arrives while the channel is down again, so it can only fall to the helper — the one
+        // left armed with the abandoned gesture's position. That is where the phantom tap came from.
+        state.scrcpySession = null
+        const err = waitForType(browser, 'input:error')
+        inject({ type: 'input:touch:end', requestId: 'rq-g4b', payload: { x: 0.5, y: 0.5 } }) // a stray end
+        expect((await err)['reason']).toBe('no-gesture')
+        expect(helper().touchEnd, 'the stray end reached the helper holding the old position').not.toHaveBeenCalled()
+      })
+
+      it('drops a move with no gesture behind it', () => {
+        inject({ type: 'input:touch:move', payload: { x: 0.3, y: 0.3 } })
+        expect(control().touchMove).not.toHaveBeenCalled()
+        expect(helper().touchMove).not.toHaveBeenCalled()
+      })
+
+      it('keeps the next tap when the previous end is still being dispatched', async () => {
+        // The helper's end takes hundreds of ms (a size lookup and an adb child), and the viewer does
+        // not wait for acks between taps — so the record is released before the dispatch, not after.
+        const state = getState()
+        state.scrcpySession = null
+        let release: (v: 'delivered') => void = () => {}
+        helper().touchEnd
+          .mockImplementationOnce(() => new Promise((r) => { release = r }))
+          .mockImplementationOnce(async () => 'delivered')
+
+        inject({ type: 'input:touch:start', payload: { x: 0.2, y: 0.2 } })
+        inject({ type: 'input:touch:end', requestId: 'rq-g6a', payload: { x: 0.2, y: 0.2 } })
+        inject({ type: 'input:touch:start', payload: { x: 0.6, y: 0.6 } })
+        const acks: string[] = []
+        browser.on('message', (raw) => {
+          const m = JSON.parse(String(raw)) as Record<string, string>
+          if (m['type'] === 'input:done' || m['type'] === 'input:error') acks.push(`${m['requestId']}:${m['type']}`)
+        })
+        inject({ type: 'input:touch:end', requestId: 'rq-g6b', payload: { x: 0.6, y: 0.6 } })
+        release('delivered')
+        await vi.waitFor(() => expect(acks.sort()).toEqual(['rq-g6a:input:done', 'rq-g6b:input:done']))
+      })
+
+      it('does not route a touch move into an open pinch', () => {
+        inject({ type: 'input:pinch:start', payload: { f0: { x: 0.4, y: 0.4 }, f1: { x: 0.6, y: 0.6 } } })
+        inject({ type: 'input:touch:move', payload: { x: 0.5, y: 0.5 } })
+        expect(control().touchMove).not.toHaveBeenCalled()
+      })
+
+      it('does not let a stray touch end close an open pinch', async () => {
+        inject({ type: 'input:pinch:start', payload: { f0: { x: 0.4, y: 0.4 }, f1: { x: 0.6, y: 0.6 } } })
+        const err = waitForType(browser, 'input:error')
+        inject({ type: 'input:touch:end', requestId: 'rq-g8a', payload: { x: 0.5, y: 0.5 } })
+        expect((await err)['reason']).toBe('no-gesture')
+        expect(control().touchUp).not.toHaveBeenCalled()
+
+        const done = waitForType(browser, 'input:done')
+        inject({ type: 'input:pinch:end', requestId: 'rq-g8b', payload: { f0: { x: 0.4, y: 0.4 }, f1: { x: 0.6, y: 0.6 } } })
+        await done
+        expect(control().pinchEnd, 'the pinch would keep its second pointer down').toHaveBeenCalledOnce()
+      })
+
+      it('answers no-gesture for a pinch whose channel was replaced', async () => {
+        inject({ type: 'input:pinch:start', payload: { f0: { x: 0.4, y: 0.4 }, f1: { x: 0.6, y: 0.6 } } })
+        const old = control()
+        replaceSession()
+
+        const err = waitForType(browser, 'input:error')
+        inject({ type: 'input:pinch:end', requestId: 'rq-g7', payload: { f0: { x: 0.4, y: 0.4 }, f1: { x: 0.6, y: 0.6 } } })
+        expect((await err)['reason']).toBe('no-gesture')
+        expect(old.pinchEnd).not.toHaveBeenCalled()
+        expect(control().pinchEnd, 'both pointers released on the channel serving now').toHaveBeenCalledOnce()
       })
     })
 

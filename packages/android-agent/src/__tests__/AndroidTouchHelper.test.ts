@@ -236,4 +236,13 @@ describe('AndroidTouchHelper — outcomes', () => {
     expect(helper.pinchEnd()).toBe('unsupported')
     expect(adb.sendInput).not.toHaveBeenCalled()
   })
+
+  // #487: `touching` was cleared only by `touchEnd`, so a helper abandoned mid-gesture answered the
+  // next end it received with a tap at the abandoned gesture's position.
+  it('forgets an open gesture when stopped', async () => {
+    helper.touchStart(0.3, 0.7)
+    helper.stop()
+    expect(await helper.touchEnd()).toBe('no-gesture')
+    expect(adb.sendInput).not.toHaveBeenCalled()
+  })
 })

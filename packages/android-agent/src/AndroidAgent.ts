@@ -314,6 +314,8 @@ interface DeviceState {
   videoHeight: number
   landscape: boolean   // rotation intent toggle — only to request device rotation on input:rotate
   lastTouchPx: { x: number; y: number }
+  /** The gesture in progress and the backend that opened it (#487). See `gestureOwner`. */
+  gesture: { kind: 'touch' | 'pinch' } & GestureBackend | null
   bootSeq: number
   restarting: boolean
 }
@@ -381,6 +383,9 @@ const ADB_KEYEVENT_TIMEOUT_MS = 5_000
 // class through nothing at all. `AgentRegistry.test.ts` once declared `implements DeviceAgent`
 // while missing two members — the clause only works when something checks it, and here that is the
 // compiler.
+/** Which backend serves a gesture — tagged, because the two are told apart by role, not by class. */
+type GestureBackend = { via: 'channel'; owner: PointerControl } | { via: 'helper'; owner: AndroidTouchHelper }
+
 /** Thrown by a stream start whose boot or restart was overtaken. A readable marker only — every
  *  catcher decides on the seq, because a start that lost can also fail with an ordinary error. */
 class StreamSuperseded extends Error {
@@ -617,6 +622,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
         videoHeight: 0,
         landscape: false,
         lastTouchPx: { x: 0, y: 0 },
+        gesture: null,
         bootSeq: 0,
         bootAbandon: new Map(),
         bootsInFlight: new Set(),
@@ -710,6 +716,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     state.booted = false
     state.streamWs?.close()
     state.streamWs = null
+    state.gesture = null
     // A restart still waiting to start belongs to the stream torn down above; it will see it lost its
     // seq and return. Left set, the next stream's own death would not restart it until then.
     state.restarting = false
@@ -2326,6 +2333,69 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
   // own in 4ms, the case the deadline actually fires in is a connected-but-unresponsive emulator, where
   // whether the input landed is unknowable and a retry can double it. AGENTS.md carries the full
   // reasoning under "What the deadline does and does not buy".
+  /**
+   * Open a gesture on the backend that serves it now, and remember which one (#487).
+   *
+   * **Chosen once, when it opens.** The opening and closing frames used to pick their backend by
+   * different conditions — the opening ones also asked for `videoWidth` — and a stream restart puts
+   * the adb helper up before the pointer channel, so a gesture could open on the helper and close on
+   * the channel: a touch-up with no touch-down, answered `delivered`, and a helper left mid-gesture
+   * that tapped the abandoned position on the next end it received. iOS records the process that took
+   * the opening frame for the same reason (`TouchHelper.gestureProc`); this is that, by identity.
+   *
+   * One slot, and the last opener wins. A pinch left open under a new touch would keep its second
+   * pointer down on the channel, but no sender reaches that: the viewer always sends `pinch:end` on
+   * leaving pinch mode, and neither MCP nor the flow runner pinches.
+   */
+  private openGesture(state: DeviceState, kind: 'touch' | 'pinch'): GestureBackend | null {
+    const pc = this.pointerControl(state)
+    const backend: GestureBackend | null = pc && state.videoWidth > 0 ? { via: 'channel', owner: pc }
+      : state.touchHelper ? { via: 'helper', owner: state.touchHelper }
+      : null
+    state.gesture = backend ? { kind, ...backend } : null
+    return backend
+  }
+
+  /** The open gesture's backend, if it is of `kind` and that backend is still the one serving the
+   *  session — compared by identity, so a channel a restart replaced is not mistaken for its successor. */
+  private gestureOwner(state: DeviceState, kind: 'touch' | 'pinch'): GestureBackend | null {
+    const g = state.gesture
+    if (!g || g.kind !== kind) return null
+    const current = g.via === 'channel' ? g.owner === this.pointerControl(state) : g.owner === state.touchHelper
+    return current ? g : null
+  }
+
+  /**
+   * Close the open gesture and say what to do with its end. **The record is released here, before any
+   * dispatch awaits** — the helper's end takes hundreds of ms, the viewer does not wait for acks between
+   * taps, and clearing it afterwards would erase the next tap's record.
+   *
+   * **Ownership before readiness**, as on iOS. A gesture whose backend a restart dropped is `no-gesture`
+   * even while nothing is up yet: its touch-down did land, and the stream heals by itself, so
+   * `channel-down` would toast "not reaching this device" and tell MCP to reconnect for nothing. Only
+   * with no gesture at all and no backend either is the channel what there is to report.
+   */
+  private closeGesture(state: DeviceState, kind: 'touch' | 'pinch'): GestureBackend | { via: 'none'; outcome: InputOutcome } {
+    // An end of the other kind closes nothing: a stray touch end must not take an open pinch's record
+    // with it, or the pinch's own end would find nothing and leave its second pointer down.
+    if (state.gesture && state.gesture.kind !== kind) return { via: 'none', outcome: 'no-gesture' }
+    const opened = state.gesture
+    const backend = this.gestureOwner(state, kind)
+    state.gesture = null
+    if (backend) return backend
+    // **Released anyway, and still answered `no-gesture`.** A gRPC client is stateless: whether a
+    // pointer is down is the emulator's state, and it outlives the client a restart replaced — left
+    // alone, the next tap's press arrives on a pointer already down and reads as a drag from here.
+    // Best effort, on whatever channel serves now; on scrcpy an unmatched release is harmless. With no
+    // channel up yet there is nothing to send it on.
+    const pc = this.pointerControl(state)
+    if (opened?.via === 'channel' && pc) {
+      this.fire(kind === 'touch' ? pc.touchUp(0, state.lastTouchPx.x, state.lastTouchPx.y) : pc.pinchEnd())
+    }
+    if (!opened && !pc && !state.touchHelper) return { via: 'none', outcome: 'channel-down' }
+    return { via: 'none', outcome: 'no-gesture' }
+  }
+
   private async dispatchTo(pc: PointerControl, write: () => void | Promise<void>): Promise<InputOutcome> {
     if (!pc.isReady()) return 'channel-down'
     try {
@@ -2451,13 +2521,13 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
         const state = this.deviceStates.get(msg.sessionId)
         if (!state) break
         const { x, y } = msg.payload as { x: number; y: number }
-        const pc = this.pointerControl(state)
-        if (pc && state.videoWidth > 0) {
+        const g = this.openGesture(state, 'touch')
+        if (g?.via === 'helper') {
+          g.owner.touchStart(x, y)
+        } else if (g?.via === 'channel') {
           const { px, py } = this.toDevicePx(state, x, y)
           state.lastTouchPx = { x: px, y: py }
-          this.fire(pc.touchDown(0, px, py))
-        } else {
-          state.touchHelper?.touchStart(x, y)
+          this.fire(g.owner.touchDown(0, px, py))
         }
         break
       }
@@ -2465,13 +2535,15 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
         const state = this.deviceStates.get(msg.sessionId)
         if (!state) break
         const { x, y } = msg.payload as { x: number; y: number }
-        const pc = this.pointerControl(state)
-        if (pc && state.videoWidth > 0) {
+        // A move with no gesture behind it — or one whose backend has since been replaced — is not the
+        // gesture the tester made. Dropped, as iOS drops it.
+        const g = this.gestureOwner(state, 'touch')
+        if (g?.via === 'helper') {
+          g.owner.touchMove(x, y)
+        } else if (g?.via === 'channel') {
           const { px, py } = this.toDevicePx(state, x, y)
           state.lastTouchPx = { x: px, y: py }
-          this.fire(pc.touchMove(0, px, py))
-        } else {
-          state.touchHelper?.touchMove(x, y)
+          this.fire(g.owner.touchMove(0, px, py))
         }
         break
       }
@@ -2480,14 +2552,14 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
         if (requestId === null) break
         const state = this.deviceStates.get(msg.sessionId)
         if (!state) { this.ackNoSession(msg.sessionId, requestId); break }
-        const pc = this.pointerControl(state)
-        const helper = state.touchHelper
+        const closed = this.closeGesture(state, 'touch')
         const seq = state.bootSeq
+        const { x: upX, y: upY } = state.lastTouchPx
         // terminal of a tap/swipe → ack the gesture, on what the dispatch actually reported
         void (async () => this.ackInput(state,
-          pc ? await this.dispatchTo(pc, () => pc.touchUp(0, state.lastTouchPx.x, state.lastTouchPx.y))
-            : helper ? await helper.touchEnd()
-            : 'channel-down',
+          closed.via === 'none' ? closed.outcome
+            : closed.via === 'helper' ? await closed.owner.touchEnd()
+            : await this.dispatchTo(closed.owner, () => closed.owner.touchUp(0, upX, upY)),
           seq, requestId,
         ))().catch((e) => logger.error('input:touch:end ack failed:', e))
         break
@@ -2496,13 +2568,13 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
         const state = this.deviceStates.get(msg.sessionId)
         if (!state) break
         const { f0, f1 } = msg.payload as { f0: { x: number; y: number }; f1: { x: number; y: number } }
-        const pc = this.pointerControl(state)
-        if (pc && state.videoWidth > 0) {
+        const g = this.openGesture(state, 'pinch')
+        if (g?.via === 'helper') {
+          g.owner.pinchStart(f0.x, f0.y, f1.x, f1.y)
+        } else if (g?.via === 'channel') {
           const { px: px1, py: py1 } = this.toDevicePx(state, f0.x, f0.y)
           const { px: px2, py: py2 } = this.toDevicePx(state, f1.x, f1.y)
-          this.fire(pc.pinchStart(px1, py1, px2, py2))
-        } else {
-          state.touchHelper?.pinchStart(f0.x, f0.y, f1.x, f1.y)
+          this.fire(g.owner.pinchStart(px1, py1, px2, py2))
         }
         break
       }
@@ -2510,13 +2582,13 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
         const state = this.deviceStates.get(msg.sessionId)
         if (!state) break
         const { f0, f1 } = msg.payload as { f0: { x: number; y: number }; f1: { x: number; y: number } }
-        const pc = this.pointerControl(state)
-        if (pc && state.videoWidth > 0) {
+        const g = this.gestureOwner(state, 'pinch')
+        if (g?.via === 'helper') {
+          g.owner.pinchMove(f0.x, f0.y, f1.x, f1.y)
+        } else if (g?.via === 'channel') {
           const { px: px1, py: py1 } = this.toDevicePx(state, f0.x, f0.y)
           const { px: px2, py: py2 } = this.toDevicePx(state, f1.x, f1.y)
-          this.fire(pc.pinchMove(px1, py1, px2, py2))
-        } else {
-          state.touchHelper?.pinchMove(f0.x, f0.y, f1.x, f1.y)
+          this.fire(g.owner.pinchMove(px1, py1, px2, py2))
         }
         break
       }
@@ -2525,13 +2597,12 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
         if (requestId === null) break
         const state = this.deviceStates.get(msg.sessionId)
         if (!state) { this.ackNoSession(msg.sessionId, requestId); break }
-        const pc = this.pointerControl(state)
-        const helper = state.touchHelper
+        const closed = this.closeGesture(state, 'pinch')
         const seq = state.bootSeq
         void (async () => this.ackInput(state,
-          pc ? await this.dispatchTo(pc, () => pc.pinchEnd())
-            : helper ? helper.pinchEnd()   // 'unsupported' — the adb path has no pinch at all
-            : 'channel-down',
+          closed.via === 'none' ? closed.outcome
+            : closed.via === 'helper' ? closed.owner.pinchEnd()   // 'unsupported' — the adb path has no pinch at all
+            : await this.dispatchTo(closed.owner, () => closed.owner.pinchEnd()),
           seq, requestId,
         ))().catch((e) => logger.error('input:pinch:end ack failed:', e))
         break
