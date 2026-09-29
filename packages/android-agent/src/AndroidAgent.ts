@@ -381,6 +381,27 @@ const ADB_KEYEVENT_TIMEOUT_MS = 5_000
 // class through nothing at all. `AgentRegistry.test.ts` once declared `implements DeviceAgent`
 // while missing two members — the clause only works when something checks it, and here that is the
 // compiler.
+/** Thrown by a stream start whose boot or restart was overtaken. A readable marker only — every
+ *  catcher decides on the seq, because a start that lost can also fail with an ordinary error. */
+class StreamSuperseded extends Error {
+  constructor() { super('a newer boot took over this device while its stream was starting') }
+}
+
+/** What one stream start created. See `releaseStream`. */
+interface StreamHandles {
+  touchHelper?: AndroidTouchHelper
+  scrcpySession?: ScrcpySession
+  emulatorVideo?: EmulatorVideo
+  grpcClient?: EmulatorGrpcClient
+}
+
+/** adb no longer lists the emulator. Usually it stopped — a Full reset or a shutdown under way — but an
+ *  adb server restart or a console timeout reads the same, so the cause is not claimed. */
+const EMULATOR_GONE =
+  'adb no longer lists the emulator, so the session could not start. It may have stopped (a Full reset or a shutdown was under way). Boot it again.'
+const EMULATOR_GONE_RESTART =
+  'adb no longer lists the emulator, so its stream could not be restarted. Boot it again.'
+
 export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
   private readonly adb: AdbWrapper
   private readonly launcher: EmulatorLauncher
@@ -689,6 +710,9 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     state.booted = false
     state.streamWs?.close()
     state.streamWs = null
+    // A restart still waiting to start belongs to the stream torn down above; it will see it lost its
+    // seq and return. Left set, the next stream's own death would not restart it until then.
+    state.restarting = false
   }
 
   /**
@@ -882,8 +906,10 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     // report had already gone out by now, so without this the picture is shown a quarter turn out
     // until the watcher's next tick, and taps land there too.
     if (!state?.grpcClient) return
+    // Owned by this stream: a boot replacing it mid-settle must not get this pass's geometry.
+    const client = state.grpcClient
     const changed = await this.reconcileSerial(
-      state, serial, state.videoWidth, state.videoHeight, state.skin)
+      state, serial, state.videoWidth, state.videoHeight, state.skin, () => state.grpcClient === client)
     if (changed && state.booted) this.sendChrome(state)
   }
 
@@ -983,15 +1009,18 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
    * Best effort: a device with no postures just gets the rotation, and a failure to reach either is
    * logged rather than failing the boot. The session is usable in the state it is in.
    */
-  private async normaliseOnBoot(state: DeviceState, serial: string): Promise<void> {
-    // **A restart is not a boot.** This runs from `startGrpcVideoStream`, which the stream's own
-    // auto-restart also reaches — and there the tester is mid-test. Unfolding their device and
-    // standing it upright because the pump hiccuped is the opposite of what the normalisation is
-    // for: it exists so a *new* session starts from a state both sides can name.
-    if (state.restarting) return
+  private async normaliseOnBoot(state: DeviceState, serial: string, owns: () => boolean = () => true): Promise<void> {
+    // Not run for a restart, and the caller decides that rather than a flag on the state: a restart is
+    // not a boot — the tester is mid-test — but a shared flag also read as a restart for a *new* boot
+    // arriving while an old restart waited, which then inherited the last session's posture.
+    //
+    // `owns` between steps: these are writes to the device, and a boot that lost its seq must not fold
+    // or rotate the device the newer one is setting up.
     const postures = await this.listPostures(state.deviceId)
+    if (!owns()) return
     const open = bootPostureId(postures)
     const folded = open !== null && open !== (await this.getPosture(state.deviceId))?.id
+    if (!owns()) return
     if (folded) {
       await this.adb.setPosture(serial, open)
         .catch((e: unknown) => logger.warn(`could not unfold on boot: ${(e as Error).message}`))
@@ -1005,15 +1034,15 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     // `wm user-rotation lock` is persistent device state that nothing here ever frees. Writing it
     // on every emulator would leave a plain AVD unable to auto-rotate, in this session and in
     // every later one, including outside tapflow.
-    if (postures.length === 0) return
+    if (postures.length === 0 || !owns()) return
     await this.adb.setRotation(serial, 0)
       .catch((e: unknown) => logger.warn(`could not set the boot rotation: ${(e as Error).message}`))
-    state.landscape = false
+    if (owns()) state.landscape = false
   }
 
   /** Re-read the display on a timer for as long as the session lives, and tell the viewer when it
    *  moved. See `SCREEN_WATCH_INTERVAL_MS` for why this is a poll rather than a one-shot read. */
-  private watchScreen(state: DeviceState, serial: string, skin: SkinRotation): void {
+  private watchScreen(state: DeviceState, serial: string, skin: SkinRotation, owns: () => boolean = () => true): void {
     if (state.screenWatch) clearInterval(state.screenWatch)
     state.screenWatch = setInterval(() => {
       // A reconcile may still be running from a fold; skipping a tick is free, since the next one
@@ -1034,8 +1063,9 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
           && quick.rotation === state.rotation) return
         // It moved, or could not be read. Either way the settling pass is the one that answers,
         // because a single reading taken mid-fold describes the posture being left.
+        // `owns`: a tick that settles across a boot replacing this stream must not write into it.
         const changed = await this.reconcileSerial(
-          state, serial, state.videoWidth, state.videoHeight, state.skin ?? skin)
+          state, serial, state.videoWidth, state.videoHeight, state.skin ?? skin, owns)
         if (changed && state.booted) this.sendChrome(state)
       })()
         .catch((e: unknown) => logger.debug(`screen watch: ${(e as Error).message}`))
@@ -1067,10 +1097,11 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
    */
   private reconcileSerial(
     state: DeviceState, serial: string, w: number, h: number, skin: SkinRotation | null,
+    owns: () => boolean = () => true,
   ): Promise<boolean> {
     const key = state.deviceId
     const running = this.reconcileRunning.get(key)
-    if (!running) return this.startReconcile(state, serial, w, h, skin, key)
+    if (!running) return this.startReconcile(state, serial, w, h, skin, key, owns)
     const queued = this.reconcileQueued.get(key)
     if (queued) return queued
     const next = running
@@ -1078,7 +1109,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
       .catch(() => false)
       .then(() => {
         this.reconcileQueued.delete(key)
-        return this.startReconcile(state, serial, w, h, skin, key)
+        return this.startReconcile(state, serial, w, h, skin, key, owns)
       })
     this.reconcileQueued.set(key, next)
     return next
@@ -1086,6 +1117,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
 
   private startReconcile(
     state: DeviceState, serial: string, w: number, h: number, skin: SkinRotation | null, key: string,
+    owns: () => boolean,
   ): Promise<boolean> {
     // A token rather than the promise itself: the cleanup runs inside the promise it would have
     // to name, and comparing identity is all it needs — "is the map still pointing at me".
@@ -1093,7 +1125,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     const running = (async () => {
       state.reconciling = true
       try {
-        return await this.reconcileScreen(state, serial, w, h, skin)
+        return await this.reconcileScreen(state, serial, w, h, skin, true, owns)
       } finally {
         state.reconciling = false
         // Only if this is still the current one: a trailing pass may already have replaced it.
@@ -1128,6 +1160,10 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
   private async reconcileScreen(
     state: DeviceState, serial: string, frameW: number, frameH: number, skin: SkinRotation | null,
     settle = true,
+    // **Asked after each read and before each batch of writes.** A reconcile started by a stream that
+    // has since been replaced — its first frame, or its boot — would otherwise write its geometry into
+    // the session that replaced it, and those fields are exactly what `clearGrpcState` exists to clear.
+    owns: () => boolean = () => true,
   ): Promise<boolean> {
     // The frame is the fallback, not the source: it arrives in the emulator's physical orientation,
     // which folded is 90° from what Android is drawing.
@@ -1138,6 +1174,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     const m = settle
       ? await this.stableDisplayMetrics(serial)
       : await this.adb.getDisplayMetrics(serial).catch(() => null)
+    if (!owns()) return false
     const natural = m?.natural ?? { width: frameW, height: frameH }
     const current = m?.current ?? { width: frameW, height: frameH }
     const rotation = m?.rotation ?? 0
@@ -1178,6 +1215,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     // The panel changed, so its curve may have too. Read from Android rather than kept from the
     // frame measurement, which cannot survive the capture being a quarter turn from the screen.
     const radius = await this.adb.getCornerRadius(serial, natural.width, natural.height).catch(() => null)
+    if (!owns()) return false
     if (radius !== null) state.cornerRadiusPx = radius
     state.streamRotation = streamRotation
     state.skin = skin
@@ -1278,18 +1316,39 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     return process.env.TAPFLOW_AUDIO !== 'off'
   }
 
-  private async startVideoStream(state: DeviceState, streamWs: WebSocket): Promise<void> {
+  /**
+   * Start this device's stream, writing to the shared state **only while `owns()` holds** (#587).
+   *
+   * `owns` is the caller's seq check — a boot's or a restart's. This runs across awaits, and a newer
+   * boot's `cleanupDeviceState` stops only what the state points at when it runs. A handle this start
+   * published after that, or never published, was stopped by nobody: a scrcpy server, or a gRPC
+   * capture with its interval and host-mute tap, for the life of the agent. Worse, a late write could
+   * land over the newer boot's own handle and orphan *that*. So a start that finds it no longer owns
+   * the state stops what it created itself, clears a shared field only while it still points at its
+   * own handle, and throws `StreamSuperseded`. Every catcher decides on the seq, not on the error.
+   */
+  private async startVideoStream(
+    state: DeviceState, streamWs: WebSocket,
+    owns: () => boolean = () => true, opts: { restart: boolean } = { restart: false },
+  ): Promise<void> {
     const serial = this.adb.getSerial(state.deviceId)
-    if (!serial) return
+    // Was a silent return, and the boot went on to answer `device:ready` for a stream that never
+    // started (#611). The boot checks this before describing the device or declaring it ready; this is the backstop.
+    if (!serial) throw new PlatformError(EMULATOR_GONE)
 
     // Emulator: capture via gRPC streamScreenshot + Mac VideoToolbox (bypasses the guest SW H.264
     // encoder). On any failure (e.g. an externally-booted emulator without `-grpc`), fall back to
     // scrcpy so streaming still works.
     if (this.useGrpc(serial)) {
       try {
-        await this.startGrpcVideoStream(state, streamWs, serial)
+        await this.startGrpcVideoStream(state, streamWs, serial, owns, opts)
         return
       } catch (e) {
+        // **On the seq, not on the error.** A newer boot's cleanup stops this capture mid-start, and
+        // it rejects as an ordinary error — taken as a gRPC failure, the fallback below tore down
+        // what was by then the newer boot's touch channel and started a scrcpy session for a boot
+        // that had already lost. `startGrpcVideoStream` has released its own handles by now.
+        if (!owns()) throw e instanceof StreamSuperseded ? e : new StreamSuperseded()
         logger.warn(`gRPC backend failed (${(e as Error).message}) — falling back to scrcpy`)
         state.emulatorVideo?.stop(); state.emulatorVideo = null
         this.clearGrpcState(state)
@@ -1297,40 +1356,75 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
       }
     }
 
-    const touchHelper = new AndroidTouchHelper(this.adb, serial)
-    touchHelper.start()
-    state.touchHelper = touchHelper
+    const created: StreamHandles = {}
+    try {
+      const touchHelper = new AndroidTouchHelper(this.adb, serial)
+      touchHelper.start()
+      created.touchHelper = touchHelper
+      state.touchHelper = touchHelper
 
-    const session = new ScrcpySession()
-    const info = await session.start(serial)
-    state.scrcpySession = session
-    state.landscape = false
+      const session = new ScrcpySession()
+      created.scrcpySession = session
+      const info = await session.start(serial)
+      if (!owns()) throw new StreamSuperseded()
+      state.scrcpySession = session
+      state.landscape = false
 
-    state.displayWidth = info.width
-    state.displayHeight = info.height
-    state.videoWidth = info.width
-    state.videoHeight = info.height
+      state.displayWidth = info.width
+      state.displayHeight = info.height
+      state.videoWidth = info.width
+      state.videoHeight = info.height
 
-    const reader = session.video.start().getReader()
+      const reader = session.video.start().getReader()
 
-    // Detect video size changes via H.264 SPS so ScrcpyControl.screenSize always matches what
-    // scrcpy is encoding (landscape-aware vs portrait-locked). The SPS leads the keyframe AU.
-    const onFrame = (value: ScrcpyFrame) => {
-      const parsed = parseSpsFromNal(value.payload)
-      if (parsed && (parsed.width !== state.videoWidth || parsed.height !== state.videoHeight)) {
-        state.videoWidth = parsed.width
-        state.videoHeight = parsed.height
-        state.scrcpySession?.control.updateScreenSize(parsed.width, parsed.height)
-        logger.info(`video size → ${parsed.width}×${parsed.height}`)
+      // Detect video size changes via H.264 SPS so ScrcpyControl.screenSize always matches what
+      // scrcpy is encoding (landscape-aware vs portrait-locked). The SPS leads the keyframe AU.
+      const onFrame = (value: ScrcpyFrame) => {
+        if (state.scrcpySession !== session) return
+        const parsed = parseSpsFromNal(value.payload)
+        if (parsed && (parsed.width !== state.videoWidth || parsed.height !== state.videoHeight)) {
+          state.videoWidth = parsed.width
+          state.videoHeight = parsed.height
+          state.scrcpySession?.control.updateScreenSize(parsed.width, parsed.height)
+          logger.info(`video size → ${parsed.width}×${parsed.height}`)
+        }
       }
+
+      void this.pumpVideo(state, streamWs, reader, onFrame, () => session.control.resetVideo()).then(() => {
+        if (state.scrcpySession === session && !state.restarting) {
+          state.restarting = true
+          void this.restartVideoStream(state)
+        }
+      })
+    } catch (e) {
+      if (!owns()) {
+        this.releaseStream(state, serial, created)
+        throw e instanceof StreamSuperseded ? e : new StreamSuperseded()
+      }
+      throw e
     }
+  }
 
-    void this.pumpVideo(state, streamWs, reader, onFrame, () => session.control.resetVideo()).then(() => {
-      if (state.scrcpySession === session && !state.restarting) {
-        state.restarting = true
-        void this.restartVideoStream(state)
-      }
-    })
+  /** Stop what one stream start created, and clear each shared field only while it is still that
+   *  start's — a newer boot may have written its own there already. Everything here is idempotent,
+   *  because the newer boot's cleanup may have stopped some of it first. */
+  private releaseStream(state: DeviceState, serial: string, h: StreamHandles): void {
+    if (h.touchHelper) {
+      h.touchHelper.stop()
+      if (state.touchHelper === h.touchHelper) state.touchHelper = null
+    }
+    if (h.scrcpySession) {
+      h.scrcpySession.stop(serial)
+      if (state.scrcpySession === h.scrcpySession) state.scrcpySession = null
+    }
+    if (h.emulatorVideo) {
+      h.emulatorVideo.stop()
+      if (state.emulatorVideo === h.emulatorVideo) state.emulatorVideo = null
+    }
+    if (h.grpcClient) {
+      h.grpcClient.close()
+      if (state.grpcClient === h.grpcClient) state.grpcClient = null
+    }
   }
 
   // Shared frame pump for both video backends: reads H.264 access units, wraps each in the TFFE
@@ -1391,14 +1485,37 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
   // gRPC emulator backend: capture via EmulatorVideo (gRPC streamScreenshot + Mac VT encode) through
   // the shared pump. Input is routed to the gRPC client in handleRelayMessage. No auto-restart —
   // the backend is torn down with the device state.
-  private async startGrpcVideoStream(state: DeviceState, streamWs: WebSocket, serial: string): Promise<void> {
+  private async startGrpcVideoStream(
+    state: DeviceState, streamWs: WebSocket, serial: string,
+    owns: () => boolean = () => true, opts: { restart: boolean } = { restart: false },
+  ): Promise<void> {
+    const created: StreamHandles = {}
+    try {
+      await this.startGrpcVideoStreamOwned(state, streamWs, serial, owns, opts, created)
+    } catch (e) {
+      // See `startVideoStream`. Released here rather than there so the fallback, which runs only for
+      // a start that still owns the state, never has to tell its own handles from a newer boot's.
+      if (!owns()) {
+        this.releaseStream(state, serial, created)
+        throw e instanceof StreamSuperseded ? e : new StreamSuperseded()
+      }
+      throw e
+    }
+  }
+
+  private async startGrpcVideoStreamOwned(
+    state: DeviceState, streamWs: WebSocket, serial: string,
+    owns: () => boolean, opts: { restart: boolean }, created: StreamHandles,
+  ): Promise<void> {
     // **Before the stream exists, not after.** Unfolding changes the panel's dimensions, so doing
     // it to a running stream makes the session's first act a resolution change — and this capture
     // is frame-driven, with no frames while the screen is static. A device that finishes unfolding
     // onto a still screen then sends nothing, the decoder never reports a size, and the viewer sits
     // on "Waiting for stream…" until something moves. Measured: it cleared only after a few manual
     // rotations, which is exactly "until a frame arrives".
-    await this.normaliseOnBoot(state, serial)
+    // **A restart is not a boot** — see `normaliseOnBoot`.
+    if (!opts.restart) await this.normaliseOnBoot(state, serial, owns)
+    if (!owns()) throw new StreamSuperseded()
     // Connect to THIS emulator's port: the one we launched it with, else the port it advertises in
     // its discovery .ini (covers externally-booted emulators), else the legacy default.
     const port = state.grpcPort ?? discoverGrpcPort(serial) ?? 8554
@@ -1415,9 +1532,11 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
 
     const touchHelper = new AndroidTouchHelper(this.adb, serial)
     touchHelper.start()
+    created.touchHelper = touchHelper
     state.touchHelper = touchHelper
 
     const client = new EmulatorGrpcClient(`127.0.0.1:${port}`)
+    created.grpcClient = client
     const video = new EmulatorVideo(client, {
       fps,
       ...(maxSize ? { maxWidth: maxSize, maxHeight: maxSize } : {}),
@@ -1426,15 +1545,21 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
       // being dropped: `EmulatorVideo` reports each one once and records it, so a skin-only
       // change dropped here would never be reported again by anything.
       onSizeChange: (w, h, skin) => {
-        if (state.emulatorVideo !== video) return
-        void this.reconcileSerial(state, serial, w, h, skin)
+        // Asked again inside the reconcile, before it writes: it settles for most of a second, and
+        // the stream can be replaced in that time.
+        const mine = () => state.emulatorVideo === video
+        if (!mine()) return
+        void this.reconcileSerial(state, serial, w, h, skin, mine)
           .then((changed) => { if (changed && state.booted) this.sendChrome(state) })
           .catch((e: unknown) => logger.warn(`screen reconcile failed: ${(e as Error).message}`))
       },
     })
+    created.emulatorVideo = video
     // Before the first frame, so no tap can arrive while the divisor is still unknown. Cheap: one
     // unary RPC, and the answer does not change for the life of the emulator.
-    state.touchRange = await client.getDisplaySize()
+    const touchRange = await client.getDisplaySize()
+    if (!owns()) throw new StreamSuperseded()
+    state.touchRange = touchRange
     logger.info(`input scale ${state.touchRange
       ? `${state.touchRange.width}×${state.touchRange.height} (emulator display 0)`
       : 'unknown — falling back to the panel size'}`)
@@ -1442,11 +1567,15 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     state.grpcClient = client
     state.emulatorVideo = video
     const info = await video.start()
+    if (!owns()) throw new StreamSuperseded()
     state.landscape = false
     // Orientation from the frame, magnitude from `wm size` — see `reconcileScreen` for why neither
     // alone is right. The first frame has already fired `onSizeChange`, but that ran before
     // `state.booted`, so nothing was sent; this settles the values the boot `session:chrome` carries.
-    await this.reconcileScreen(state, serial, info.width, info.height, info.rotation, false)
+    await this.reconcileScreen(state, serial, info.width, info.height, info.rotation, false, owns)
+    // The last await: everything below starts synchronously, so nothing it starts can outlive a
+    // check that passed.
+    if (!owns()) throw new StreamSuperseded()
     // **After the reconcile, and only if it came back empty.** `detectCornerRadius` answers a
     // fraction of the *frame's* width, and the frame is both server-side downscaled and a quarter
     // turn from natural — so the pixels it names are neither device pixels nor the right axis.
@@ -1455,7 +1584,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
       const turned = SKIN_DEGREES[info.rotation] === 90 || SKIN_DEGREES[info.rotation] === 270
       state.cornerRadiusPx = Math.round(info.cornerRadius * (turned ? state.videoHeight : state.videoWidth))
     }
-    this.watchScreen(state, serial, info.rotation)
+    this.watchScreen(state, serial, info.rotation, () => state.emulatorVideo === video)
 
     const reader = video.frames().getReader()
     // If the gRPC video ends unexpectedly (emulator crash / disconnect), restart the stream so the
@@ -1521,8 +1650,17 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
   }
 
   private async restartVideoStream(state: DeviceState): Promise<void> {
+    // **A restart is not a boot, and does not bump the seq** — it captures it. Anything that does bump
+    // it (a boot, a shutdown, losing the relay) means this restart's stream is no longer wanted.
+    const seq = state.bootSeq
+    const owns = () => state.bootSeq === seq && this.deviceStates.get(state.sessionId) === state
     const serial = this.adb.getSerial(state.deviceId)
-    if (!serial) { state.restarting = false; return }
+    if (!serial) {
+      state.restarting = false
+      // Was a silent return: a stream that died because its emulator did, reported by nothing.
+      if (owns()) this.sendMsg({ type: 'device:boot-error', sessionId: state.sessionId, message: EMULATOR_GONE_RESTART })
+      return
+    }
 
     state.scrcpySession?.stop(serial)
     state.scrcpySession = null
@@ -1544,11 +1682,18 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     await this.adb.pkill(serial, 'scrcpy-server').catch(() => {})
     await new Promise<void>((r) => setTimeout(r, 1500))
 
-    if (!this.deviceStates.has(state.sessionId)) return
+    if (!owns()) {
+      // Only ours to clear while nothing newer has run: a newer boot's cleanup already cleared it, and
+      // that boot's own stream may since have died and set it for a restart of its own.
+      return
+    }
 
     try {
-      await this.startVideoStream(state, streamWs)
+      await this.startVideoStream(state, streamWs, owns, { restart: true })
     } catch (err) {
+      // Superseded while starting: the newer boot answers for the device, and a dead-stream report
+      // from here would put an error on a session that is booting normally.
+      if (!owns()) return
       logger.error(`scrcpy restart failed: ${err}`)
       // **No `requestId`, and that is the contract rather than an omission.** This is the unsolicited
       // producer of `device:boot-error`: a stream that died mid-session and failed to come back, with
@@ -1560,7 +1705,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
         message: 'scrcpy failed to restart',
       })
     } finally {
-      state.restarting = false
+      if (owns()) state.restarting = false
     }
   }
 
@@ -1733,6 +1878,11 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
 
       const refreshed = await this.adb.listDevices()
       if (seq !== state.bootSeq) { this.abandonBoot(state, seq, sessionId, requestId); return }
+      // **Before the device is described or declared ready** (#611) — `device:booting` has gone out already. `target` was read before this boot waited on anything,
+      // and a Full reset another boot began can have stopped the emulator since — adb still listed it
+      // as up, so this boot skipped the launch. Without a serial there is no stream to start, and the
+      // boot used to answer `device:ready` for one. The emulator is really down, so a retry launches it.
+      if (!this.adb.getSerial(avdId)) throw new PlatformError(EMULATOR_GONE)
       const refreshedDevice = refreshed.find((d) => d.id === avdId) ?? target
 
       this.sendDeviceInfo(state, { ...refreshedDevice, status: 'booted' } as Device)
@@ -1744,7 +1894,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
         return
       }
 
-      await this.startVideoStream(state, streamWs)
+      await this.startVideoStream(state, streamWs, () => seq === state.bootSeq)
       if (seq !== state.bootSeq) { this.abandonBoot(state, seq, sessionId, requestId); return }
       this.sendChrome(state)
       void this.sendPostures(state)
@@ -2414,8 +2564,9 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
             // `state.rotation` on a backend whose frames are already natural, which `toDevicePx`
             // says must never happen.
             if (!state.grpcClient) return
+            const client = state.grpcClient
             const changed = await this.reconcileSerial(
-              state, serial, state.videoWidth, state.videoHeight, state.skin)
+              state, serial, state.videoWidth, state.videoHeight, state.skin, () => state.grpcClient === client)
             if (changed && state.booted) this.sendChrome(state)
           })
           .catch((e: unknown) => {
