@@ -2204,8 +2204,9 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     const state = this.deviceStates.get(sessionId)
     if (!state) {
       // Answered only when someone asked: nothing was attempted, and the idle timer's id-less shutdown has no
-      // waiter to tell. A failure below is answered either way — `SessionList` sends without an id and needs
-      // the error to clear its row.
+      // waiter to tell. A failure below is answered either way — `requestId` is optional on `device:shutdown`,
+      // so an id-less sender that is waiting can only learn of the failure this way (protocol/AGENTS.md,
+      // 「The sender must hold the session」).
       if (requestId) this.sendMsg({ type: 'device:shutdown-error', sessionId, requestId, message: SHUTDOWN_NO_SESSION_STATE })
       return
     }

@@ -32,7 +32,6 @@ const table = readFileSync(join(root, 'packages/dashboard/lib/inboundDisposition
 /** Where a name in an `at:` value lives. The table names modules, not paths. */
 const FILES = {
   DeviceViewer: 'packages/dashboard/components/DeviceViewer.tsx',
-  SessionList: 'packages/dashboard/components/SessionList.tsx',
   useAgentSession: 'packages/dashboard/hooks/useAgentSession.ts',
   useClipboardBridge: 'packages/dashboard/hooks/useClipboardBridge.ts',
   useNetworkControl: 'packages/dashboard/hooks/useNetworkControl.ts',
@@ -90,8 +89,8 @@ describe('inbound disposition', () => {
         if (!path) { unknown.push(`${type}: ${name}`); continue }
         const src = readFileSync(join(root, path), 'utf8')
         // A *receive branch*, not the literal anywhere in the file. `includes` certified a false claim
-        // that shipped in this table's first version: `error` was listed as handled in `SessionList`,
-        // which had no branch for it — three unrelated `'error'` strings (a `Record<string, 'booting' |
+        // that shipped in this table's first version: `error` was listed as handled in `SessionList` (since
+        // deleted, #584), which had no branch for it — three unrelated `'error'` strings (a `Record<string, 'booting' |
         // 'error'>`, an assignment, a comparison) made it green, and the message really was being dropped
         // there. Deleting a genuine branch and leaving the literal in a comment passed too.
         // Any receiver's own name, not just `msg` — `useClipboardBridge` correlates by requestId and reads

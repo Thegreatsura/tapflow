@@ -706,7 +706,7 @@ describe('session ownership seam', () => {
   // ── #579 · #527 — the owner is a client, and occupancy is judged by liveness ──────────────────────
 
   it('a second socket of the same client may command the session the first holds', async () => {
-    // #527. The dashboard opens four sockets per tab and the one that holds the session is not the one
+    // #527. The dashboard opens up to three sockets per tab and the one that holds the session is not the one
     // that sends the teardown, which is why this could not be answered with a socket.
     const { agent, sessionIds } = await registerAgent('owner-two-sockets')
     const sessionId = sessionIds[0]!

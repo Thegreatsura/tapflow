@@ -450,8 +450,10 @@ export function DeviceViewer({ sessionId, deviceId, buildId, resetMode, onRecord
     }
     // **Handed over without comparing anything here**, unlike every other correlated pair in this
     // handler. `useAgentSession` sends three uncorrelated `device:shutdown`s on the way out of a
-    // view and `SessionList` answers those, so the id comparison is what separates this viewer's
-    // reboot from somebody else's teardown — and it belongs beside the id, which lives in the hook.
+    // view, `mcp-server` can send correlated ones on a session nobody holds, and the relay forwards
+    // every answer to whichever socket holds the session when it arrives — this one. So the id
+    // comparison is what separates this viewer's reboot from somebody else's shutdown, and it belongs
+    // beside the id, which lives in the hook.
     if (msg.type === 'device:shutdown-done' || msg.type === 'device:shutdown-error') {
       rebootHandlerRef.current?.(msg);
       return;
