@@ -325,7 +325,8 @@ open, which is why none of them says "retry" without a hedge (#491).
 iOS, `keyboard:toggled`, with a consumer that sets session state. Its **failure half** is missing: the
 agent's `.catch` only logs, and a session it holds no state for drops the message. The dashboard no longer
 latches on that — the toggle's wait has an 8s deadline that releases the button and says the device did
-not answer, with the keyboard left where the device last confirmed it (#517,
+not answer. The button keeps showing the last state the device confirmed; where the keyboard actually is,
+is unknown (#517,
 `DeviceViewer.keyboardDeadline.test.tsx`) — but the silence is still there, and a failure costs the tester
 those 8 seconds.
 
