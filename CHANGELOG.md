@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **An in-flight `device:boot` fails fast when its session rebounds instead of burning its full deadline.** The rebinding agent never saw the parked boot, so it can never be answered. The failure carries the rebound cause and reads as environmental; every other in-flight request keeps waiting for its reply on the new socket, and a boot issued after the rebound restores the binding as before.
 
+### Security
+
+- **SMTP credentials can no longer leak between mail transports.** The relay now uses Nodemailer 10.0.2, fixing a process-global DNS cache that reused one transport's TLS server name for another ([GHSA-6vj9-mwq6-2f5v](https://github.com/advisories/GHSA-6vj9-mwq6-2f5v)). The relay sends invitation and password reset mail through one SMTP configuration, so the cross-tenant case the advisory describes is unlikely here, but it is the version to run.
+
 ## [0.26.1] - 2026-09-27
 
 ### Security
