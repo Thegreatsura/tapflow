@@ -65,8 +65,9 @@ describe('useDeviceReboot', () => {
   })
 
   it('does not boot on an answer to somebody else\'s shutdown', () => {
-    // **The case this hook exists to get right.** `SessionList`'s teardown shutdowns are answered on
-    // the same session, and the relay forwards agent replies to whichever socket holds it now.
+    // **The case this hook exists to get right.** Another client's correlated shutdown (`mcp-server`'s
+    // `shutdownDevice`, sent while nobody held the session) is answered on the same session, and the
+    // relay forwards agent replies to whichever socket holds it now.
     const { view, booted, done } = setup()
     act(() => { view.result.current.reboot() })
     done('a-different-request')

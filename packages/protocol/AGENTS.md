@@ -173,11 +173,11 @@ first written here as putting a pair *outside* correlation, which was wrong by o
 - **The relay originates the request.** `device:shutdown` is sent by the relay itself when a browser socket
   closes, and it is one interface shared by both directions — so a required correlator would force the relay
   to invent an id for a request nobody made.
-- **The reply is also sent unsolicited.** `device:shutdown-done` is read by `SessionList` as a device-status
-  broadcast, the relay replays `device:ready` from cache on a re-join, and `AndroidAgent.restartVideoStream`
-  sends `device:boot-error` for a stream that died mid-session. A consumer that discards on a correlator
-  mismatch stops learning about state it did not ask about — the cross-requester delivery that is a bug for
-  `open-url` is the feature here.
+- **The reply is also sent unsolicited.** `device:shutdown-done` answers shutdowns nobody correlated (the
+  relay's own on socket close, the dashboard's id-less teardowns); the relay replays `device:ready` from
+  cache on a re-join, and `AndroidAgent.restartVideoStream` sends `device:boot-error` for a stream that died
+  mid-session. A consumer that discards on a correlator mismatch stops learning about state it did not ask
+  about — the cross-requester delivery that is a bug for `open-url` is the feature here.
 
 ## Lifecycle correlation — where the correlator is optional, and what that costs
 
@@ -301,9 +301,10 @@ gave the pair a failure member.
 
 A refusal is **answered where a waiter exists** and dropped where none does — with `device:shutdown-error`
 as the deliberate loosening, answered to the sender whether or not one is waiting. The relay cannot tell
-which of the dashboard's four senders asked, three of them wait on nothing, and the fourth
-(`SessionList`) is left with an inert row without it. Sending to a socket that ignores it costs one frame;
-withholding it costs that row. Answering matters more than it
+whether an id-less sender is waiting: the dashboard's three teardown sends wait on nothing and its reboot
+correlates, but `requestId` is optional on the wire, and a client that omits it and waits has nothing else
+to act on. Sending to a socket that ignores it costs one frame; withholding it costs that client its answer.
+Answering matters more than it
 looks: `awaitInputAck` reports silence from a session that has never acked as *success* — unless the relay
 has already said the session's agent went away — so a silent refusal would report a command that never left
 the relay as landed, worse than the misrouting it replaced. The two

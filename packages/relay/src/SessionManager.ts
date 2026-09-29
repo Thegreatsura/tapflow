@@ -16,8 +16,8 @@ export interface Session {
    * Who may command this session — `<userId>:<clientId>`, not a socket.
    *
    * Split from `browserSocket` because that one field was answering two questions: *who may command* and
-   * *where do replies go*. Only the first moves. A browser tab holds four sockets (`SessionList`,
-   * `DeviceViewer`, `useAgentSession`, `MacResources`) and the one that holds the session is not the one
+   * *where do replies go*. Only the first moves. A browser tab holds up to three sockets (`DeviceViewer`,
+   * `useAgentSession`, `MacResources`) and the one that holds the session is not the one
    * that sends the teardown, which is why a socket-shaped answer could not be given to #527.
    *
    * Cleared with `browserSocket`, in `clearBrowser` and `remove`. Keeping it past the release would let a
@@ -219,7 +219,7 @@ export class SessionManager {
     // it, on a socket that is open, and that socket is answering.
     //
     // - `owner !== owner` is #527 and #515: a re-join by the same client is idempotent whether or not the
-    //   socket is the same one, which is what makes a tab's four sockets one holder and an automatic
+    //   socket is the same one, which is what makes a tab's three sockets one holder and an automatic
     //   reconnect a takeover rather than a refusal.
     // - `readyState === OPEN` was the whole test, and it is not a liveness signal. A laptop that went to
     //   sleep leaves it OPEN until TCP or the heartbeat notices.

@@ -8,9 +8,9 @@ const RELAY_URL = import.meta.env.VITE_RELAY_URL ?? `${wsProtocol}//${location.h
 const RECONNECT_DELAY = 2000
 
 /**
- * Who this tab is, for the relay's ownership check. One value for the whole document, so the four sockets
- * this app opens (`SessionList`, `DeviceViewer`, `useAgentSession`, `MacResources`) are one holder — which
- * is what lets the unmount teardown shut down a device the viewer's socket was holding.
+ * Who this tab is, for the relay's ownership check. One value for the whole document, so the three sockets
+ * this app opens (`DeviceViewer`, `useAgentSession`, `MacResources`) are one holder — which is what lets
+ * the unmount teardown shut down a device the viewer's socket was holding.
  *
  * **In memory, deliberately not `sessionStorage`.** That store is *copied* into a tab opened from this one
  * — duplicate tab, ⌘-click on a same-origin link, session restore — so two tabs would share an identity

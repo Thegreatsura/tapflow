@@ -1465,7 +1465,7 @@ export class RelayServer {
       // These two shared one fall-through clause. Separated because the sharing is the trap for
       // whoever adds the door gate: a correlator check written into a shared body would gate
       // `device:shutdown` too, and the relay originates that message with no id — so the dashboard's
-      // four senders and the relay's own idle timer would stop reaching the agent, silently, in the
+      // three id-less senders and the relay's own idle timer would stop reaching the agent, silently, in the
       // one direction no reply reports. That gate is a schema now and cannot be written into a case at
       // all, which is what makes the trap unreachable rather than merely avoided.
       case 'device:boot': {
@@ -1992,8 +1992,9 @@ export class RelayServer {
     // pick another" — advice for a problem they cannot act on, while the actual reason went unreported.
     // It is a map read the relay has already done, so ordering it first costs nothing.
     //
-    // `!== ws` because a socket re-joining the session it already holds is not contending with anyone:
-    // `SessionList` sends `session:start` before a shutdown, so pressing shutdown twice hit this.
+    // `owner !== ownerOf(ws)` because a client re-joining a session it already holds is not contending
+    // with anyone: the viewer re-sends `session:start` each time its socket reconnects, and `mcp-server`
+    // and `flow-runner` keep one `clientId` per process, so their explicit re-join is the same client.
     // The same three conditions `join()` applies, and they have to agree: this one answers the caller and
     // that one performs the bind, so a disagreement is a refusal for a session the bind would have allowed.
     if (

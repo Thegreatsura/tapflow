@@ -19,8 +19,8 @@ import type { BrowserInbound } from '@tapflowio/protocol'
  * Two independent reasons, both measured during design review, and both worth stating because the idea
  * is the obvious one:
  *
- *  - **`send()` is shared by four sockets.** `useRelay` is called by `DeviceViewer`, `SessionList`,
- *    `useAgentSession` and `MacResources`, and each opens its own WebSocket. So "what the dashboard
+ *  - **`send()` is shared by three sockets.** `useRelay` is called by `DeviceViewer`, `useAgentSession`
+ *    and `MacResources`, and each opens its own WebSocket. So "what the dashboard
  *    sends" is a package-level fact while a handler lives in one component — deriving one from the other
  *    obliges `DeviceViewer` to handle replies to requests it never issues.
  *  - **A reply does not go to whoever asked.** The relay forwards agent replies to
@@ -46,7 +46,7 @@ type Disposition =
   | { ignored: string }
 
 export const INBOUND_DISPOSITION = {
-  'agents:listed': { at: 'SessionList, useAgentSession, MacResources' },
+  'agents:listed': { at: 'useAgentSession, MacResources' },
   'app:install-done': { at: 'DeviceViewer' },
   'app:install-error': { at: 'DeviceViewer' },
   'app:launch-done': { at: 'DeviceViewer' },
@@ -62,31 +62,31 @@ export const INBOUND_DISPOSITION = {
   // never reached one — so it clears the wait and moves nothing.
   'network:state': { at: 'DeviceViewer, useNetworkControl' },
   'network:error': { at: 'DeviceViewer, useNetworkControl' },
-  'device:boot-error': { at: 'DeviceViewer, SessionList' },
+  'device:boot-error': { at: 'DeviceViewer' },
   'device:booting': { at: 'DeviceViewer' },
-  'device:ready': { at: 'DeviceViewer, SessionList' },
+  'device:ready': { at: 'DeviceViewer' },
   // `DeviceViewer` joined this pair with #628: a reboot is a `device:shutdown` followed by a
   // `device:boot`, because `device:boot` alone no-ops on a running device. Its shutdown is the only
   // **correlated** one this app sends — `useAgentSession`'s three fire on the way out of a view and
-  // are deliberately id-less — so the viewer compares before it acts and `SessionList` does not.
-  'device:shutdown-done': { at: 'DeviceViewer, SessionList' },
+  // are deliberately id-less — so the viewer compares before it acts.
+  'device:shutdown-done': { at: 'DeviceViewer' },
   // The relay's half of the pair (#542), so it reaches whichever socket asked. `useAgentSession` is not
   // among them and never was: it only ever sends `agents:list` and `device:shutdown`, never
   // `session:start`, so it does not become the session's `browserSocket` — and it has no branch for
   // this, which is right, because its three senders fire on the way out of a view and nothing there
-  // waits. Both names below do compare `.type` against this literal, which is what `at` answers.
-  'device:shutdown-error': { at: 'DeviceViewer, SessionList' },
+  // waits. The name below does compare `.type` against this literal, which is what `at` answers.
+  'device:shutdown-error': { at: 'DeviceViewer' },
   // **`useAgentSession`'s branch cannot fire, and it is still named here.** L5d measured it: all five
   // producers are `sendTo(ws, …)` to the socket that sent `session:start`, and that hook's socket only ever
   // sends `agents:list` and `device:shutdown`. So relay failures do **not** surface in the device list, which
-  // naming three files here implies.
+  // naming two files here implies.
   //
   // The name stays because `at` answers "which files compare `.type` against this", and the reverse-direction
   // check derives exactly that — dropping the name made the table stale the other way. A first attempt did
   // drop it and that check said so. Reachability is a different question from handling, and this comment is
   // where it belongs; the branch is a correct handler for a message that does not arrive, so whoever removes
   // it can, and this says why.
-  'error': { at: 'DeviceViewer, SessionList, useAgentSession' },
+  'error': { at: 'DeviceViewer, useAgentSession' },
   'input:error': { at: 'DeviceViewer' },
   'keyboard:toggled': { at: 'DeviceViewer' },
   'open-url:done': { at: 'DeviceViewer' },
@@ -95,7 +95,7 @@ export const INBOUND_DISPOSITION = {
   'device:postures': { at: 'DeviceViewer' },
   'session:chrome': { at: 'DeviceViewer' },
   // Same as `error` above: `useAgentSession`'s branch cannot fire, and is named for the same reason.
-  'session:joined': { at: 'DeviceViewer, SessionList, useAgentSession' },
+  'session:joined': { at: 'DeviceViewer, useAgentSession' },
   'session:rebound': { at: 'DeviceViewer' },
   'session:terminated': { at: 'DeviceViewer' },
 
