@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The viewer says in words whether your keystrokes go to the device.** The Focus row in the card beside the device now reads `Focus · On` after you click the screen and `Focus · Off` once you click elsewhere. Before, only its colour changed, from grey to green, which is hard to tell apart for some people, and a screen reader heard only "Focus", with no state.
+
 - **An Android tap made while the stream restarts no longer lands somewhere else.** A gesture could begin on the adb input path and end on the video channel, which had just come back: the device got a release with no press, reported as delivered, and a stray release that later fell to the adb path could tap where the abandoned gesture had been. A gesture now ends on the path it began on, and one whose path was replaced in between is released and answered as no longer in progress.
 
 - **Two Android boots of the same device no longer leave a stream running that nobody stops.** A boot that a newer one replaced while its video was still starting used to finish setting it up anyway: a scrcpy server or an emulator capture then ran for as long as the agent did, or took the place of the newer boot's own stream. It now stops what it started and leaves the newer boot alone. A boot whose emulator was stopped by a Full reset in the meantime used to report the device ready with no picture ever arriving; it now fails with a message that says to boot again, and a stream that dies because its emulator is gone is reported instead of dropped.

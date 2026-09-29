@@ -83,6 +83,9 @@ export function SimulatorInfoCard(props: SimulatorInfoCardProps) {
 
   return (
     <div className="w-[300px] shrink-0 mt-3 rounded-xl border bg-background px-4 py-4 flex flex-col gap-3">
+      {/* The state is a word, not only the colour (#747, WCAG 1.4.1): emerald against grey was the whole
+          difference, which anyone who cannot separate those two colours, or who hears the card, could not
+          read. */}
       <div
         className={cn(
           'flex items-center',
@@ -92,6 +95,11 @@ export function SimulatorInfoCard(props: SimulatorInfoCardProps) {
       >
         <ScanLine className="h-3.5 w-3.5 shrink-0" />
         <span className="text-[12px] font-medium">Focus</span>
+        {/* Styled like the fps row's `· Active` / `· Idle`, so the card has one look for a state word. */}
+        <span aria-hidden="true" className="text-[11px] text-muted-foreground/60">·</span>
+        <span className={cn('text-[11px]', keyboardActive ? 'text-emerald-500' : 'text-muted-foreground/60')}>
+          {keyboardActive ? 'On' : 'Off'}
+        </span>
       </div>
 
       {joined && (
