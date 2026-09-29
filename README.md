@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/public/readme-hero.jpg" width="600" alt="tapflow" />
+  <img src="docs/public/readme-hero.jpg" alt="tapflow — Quality for everyone." />
 
   <h3>A self-hosted Appetize / BrowserStack alternative for mobile QA teams</h3>
 
