@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/jo-duchan/tapflow/main/docs/public/logo-hero.svg" height="72" alt="tapflow" />
+  <img src="https://raw.githubusercontent.com/jo-duchan/tapflow/main/docs/public/readme-hero.jpg" width="600" alt="tapflow" />
 
   <h3>A self-hosted Appetize / BrowserStack alternative for mobile QA teams</h3>
 
