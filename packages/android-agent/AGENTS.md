@@ -64,7 +64,7 @@ Measured against a killed emulator: the gRPC RPC rejects in **4ms** with `14 UNA
 - **Downscale**: the gRPC encode size is capped by `TAPFLOW_ANDROID_MAX_SIZE` (or the cross-platform `TAPFLOW_MAX_SIZE`); the per-session tier (native / 1280 / 1000) comes from the viewer context. 16-aligned so H.264 macroblock cropping doesn't show padding on the WASM decoder.
 - **Metrics**: `TAPFLOW_STREAM_METRICS=1` logs the throughput baseline (`stream metrics … fps/KB·s/drop`, every 5 s); gRPC capture fps is set by `TAPFLOW_ANDROID_FPS` (default 30). Full instrumentation surface and the user-facing tuning knobs are in [`contributing/measurement.md`](../../contributing/measurement.md).
 - AVD name is the stable key for `Device.id` (`"avd:<name>"`). ADB serial is kept only in the internal `serialMap`.
-- `ANDROID_HOME` or `ADB_PATH` environment variable is required. Missing → clear error and immediate exit.
+- SDK binaries resolve through `sdk.ts`: `ADB_PATH` (adb only), then `ANDROID_HOME`, `ANDROID_SDK_ROOT`, the standard macOS/Linux SDK directories, then `PATH` — the SDK candidates `tapflow doctor` uses, so an SDK doctor finds is one the agent finds (#903). Not the same order: doctor's `resolveAdb` tries `PATH` first, so with two adbs installed the two can name different ones. Nothing found → a `ValidationError` naming `ANDROID_HOME`, and `listAvds` says so once instead of reporting an empty list silently.
 - Apple Silicon Mac: `system-images;android-34;google_apis;arm64-v8a` image required.
 
 ### An entry point with no session refuses rather than choosing
@@ -145,7 +145,7 @@ about the platform rather than an oversight.
 
 ## HOW NOT
 
-- Do not hardcode the ADB path — use `$ANDROID_HOME/platform-tools/adb` or `$ADB_PATH`.
+- Do not hardcode the ADB or emulator path, or read `ANDROID_HOME` directly — call `getAdbPath()` / `getEmulatorPath()` from `sdk.ts`.
 - Do not run ADB commands before confirming emulator boot is complete.
 - Don't switch to `google_apis_playstore` AVD images without testing — untested, with historical H.264 encoder crashes (odd-width capture). `google_apis` is the verified image. (scrcpy path.)
 - Do not revert the scrcpy `video_encoder` to `c2.android.avc.encoder` — it has shown silent stalls / encoder errors under GPU load; the pinned `OMX.google` software encoder is the tested one.

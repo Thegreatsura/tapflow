@@ -1,27 +1,10 @@
 import { execFile, spawn, spawnSync } from 'child_process'
 import { promisify } from 'util'
-import { createLogger, PlatformError, ValidationError } from '@tapflowio/agent-core'
+import { createLogger, PlatformError } from '@tapflowio/agent-core'
+import { getAdbPath, getEmulatorPath } from './sdk.js'
 
 const execFileAsync = promisify(execFile)
 const logger = createLogger('android-agent:emulator')
-
-function getAdbPath(): string {
-  if (process.env['ADB_PATH']) return process.env['ADB_PATH']
-  const androidHome = process.env['ANDROID_HOME']
-  if (!androidHome) throw new ValidationError('ANDROID_HOME not set')
-  return `${androidHome}/platform-tools/adb`
-}
-
-function getEmulatorPath(): string {
-  const androidHome = process.env['ANDROID_HOME']
-  if (!androidHome) {
-    throw new ValidationError(
-      'ANDROID_HOME not set. Install Android SDK and set the environment variable.\n' +
-      'Example: export ANDROID_HOME=$HOME/Library/Android/sdk',
-    )
-  }
-  return `${androidHome}/emulator/emulator`
-}
 
 export interface EmulatorLaunchOpts {
   // Opt-in audio output; default off keeps `-no-audio` so the video-only path is unchanged.

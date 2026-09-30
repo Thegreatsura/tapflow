@@ -8,7 +8,8 @@ import { promisify } from 'util'
 import { ScrcpyVideo } from './ScrcpyVideo.js'
 import { ScrcpyControl } from './ScrcpyControl.js'
 import type { ScrcpyDeviceInfo } from './ScrcpyVideo.js'
-import { createLogger, PlatformError, ValidationError } from '@tapflowio/agent-core'
+import { getAdbPath } from '../sdk.js'
+import { createLogger, PlatformError } from '@tapflowio/agent-core'
 
 const logger = createLogger('android-agent:scrcpy')
 
@@ -19,13 +20,6 @@ const execFileAsync = promisify(execFile)
 // rotation showed it sideways. Keep this in sync with download-scrcpy-server.mjs.
 const SCRCPY_SERVER_VERSION = '3.3'
 const DEVICE_PATH = '/data/local/tmp/scrcpy-server.jar'
-
-function getAdbPath(): string {
-  if (process.env['ADB_PATH']) return process.env['ADB_PATH']
-  const androidHome = process.env['ANDROID_HOME']
-  if (!androidHome) throw new ValidationError('ANDROID_HOME not set')
-  return `${androidHome}/platform-tools/adb`
-}
 
 function getServerJarPath(): string {
   const dir = path.dirname(fileURLToPath(import.meta.url))
