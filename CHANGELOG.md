@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Android agent finds your emulators without `ANDROID_HOME`.** With the SDK installed by Android Studio and `adb` on your `PATH` but no `ANDROID_HOME`, `tapflow doctor` passed and the agent connected, yet it reported 0 devices, even with an emulator running. The agent now also looks in the places doctor checks: `ANDROID_HOME`, `ANDROID_SDK_ROOT`, the standard SDK folder, and finally `PATH`. If it still cannot list your AVDs, it logs why once instead of staying silent.
+
 - **The viewer says in words whether your keystrokes go to the device.** The Focus row in the card beside the device now reads `Focus · On` after you click the screen and `Focus · Off` once you click elsewhere. Before, only its colour changed, from grey to green, which is hard to tell apart for some people, and a screen reader heard only "Focus", with no state.
 
 - **An Android tap made while the stream restarts no longer lands somewhere else.** A gesture could begin on the adb input path and end on the video channel, which had just come back: the device got a release with no press, reported as delivered, and a stray release that later fell to the adb path could tap where the abandoned gesture had been. A gesture now ends on the path it began on, and one whose path was replaced in between is released and answered as no longer in progress.

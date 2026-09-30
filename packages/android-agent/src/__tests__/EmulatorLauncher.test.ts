@@ -13,6 +13,10 @@ vi.mock('child_process', () => ({
   spawnSync: vi.fn(() => ({ status: 1, stdout: '', error: undefined })),
 }))
 
+// `launch` resolves the emulator on disk before it spawns, so without this the test passes only on a
+// host that has an Android SDK installed.
+vi.mock('../sdk', () => ({ getEmulatorPath: () => '/fake/emulator', getAdbPath: () => '/fake/adb' }))
+
 import { spawn, spawnSync } from 'child_process'
 import { buildEmulatorArgs, EmulatorLauncher, findEmulatorPid, probeEmulator, stopEmulatorProcess } from '../EmulatorLauncher'
 

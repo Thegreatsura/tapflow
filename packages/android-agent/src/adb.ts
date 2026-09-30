@@ -1,8 +1,10 @@
 import { execFile } from 'child_process'
 import { promisify } from 'util'
-import { ValidationError } from '@tapflowio/agent-core'
+import { createLogger } from '@tapflowio/agent-core'
+import { getAdbPath, getEmulatorPath } from './sdk.js'
 
 const execFileAsync = promisify(execFile)
+const logger = createLogger('android-agent:adb')
 
 // `execFile` collects the child's stdout in memory and rejects with "stdout maxBuffer length exceeded"
 // once it passes `maxBuffer`, which is 1 MiB unless set. `screencap -p` of a 1080×2424 screen with
@@ -12,28 +14,9 @@ const execFileAsync = promisify(execFile)
 // through `exec` and gets the same room: a large accessibility tree is the same failure one call over.
 const ADB_MAXBUFFER = 64 * 1024 * 1024
 
-function getAdbPath(): string {
-  if (process.env['ADB_PATH']) return process.env['ADB_PATH']
-  const androidHome = process.env['ANDROID_HOME']
-  if (!androidHome) {
-    throw new ValidationError(
-      'ADB not found. Set ANDROID_HOME or ADB_PATH environment variable.\n' +
-      'Example: export ANDROID_HOME=$HOME/Library/Android/sdk',
-    )
-  }
-  return `${androidHome}/platform-tools/adb`
-}
-
-function getEmulatorPath(): string {
-  const androidHome = process.env['ANDROID_HOME']
-  if (!androidHome) {
-    throw new ValidationError(
-      'ANDROID_HOME not set. Install Android SDK and set the environment variable.\n' +
-      'Example: export ANDROID_HOME=$HOME/Library/Android/sdk',
-    )
-  }
-  return `${androidHome}/emulator/emulator`
-}
+// An empty AVD list is otherwise indistinguishable from an SDK the agent cannot find (#903), so the
+// failure is said once rather than on every device poll.
+let warnedListAvds = false
 
 export interface AdbRunner {
   exec(...args: string[]): Promise<string>
@@ -53,8 +36,13 @@ export const defaultRunner: AdbRunner = {
   async listAvds(): Promise<string[]> {
     try {
       const { stdout } = await execFileAsync(getEmulatorPath(), ['-list-avds'])
+      warnedListAvds = false
       return stdout.split('\n').map((l) => l.trim()).filter(Boolean)
-    } catch {
+    } catch (err) {
+      if (!warnedListAvds) {
+        warnedListAvds = true
+        logger.warn(`cannot list AVDs, so no Android devices will be reported: ${(err as Error).message}`)
+      }
       return []
     }
   },
