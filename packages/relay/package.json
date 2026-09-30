@@ -58,8 +58,8 @@
     "better-sqlite3": "^12.11.1",
     "busboy": "^1.6.0",
     "jsonwebtoken": "^9.0.3",
-    "nodemailer": "^10.0.2",
-    "ws": "^8.21.3",
+    "nodemailer": "^10.0.11",
+    "ws": "^8.22.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
@@ -68,7 +68,7 @@
     "@types/busboy": "^1.5.4",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.20.4",
-    "@types/nodemailer": "^8.0.1",
+    "@types/nodemailer": "^8.0.2",
     "@types/ws": "^8.0.0",
     "typescript": "^5.0.0",
     "vitest": "^4.1.11"
