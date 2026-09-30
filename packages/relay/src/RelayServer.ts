@@ -2945,6 +2945,16 @@ export class RelayServer {
     const urlPath = (req.url ?? '/').split('?')[0]
     let filePath = path.join(this.publicDir, urlPath === '/' ? '/index.html' : urlPath)
 
+    // **Contained before anything is read or probed.** `req.url` is the raw request target and Node does
+    // not normalise it, so `/../../etc/passwd` reached `path.join` intact and the join walked out of
+    // `publicDir` — unauthenticated, and the relay's environment and database were one request away.
+    // `serveUpload` has had this check since #173. Checked on the joined path because the index lookup and
+    // the `.br`/`.gz` siblings below are all derived from it; the separator keeps a sibling directory
+    // whose name starts with `publicDir`'s outside.
+    if (!path.resolve(filePath).startsWith(path.resolve(this.publicDir) + path.sep)) {
+      res.writeHead(404); res.end('Not found'); return
+    }
+
     // Next.js static export: try exact path, then path/index.html (trailingSlash)
     if (!fs.existsSync(filePath)) {
       const withIndex = path.join(filePath, 'index.html')
