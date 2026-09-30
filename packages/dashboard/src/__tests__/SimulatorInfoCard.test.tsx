@@ -95,3 +95,20 @@ describe('SimulatorInfoCard — the shared status region beside the device (#748
     expect(screen.queryByText(/streaming is not supported/i)).toBeNull()
   })
 })
+
+describe('SimulatorInfoCard — whether keys go to the device (#747)', () => {
+  // The row used to say "Focus" in both states and changed only its colour (WCAG 1.4.1), so the state
+  // was invisible to anyone who cannot tell emerald from grey, and a screen reader heard only "Focus".
+  // **Mutation:** making the state word constant — the colour-only card this replaced — fails the pair.
+  const row = () => screen.getByText('Focus').parentElement!.textContent
+
+  it('says On while keystrokes are captured', () => {
+    render(<SimulatorInfoCard {...healthy({ keyboardActive: true })} />)
+    expect(row()).toBe('Focus·On')
+  })
+
+  it('says Off otherwise', () => {
+    render(<SimulatorInfoCard {...healthy({ keyboardActive: false })} />)
+    expect(row()).toBe('Focus·Off')
+  })
+})
