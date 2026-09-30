@@ -2443,6 +2443,88 @@ describe('AndroidAgent', () => {
         expect(keyEvSpy).toHaveBeenCalledWith('emulator-5554', '66')
       })
 
+      // #416. `input keyevent` carries no meta state, so Shift+Arrow reached the device as a bare arrow
+      // and moved the caret instead of selecting.
+      it('holds the modifiers for a special key (Shift+ArrowLeft → SHIFT_LEFT + DPAD_LEFT)', () => {
+        const comboSpy = vi.spyOn(adb, 'sendKeyCombination')
+        const keyEvSpy = vi.spyOn(adb, 'sendKeyEvent')
+        inject({ type: 'input:key', requestId: 'rq-in6a', payload: { code: 'ArrowLeft', modifiers: 0x02 } })
+        expect(comboSpy).toHaveBeenCalledWith('emulator-5554', ['59', '21'])
+        expect(keyEvSpy).not.toHaveBeenCalled()
+      })
+
+      it('holds Ctrl, Shift and Alt together, in the order the HID bits give them', () => {
+        const comboSpy = vi.spyOn(adb, 'sendKeyCombination')
+        inject({ type: 'input:key', requestId: 'rq-in6b', payload: { code: 'ArrowRight', modifiers: 0x01 | 0x02 | 0x04 } })
+        expect(comboSpy).toHaveBeenCalledWith('emulator-5554', ['113', '59', '57', '22'])
+      })
+
+      // Android gives Meta+Arrow no editing meaning, and Cmd is a Mac viewer's only route to word-wise
+      // selection. Ctrl and Cmd together still hold Ctrl once.
+      it('holds Meta (Cmd) as Ctrl, once even when both are set', () => {
+        const comboSpy = vi.spyOn(adb, 'sendKeyCombination')
+        inject({ type: 'input:key', requestId: 'rq-in6f', payload: { code: 'ArrowLeft', modifiers: 0x08 | 0x02 } })
+        inject({ type: 'input:key', requestId: 'rq-in6g', payload: { code: 'ArrowLeft', modifiers: 0x08 | 0x01 } })
+        expect(comboSpy).toHaveBeenNthCalledWith(1, 'emulator-5554', ['113', '59', '21'])
+        expect(comboSpy).toHaveBeenNthCalledWith(2, 'emulator-5554', ['113', '21'])
+      })
+
+      it('answers delivered when the combination was pressed', async () => {
+        vi.spyOn(adb, 'sendKeyCombination').mockResolvedValue(true)
+        const acked = waitForType(browser, 'input:done')
+        inject({ type: 'input:key', requestId: 'rq-in6c', payload: { code: 'Home', modifiers: 0x02 } })
+        expect((await acked).requestId).toBe('rq-in6c')
+      })
+
+      // Android below 13 has no `keycombination`. Falling back to the bare key would move the caret
+      // when the tester asked to select, which is the bug itself, so nothing is pressed.
+      it('answers unsupported, and presses nothing, where the device cannot hold a modifier', async () => {
+        vi.spyOn(adb, 'sendKeyCombination').mockResolvedValue(false)
+        const keyEvSpy = vi.spyOn(adb, 'sendKeyEvent')
+        const errored = waitForType(browser, 'input:error')
+        inject({ type: 'input:key', requestId: 'rq-in6d', payload: { code: 'ArrowLeft', modifiers: 0x02 } })
+        const e = await errored
+        expect(e.requestId).toBe('rq-in6d')
+        expect(e.reason).toBe('unsupported')
+        expect(keyEvSpy).not.toHaveBeenCalled()
+      })
+
+      it.each(['Home', 'End', 'PageUp', 'PageDown'])('treats %s as a caret key: unsupported, not pressed bare', async (code) => {
+        vi.spyOn(adb, 'sendKeyCombination').mockResolvedValue(false)
+        const keyEvSpy = vi.spyOn(adb, 'sendKeyEvent')
+        const errored = waitForType(browser, 'input:error')
+        inject({ type: 'input:key', requestId: `rq-caret-${code}`, payload: { code, modifiers: 0x02 } })
+        expect((await errored).reason).toBe('unsupported')
+        expect(keyEvSpy).not.toHaveBeenCalled()
+      })
+
+      // A modifier changes only what a caret key means. Shift+Space is still a space, so where the
+      // device cannot hold Shift it is pressed bare, as it always was — not dropped with an error.
+      it('presses a non-caret key bare where the device cannot hold a modifier (Shift+Space)', async () => {
+        vi.spyOn(adb, 'sendKeyCombination').mockResolvedValue(false)
+        const keyEvSpy = vi.spyOn(adb, 'sendKeyEvent')
+        const acked = waitForType(browser, 'input:done')
+        inject({ type: 'input:key', requestId: 'rq-in6h', payload: { code: 'Space', modifiers: 0x02 } })
+        expect((await acked).requestId).toBe('rq-in6h')
+        expect(keyEvSpy).toHaveBeenCalledWith('emulator-5554', '62')
+      })
+
+      // Cmd+Enter was always the bare Enter that submits a field; Ctrl+Enter may not be.
+      it('drops Meta on a non-caret key, as before (Cmd+Enter → bare Enter)', () => {
+        const comboSpy = vi.spyOn(adb, 'sendKeyCombination')
+        const keyEvSpy = vi.spyOn(adb, 'sendKeyEvent')
+        inject({ type: 'input:key', requestId: 'rq-in6i', payload: { code: 'Enter', modifiers: 0x08 } })
+        expect(keyEvSpy).toHaveBeenCalledWith('emulator-5554', '66')
+        expect(comboSpy).not.toHaveBeenCalled()
+      })
+
+      it('answers failed when the combination command itself rejects', async () => {
+        vi.spyOn(adb, 'sendKeyCombination').mockRejectedValue(new Error('device offline'))
+        const errored = waitForType(browser, 'input:error')
+        inject({ type: 'input:key', requestId: 'rq-in6e', payload: { code: 'ArrowLeft', modifiers: 0x02 } })
+        expect((await errored).message).toBe('the device rejected the input')
+      })
+
       it('types a lowercase character for a letter key with no shift', () => {
         const inputSpy = vi.spyOn(adb, 'sendInput')
         inject({ type: 'input:key', requestId: 'rq-in7', payload: { code: 'KeyA', modifiers: 0 } })

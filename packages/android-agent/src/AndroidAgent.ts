@@ -3069,7 +3069,27 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     // `Object.hasOwn`, not truthiness: `code` comes off the wire, and `'constructor'` would
     // otherwise resolve up the prototype chain to a function and be dispatched as a keycode.
     if (Object.hasOwn(SPECIAL, code)) {
-      return this.dispatchKey(() => this.adb.sendKeyEvent(serial, SPECIAL[code]))
+      // Only on a caret key does a modifier change what the key means (#416): Shift+Arrow selects,
+      // where the bare arrow moves. Shift+Space or Shift+Enter is still a space or a newline.
+      const moves = /^(Arrow|Home$|End$|Page)/.test(code)
+      // The bitmap's HID bits → the left-hand Android modifier. On a caret key Meta is held as Ctrl,
+      // as for the clipboard chords below: Android gives Meta+Arrow no editing meaning (measured, API
+      // 36), and on a Mac viewer Cmd is the only way to reach word-wise movement — macOS takes
+      // Ctrl+Arrow for Spaces, and the viewer keeps Option for pinch. Elsewhere Meta is dropped, as it
+      // always was, so Cmd+Enter stays the bare Enter that submits a field.
+      const HELD: Array<[number, string]> = [[moves ? 0x01 | 0x08 : 0x01, '113'], [0x02, '59'], [0x04, '57']]
+      const held = HELD.filter(([bits]) => modifiers & bits).map(([, key]) => key)
+      const bare = () => this.dispatchKey(() => this.adb.sendKeyEvent(serial, SPECIAL[code]))
+      if (held.length === 0) return bare()
+      let pressed = false
+      const outcome = await this.dispatchKey(async () => {
+        pressed = await this.adb.sendKeyCombination(serial, [...held, SPECIAL[code]])
+      })
+      if (outcome !== 'delivered' || pressed) return outcome
+      // The device cannot hold a modifier (Android below 13). A caret key gets no fallback: the bare
+      // arrow would move the caret when the tester asked to select, so `unsupported` is the honest
+      // answer. Any other key is pressed bare, which is what it always did here.
+      return moves ? 'unsupported' : bare()
     }
     // A Ctrl/Cmd chord is a command, not text. `input text` can't do chords, so map the
     // clipboard shortcuts to dedicated keycodes (a Mac viewer sends Cmd = meta 0x08; treat

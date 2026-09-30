@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Shift+Arrow selects text on Android.** Holding Shift with an arrow key, Home, End, Page Up or Page Down used to move the caret on Android devices, so you could not select text from the keyboard. The modifier now reaches the device: Shift selects, and <kbd>⌘</kbd> (or Ctrl) with an arrow moves or selects a word at a time. Android 12 and older cannot receive a held modifier, so there those combinations show "That input is not supported on this device" instead of moving the caret. Other keys, such as Shift+Space, type as before.
+
 - **The Android agent finds your emulators without `ANDROID_HOME`.** With the SDK installed by Android Studio and `adb` on your `PATH` but no `ANDROID_HOME`, `tapflow doctor` passed and the agent connected, yet it reported 0 devices, even with an emulator running. The agent now also looks in the places doctor checks: `ANDROID_HOME`, `ANDROID_SDK_ROOT`, the standard SDK folder, and finally `PATH`. If it still cannot list your AVDs, it logs why once instead of staying silent.
 
 - **The viewer says in words whether your keystrokes go to the device.** The Focus row in the card beside the device now reads `Focus · On` after you click the screen and `Focus · Off` once you click elsewhere. Before, only its colour changed, from grey to green, which is hard to tell apart for some people, and a screen reader heard only "Focus", with no state.
