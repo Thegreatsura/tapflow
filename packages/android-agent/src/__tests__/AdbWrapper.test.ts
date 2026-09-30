@@ -258,6 +258,17 @@ describe('AdbWrapper', () => {
       await expect(wrapper.sendKeyCombination('emulator-5554', ['59', '21'])).resolves.toBe(false)
     })
 
+    // Measured exit 0 on API 28 only. An `input` that exits non-zero rejects, with the usage text on
+    // the error's stdout — still "cannot hold a modifier", not a dispatch that failed.
+    it('answers false where the unknown command exits non-zero', async () => {
+      const runner = mockRunner()
+      ;(runner.exec as ReturnType<typeof vi.fn>).mockRejectedValue(
+        Object.assign(new Error('Command failed'), { stdout: 'Error: Unknown command: keycombination\n' }),
+      )
+      const wrapper = new AdbWrapper(runner)
+      await expect(wrapper.sendKeyCombination('emulator-5554', ['59', '21'])).resolves.toBe(false)
+    })
+
     it('rejects when adb itself fails', async () => {
       const runner = mockRunner()
       ;(runner.exec as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('device offline'))

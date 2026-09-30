@@ -2489,6 +2489,35 @@ describe('AndroidAgent', () => {
         expect(keyEvSpy).not.toHaveBeenCalled()
       })
 
+      it.each(['Home', 'End', 'PageUp', 'PageDown'])('treats %s as a caret key: unsupported, not pressed bare', async (code) => {
+        vi.spyOn(adb, 'sendKeyCombination').mockResolvedValue(false)
+        const keyEvSpy = vi.spyOn(adb, 'sendKeyEvent')
+        const errored = waitForType(browser, 'input:error')
+        inject({ type: 'input:key', requestId: `rq-caret-${code}`, payload: { code, modifiers: 0x02 } })
+        expect((await errored).reason).toBe('unsupported')
+        expect(keyEvSpy).not.toHaveBeenCalled()
+      })
+
+      // A modifier changes only what a caret key means. Shift+Space is still a space, so where the
+      // device cannot hold Shift it is pressed bare, as it always was — not dropped with an error.
+      it('presses a non-caret key bare where the device cannot hold a modifier (Shift+Space)', async () => {
+        vi.spyOn(adb, 'sendKeyCombination').mockResolvedValue(false)
+        const keyEvSpy = vi.spyOn(adb, 'sendKeyEvent')
+        const acked = waitForType(browser, 'input:done')
+        inject({ type: 'input:key', requestId: 'rq-in6h', payload: { code: 'Space', modifiers: 0x02 } })
+        expect((await acked).requestId).toBe('rq-in6h')
+        expect(keyEvSpy).toHaveBeenCalledWith('emulator-5554', '62')
+      })
+
+      // Cmd+Enter was always the bare Enter that submits a field; Ctrl+Enter may not be.
+      it('drops Meta on a non-caret key, as before (Cmd+Enter → bare Enter)', () => {
+        const comboSpy = vi.spyOn(adb, 'sendKeyCombination')
+        const keyEvSpy = vi.spyOn(adb, 'sendKeyEvent')
+        inject({ type: 'input:key', requestId: 'rq-in6i', payload: { code: 'Enter', modifiers: 0x08 } })
+        expect(keyEvSpy).toHaveBeenCalledWith('emulator-5554', '66')
+        expect(comboSpy).not.toHaveBeenCalled()
+      })
+
       it('answers failed when the combination command itself rejects', async () => {
         vi.spyOn(adb, 'sendKeyCombination').mockRejectedValue(new Error('device offline'))
         const errored = waitForType(browser, 'input:error')

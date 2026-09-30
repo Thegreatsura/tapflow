@@ -316,11 +316,18 @@ export class AdbWrapper {
    * meta state, since `keyevent` sends every key on its own. Answers false where `input` has no such
    * command (Android below 13): it prints its usage and the shell still exits 0, so the output is the
    * only sign that nothing was pressed. That output goes to stderr, which the runner drops, hence the
-   * redirect — interpreted by the device's shell, not ours.
+   * redirect — interpreted by the device's shell, not ours. Exit 0 was measured on API 28 only; an
+   * `input` that exits non-zero instead rejects with the same text on the error's `stdout`, and is the
+   * same answer rather than a failed dispatch.
    */
   async sendKeyCombination(serial: string, keyCodes: string[]): Promise<boolean> {
-    const out = await this.runner.exec('-s', serial, 'shell', 'input', 'keycombination', ...keyCodes, '2>&1')
-    return !/Unknown command/.test(out)
+    const unknown = (out: unknown) => typeof out === 'string' && /Unknown command/.test(out)
+    try {
+      return !unknown(await this.runner.exec('-s', serial, 'shell', 'input', 'keycombination', ...keyCodes, '2>&1'))
+    } catch (e) {
+      if (unknown((e as { stdout?: unknown } | null)?.stdout)) return false
+      throw e
+    }
   }
 
   /**
