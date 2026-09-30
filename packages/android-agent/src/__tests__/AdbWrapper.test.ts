@@ -239,6 +239,33 @@ describe('AdbWrapper', () => {
     })
   })
 
+  describe('sendKeyCombination', () => {
+    it('presses the keys together with `input keycombination`, in order', async () => {
+      const runner = mockRunner()
+      const wrapper = new AdbWrapper(runner)
+      await expect(wrapper.sendKeyCombination('emulator-5554', ['59', '21'])).resolves.toBe(true)
+      expect(runner.exec).toHaveBeenCalledWith('-s', 'emulator-5554', 'shell', 'input', 'keycombination', '59', '21', '2>&1')
+    })
+
+    // Measured on an API 28 AVD: the command is unknown, `input` prints its usage to stderr, and the
+    // shell still exits 0 — so the redirected output is the only thing that says nothing was pressed.
+    it('answers false where `input` does not know the command, though adb exits 0', async () => {
+      const runner = mockRunner()
+      ;(runner.exec as ReturnType<typeof vi.fn>).mockResolvedValue(
+        'Error: Unknown command: keycombination\nUsage: input [<source>] <command> [<arg>...]\n',
+      )
+      const wrapper = new AdbWrapper(runner)
+      await expect(wrapper.sendKeyCombination('emulator-5554', ['59', '21'])).resolves.toBe(false)
+    })
+
+    it('rejects when adb itself fails', async () => {
+      const runner = mockRunner()
+      ;(runner.exec as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('device offline'))
+      const wrapper = new AdbWrapper(runner)
+      await expect(wrapper.sendKeyCombination('emulator-5554', ['59', '21'])).rejects.toThrow('device offline')
+    })
+  })
+
   // #607. Measured on Pixel_6_tapflow (API 34): `enable` exits 0, the state reads back as `enabled`
   // with no delay, and `dumpsys connectivity` reports "Active default network: none" — so the OS is
   // genuinely offline and the app's own connectivity callbacks fire without anything being faked.

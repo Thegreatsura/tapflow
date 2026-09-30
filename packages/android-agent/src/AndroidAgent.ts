@@ -3069,7 +3069,20 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     // `Object.hasOwn`, not truthiness: `code` comes off the wire, and `'constructor'` would
     // otherwise resolve up the prototype chain to a function and be dispatched as a keycode.
     if (Object.hasOwn(SPECIAL, code)) {
-      return this.dispatchKey(() => this.adb.sendKeyEvent(serial, SPECIAL[code]))
+      // The bitmap's HID bits → the left-hand Android modifier. Meta is held as Ctrl, as for the
+      // clipboard chords below: Android gives Meta+Arrow no editing meaning (measured, API 36), and on a
+      // Mac viewer Cmd is the only way to reach word-wise movement — macOS takes Ctrl+Arrow for Spaces,
+      // and the viewer keeps Option for pinch.
+      const HELD: Array<[number, string]> = [[0x01 | 0x08, '113'], [0x02, '59'], [0x04, '57']]
+      const held = HELD.filter(([bits]) => modifiers & bits).map(([, key]) => key)
+      if (held.length === 0) return this.dispatchKey(() => this.adb.sendKeyEvent(serial, SPECIAL[code]))
+      // No fallback to the bare key where the device cannot hold a modifier: Shift+Arrow would move the
+      // caret when the tester asked to select (#416), so answering `unsupported` is the honest half.
+      let pressed = false
+      const outcome = await this.dispatchKey(async () => {
+        pressed = await this.adb.sendKeyCombination(serial, [...held, SPECIAL[code]])
+      })
+      return outcome === 'delivered' && !pressed ? 'unsupported' : outcome
     }
     // A Ctrl/Cmd chord is a command, not text. `input text` can't do chords, so map the
     // clipboard shortcuts to dedicated keycodes (a Mac viewer sends Cmd = meta 0x08; treat

@@ -312,6 +312,18 @@ export class AdbWrapper {
   }
 
   /**
+   * Presses the keys together, holding each until the last is down — the only adb form that carries a
+   * meta state, since `keyevent` sends every key on its own. Answers false where `input` has no such
+   * command (Android below 13): it prints its usage and the shell still exits 0, so the output is the
+   * only sign that nothing was pressed. That output goes to stderr, which the runner drops, hence the
+   * redirect — interpreted by the device's shell, not ours.
+   */
+  async sendKeyCombination(serial: string, keyCodes: string[]): Promise<boolean> {
+    const out = await this.runner.exec('-s', serial, 'shell', 'input', 'keycombination', ...keyCodes, '2>&1')
+    return !/Unknown command/.test(out)
+  }
+
+  /**
    * Enabled and disabled package names, for Lean mode. Disabled is **every package minus the enabled
    * ones**, not `-d`: a `-d` read that came back empty would say a disabled app is gone, and a
    * missing app is one Lean mode stops tracking. Both reads must name `android`, or neither is trusted.
