@@ -43,15 +43,16 @@ describe('a rebind settles only the boots its old agent was supposed to answer (
   afterEach(async () => { await server.stop() })
 
   const DEV_A = { id: 'devA', name: 'iPhone A', platform: 'ios', status: 'booted' }
+  const DEV_B = { id: 'devB', name: 'iPhone B', platform: 'ios', status: 'booted' }
 
   type Device = { id: string; name: string; platform: string; status: string }
 
-  async function register(devices: Device[]) {
+  async function register(devices: Device[], agentId = 'mac-1') {
     const agent = new WebSocket(`ws://localhost:${port}`)
     await waitForOpen(agent)
     agent.send(JSON.stringify({
       type: 'agent:register',
-      agentId: 'mac-1', agentName: 'the-mac', platform: 'ios',
+      agentId, agentName: 'the-mac', platform: 'ios',
       devices,
     }))
     const reply = await waitForType<AgentRegistered>(agent, 'agent:registered')
@@ -67,9 +68,9 @@ describe('a rebind settles only the boots its old agent was supposed to answer (
     return browser
   }
 
-  function boot(browser: WebSocket, sessionId: string, requestId: string) {
+  function boot(browser: WebSocket, sessionId: string, requestId: string, deviceId = 'devA') {
     browser.send(JSON.stringify({
-      type: 'device:boot', sessionId, requestId, payload: { deviceId: 'devA' },
+      type: 'device:boot', sessionId, requestId, payload: { deviceId },
     }))
   }
 
@@ -145,6 +146,31 @@ describe('a rebind settles only the boots its old agent was supposed to answer (
     expect(await waitForTypeOrNull(browser, 'device:boot-error', 0)).toBeNull()
 
     first.agent.close(); second.agent.close(); browser.close()
+  })
+
+  it("leaves another agent's pending boot alone when this agent rebinds", async () => {
+    // The `oldSockets` filter in `invalidateBootsFor` is the only thing protecting this:
+    // without it, A's rebind fails every tracked boot, including B's.
+    const agentA = await register([DEV_A], 'mac-a')
+    const agentB = await register([DEV_B], 'mac-b')
+    const sessionA = agentA.byDevice.get('devA')!
+    const sessionB = agentB.byDevice.get('devB')!
+    const browserA = await join(sessionA)
+    const browserB = await join(sessionB)
+
+    boot(browserB, sessionB, 'rq-b', 'devB')
+    expect((await waitForType<DeviceBoot>(agentB.agent, 'device:boot')).requestId).toBe('rq-b')
+
+    await register([DEV_A], 'mac-a')
+    expect((await waitForType<SessionRebound>(browserA, 'session:rebound')).sessionId).toBe(sessionA)
+
+    // B's boot is still pending on the other agent: no synthetic error reaches its browser,
+    // and the entry survives A's rebind.
+    await barrier(browserB)
+    expect(await waitForTypeOrNull(browserB, 'device:boot-error', 0)).toBeNull()
+    expect(pendingBootCount()).toBe(1)
+
+    agentA.agent.close(); agentB.agent.close(); browserA.close(); browserB.close()
   })
 
   it('clears a tracked boot when its correlated reply arrives, so a later rebind stays silent', async () => {

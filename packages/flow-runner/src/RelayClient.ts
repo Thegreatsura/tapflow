@@ -303,10 +303,10 @@ interface Waiter {
    *  out — `mcp-server`'s twin records the same constraint where it hit it from the other direction. Absent
    *  on `agents:list`, which carries no session on the wire and is unaffected by one ending. */
   sessionId?: string
-   /** The operation's name, for the rejection's prose. `waitFor` already took it for the timeout message;
-    *  keeping it on the record is what lets a message the *dispatcher* builds name the request too. */
-   what: string
- }
+  /** The operation's name, for the rejection's prose. `waitFor` already took it for the timeout message;
+   *  keeping it on the record is what lets a message the *dispatcher* builds name the request too. */
+  what: string
+}
 
 /** How long to wait for a boot before giving up on it.
  *
