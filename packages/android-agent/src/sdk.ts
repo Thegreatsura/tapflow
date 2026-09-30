@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { accessSync, constants, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { ValidationError } from '@tapflowio/agent-core'
@@ -19,17 +19,29 @@ export function androidSdkCandidates(): string[] {
   ].filter((c): c is string => Boolean(c))
 }
 
+// `which` semantics: a directory or a non-executable file of the right name is passed over, so
+// `$ANDROID_HOME` on PATH next to a half-installed `emulator/` folder does not resolve to the folder.
+function isExecutableFile(candidate: string): boolean {
+  try {
+    if (!statSync(candidate).isFile()) return false
+    accessSync(candidate, constants.X_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** The first SDK candidate holding `<subdir>/<name>`, then `name` on PATH — the PATH step is what
  *  the agent's own `canRun` checks, so an agent that registered can also find the binary. */
 function resolveSdkTool(subdir: string, name: string): string | null {
   for (const sdk of androidSdkCandidates()) {
     const candidate = join(sdk, subdir, name)
-    if (existsSync(candidate)) return candidate
+    if (isExecutableFile(candidate)) return candidate
   }
   for (const dir of (process.env['PATH'] ?? '').split(delimiter)) {
     if (!dir) continue
     const candidate = join(dir, name)
-    if (existsSync(candidate)) return candidate
+    if (isExecutableFile(candidate)) return candidate
   }
   return null
 }

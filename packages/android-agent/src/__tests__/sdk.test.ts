@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { join } from 'node:path'
-import { existsSync } from 'node:fs'
+import { accessSync, statSync } from 'node:fs'
+import type { Stats } from 'node:fs'
 
-vi.mock('node:fs', () => ({ existsSync: vi.fn() }))
+vi.mock('node:fs', () => ({ statSync: vi.fn(), accessSync: vi.fn(), constants: { X_OK: 1 } }))
 vi.mock('node:os', () => ({ homedir: () => '/Users/dev' }))
 
 import { ValidationError } from '@tapflowio/agent-core'
@@ -10,10 +11,26 @@ import { getAdbPath, getEmulatorPath } from '../sdk'
 
 const STUDIO_SDK = '/Users/dev/Library/Android/sdk'
 
-/** Only these paths exist on the fake disk. */
+/** The fake disk: `paths` are executable files, `extra` holds what exists but cannot be run. */
 function onDisk(...paths: string[]): void {
-  const present = new Set(paths)
-  vi.mocked(existsSync).mockImplementation((p) => present.has(String(p)))
+  disk(paths)
+}
+
+function disk(executables: string[], extra: { dirs?: string[]; nonExec?: string[] } = {}): void {
+  const exec = new Set(executables)
+  const dirs = new Set(extra.dirs)
+  const nonExec = new Set(extra.nonExec)
+  vi.mocked(statSync).mockImplementation(((p: string) => {
+    const path = String(p)
+    if (dirs.has(path)) return { isFile: () => false } as Stats
+    if (exec.has(path) || nonExec.has(path)) return { isFile: () => true } as Stats
+    throw Object.assign(new Error(`ENOENT: ${path}`), { code: 'ENOENT' })
+  }) as never)
+  // A directory passes `X_OK` on a real disk (its x bit means searchable), so only `isFile` can
+  // reject it; the fake answers the same way rather than letting `accessSync` do that job.
+  vi.mocked(accessSync).mockImplementation((p) => {
+    if (!exec.has(String(p)) && !dirs.has(String(p))) throw Object.assign(new Error(`EACCES: ${String(p)}`), { code: 'EACCES' })
+  })
 }
 
 describe('Android SDK resolution', () => {
@@ -22,7 +39,8 @@ describe('Android SDK resolution', () => {
     vi.stubEnv('ANDROID_HOME', '')
     vi.stubEnv('ANDROID_SDK_ROOT', '')
     vi.stubEnv('PATH', '/usr/bin:/bin')
-    vi.mocked(existsSync).mockReset()
+    vi.mocked(statSync).mockReset()
+    vi.mocked(accessSync).mockReset()
   })
 
   afterEach(() => vi.unstubAllEnvs())
@@ -69,6 +87,23 @@ describe('Android SDK resolution', () => {
   it('falls back to the emulator on PATH too', () => {
     vi.stubEnv('PATH', '/usr/bin:/opt/android/emulator')
     onDisk('/opt/android/emulator/emulator')
+
+    expect(getEmulatorPath()).toBe('/opt/android/emulator/emulator')
+  })
+
+  // Existing is not enough: a stale ANDROID_HOME whose `adb` lost its execute bit must not win over
+  // the working SDK behind it.
+  it('passes over an SDK candidate that is not executable', () => {
+    vi.stubEnv('ANDROID_HOME', '/stale/sdk')
+    disk([join(STUDIO_SDK, 'platform-tools', 'adb')], { nonExec: ['/stale/sdk/platform-tools/adb'] })
+
+    expect(getAdbPath()).toBe(join(STUDIO_SDK, 'platform-tools', 'adb'))
+  })
+
+  // The SDK root on PATH puts its `emulator/` folder where a PATH search for `emulator` looks.
+  it('passes over a directory on PATH with the tool name', () => {
+    vi.stubEnv('PATH', '/Users/dev/sdk-root:/opt/android/emulator')
+    disk(['/opt/android/emulator/emulator'], { dirs: ['/Users/dev/sdk-root/emulator'] })
 
     expect(getEmulatorPath()).toBe('/opt/android/emulator/emulator')
   })

@@ -62,48 +62,52 @@ describe('defaultRunner', () => {
     expect(lastCall()[2]).toEqual({ maxBuffer: 64 * 1024 * 1024 })
   })
 
+  // `warnedListAvds` is module state that outlives a test, so each warning test first lists
+  // successfully, which re-arms it, instead of relying on running first.
+  type ListCallback = (e: Error | null, r?: { stdout: string }) => void
+  const failList = ((_f: unknown, _a: unknown, cb: ListCallback) => {
+    cb(new Error('spawn /fake/emulator EACCES'))
+    return {} as ReturnType<typeof execFile>
+  }) as never
+  const okList = ((_f: unknown, _a: unknown, cb: ListCallback) => {
+    cb(null, { stdout: 'Pixel\n' })
+    return {} as ReturnType<typeof execFile>
+  }) as never
+
+  function warnings(warn: { mock: { calls: unknown[][] } }): string[] {
+    return warn.mock.calls.map((c) => c.join(' ')).filter((l) => l.includes('cannot list AVDs'))
+  }
+
   // #903: an SDK the agent cannot find used to look exactly like a machine with no AVDs. The list is
   // still empty — the agent stays up for adb-only work — but the reason is said, and said once, since
   // devices are listed on every poll.
   it('listAvds warns once when the emulator cannot be run, and still returns an empty list', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    vi.mocked(execFile).mockImplementation(((_f: unknown, _a: unknown, cb: (e: Error) => void) => {
-      cb(new Error('spawn /fake/emulator EACCES'))
-      return {} as ReturnType<typeof execFile>
-    }) as never)
+    vi.mocked(execFile).mockImplementation(okList)
+    await defaultRunner.listAvds()
+    vi.mocked(execFile).mockImplementation(failList)
 
     expect(await defaultRunner.listAvds()).toEqual([])
     expect(await defaultRunner.listAvds()).toEqual([])
 
-    const lines = warn.mock.calls.map((c) => c.join(' ')).filter((l) => l.includes('cannot list AVDs'))
-    expect(lines).toHaveLength(1)
-    expect(lines[0]).toContain('spawn /fake/emulator EACCES')
+    expect(warnings(warn)).toHaveLength(1)
+    expect(warnings(warn)[0]).toContain('spawn /fake/emulator EACCES')
     warn.mockRestore()
   })
 
   // Once a listing succeeds the warning re-arms, so a failure that starts later is still reported.
   it('listAvds warns again after a success in between', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const fail = ((_f: unknown, _a: unknown, cb: (e: Error | null, r?: { stdout: string }) => void) => {
-      cb(new Error('spawn /fake/emulator EACCES'))
-      return {} as ReturnType<typeof execFile>
-    }) as never
-    const ok = ((_f: unknown, _a: unknown, cb: (e: Error | null, r?: { stdout: string }) => void) => {
-      cb(null, { stdout: 'Pixel\n' })
-      return {} as ReturnType<typeof execFile>
-    }) as never
-
-    // Starts on a success: the flag is module state, and the test above leaves it set.
-    vi.mocked(execFile).mockImplementation(ok)
+    vi.mocked(execFile).mockImplementation(okList)
     await defaultRunner.listAvds()
-    vi.mocked(execFile).mockImplementation(fail)
+    vi.mocked(execFile).mockImplementation(failList)
     await defaultRunner.listAvds()
-    vi.mocked(execFile).mockImplementation(ok)
+    vi.mocked(execFile).mockImplementation(okList)
     expect(await defaultRunner.listAvds()).toEqual(['Pixel'])
-    vi.mocked(execFile).mockImplementation(fail)
+    vi.mocked(execFile).mockImplementation(failList)
     await defaultRunner.listAvds()
 
-    expect(warn.mock.calls.filter((c) => c.join(' ').includes('cannot list AVDs'))).toHaveLength(2)
+    expect(warnings(warn)).toHaveLength(2)
     warn.mockRestore()
   })
 })
