@@ -104,7 +104,7 @@ describe('a rebind settles only the boots its old agent was supposed to answer (
     boot(browser, sessionId, 'rq-old')
     expect((await waitForType<DeviceBoot>(first.agent, 'device:boot')).requestId).toBe('rq-old')
 
-    await register([DEV_A])
+    const second = await register([DEV_A])
 
     const rebound = await waitForType<SessionRebound>(browser, 'session:rebound')
     expect(rebound.sessionId).toBe(sessionId)
@@ -114,7 +114,7 @@ describe('a rebind settles only the boots its old agent was supposed to answer (
     expect(err.message).toMatch(/rebound/)
     expect(seen.indexOf('session:rebound')).toBeLessThan(seen.indexOf('device:boot-error'))
 
-    first.agent.close(); browser.close()
+    first.agent.close(); second.agent.close(); browser.close()
   })
 
   it('lets a boot dispatched to the new agent after the rebind complete, unrejected', async () => {
@@ -161,7 +161,7 @@ describe('a rebind settles only the boots its old agent was supposed to answer (
     boot(browserB, sessionB, 'rq-b', 'devB')
     expect((await waitForType<DeviceBoot>(agentB.agent, 'device:boot')).requestId).toBe('rq-b')
 
-    await register([DEV_A], 'mac-a')
+    const reboundA = await register([DEV_A], 'mac-a')
     expect((await waitForType<SessionRebound>(browserA, 'session:rebound')).sessionId).toBe(sessionA)
 
     // B's boot is still pending on the other agent: no synthetic error reaches its browser,
@@ -170,7 +170,7 @@ describe('a rebind settles only the boots its old agent was supposed to answer (
     expect(await waitForTypeOrNull(browserB, 'device:boot-error', 0)).toBeNull()
     expect(pendingBootCount()).toBe(1)
 
-    agentA.agent.close(); agentB.agent.close(); browserA.close(); browserB.close()
+    agentA.agent.close(); reboundA.agent.close(); agentB.agent.close(); browserA.close(); browserB.close()
   })
 
   it('clears a tracked boot when its correlated reply arrives, so a later rebind stays silent', async () => {
@@ -217,11 +217,11 @@ describe('a rebind settles only the boots its old agent was supposed to answer (
     await waitForType<DeviceReady>(browser, 'device:ready')
 
     // The tracked boot survived both id-less frames: the rebind still settles it.
-    await register([DEV_A])
+    const second = await register([DEV_A])
     await waitForType(browser, 'session:rebound')
     expect((await waitForType<DeviceBootError>(browser, 'device:boot-error')).requestId).toBe('rq-x')
 
-    first.agent.close(); browser.close()
+    first.agent.close(); second.agent.close(); browser.close()
   })
 
   it('drops tracked boots when the session ends without an eviction', async () => {
