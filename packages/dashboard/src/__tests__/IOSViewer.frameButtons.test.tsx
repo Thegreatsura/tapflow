@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 
 /**
  * **The device frame's physical buttons are pressed through elements the browser hit-tests (#785).**
@@ -196,6 +196,58 @@ describe('IOSViewer — frame buttons are pressed through their own elements', (
     expect(screen.getByText('Volume Up')).toBeTruthy()
     fireEvent.pointerLeave(t, { relatedTarget: t.parentElement })
     expect(screen.queryByText('Volume Up')).toBeNull()
+  })
+
+  // A released button keeps its pressed image for 100 ms. That timer outlived the component: it fired
+  // after unmount, and once this file's environment was gone it threw `window is not defined` from
+  // React, failing an unrelated PR's run (#912).
+  describe('the pressed image after a release', () => {
+    const pressed = (name: string, y: number) => ({
+      ...sideButton(name, name, y), pressedPng: 'BB==', pressedRect: { width: 12, height: 100 },
+    })
+    const withPressed = { ...chrome, buttons: [pressed('volume_up', 500), pressed('volume_down', 700)] }
+    const pressedImages = (container: HTMLElement) =>
+      container.querySelectorAll('img[src="data:image/png;base64,BB=="]').length
+    const press = (container: HTMLElement, name: string, pointerId: number) =>
+      fireEvent.pointerDown(target(container, name), { pointerId, button: 0 })
+    const release = (container: HTMLElement, name: string, pointerId: number) =>
+      fireEvent.pointerUp(target(container, name), { pointerId, button: 0 })
+
+    // Spies first: the outer `restoreAllMocks` runs after this one, and would put back the fake
+    // `setTimeout` the spy was laid over, leaving every later test in the file on a frozen clock.
+    afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers() })
+
+    // Counting pending timers does not tell: the viewer has another that unmount clears, so the
+    // count drops either way. This follows the one the release started.
+    //
+    // Mutation: drop the cleanup on unmount. The release's timer is never cleared.
+    it('is not cleared by a timer that outlives the viewer', () => {
+      vi.useFakeTimers()
+      const setSpy = vi.spyOn(globalThis, 'setTimeout')
+      const clearSpy = vi.spyOn(globalThis, 'clearTimeout')
+      const { container, unmount } = renderViewer({ chrome: withPressed })
+      press(container, 'volume_up', 1); release(container, 'volume_up', 1)
+      expect(pressedImages(container)).toBe(1)
+      const flash = setSpy.mock.results[setSpy.mock.calls.findLastIndex(([, ms]) => ms === 100)]?.value
+      expect(flash).toBeDefined()
+      unmount()
+      expect(clearSpy).toHaveBeenCalledWith(flash)
+    })
+
+    // Mutation: leave the earlier release's timer running. It clears the image of the button that is
+    // still held.
+    it('stays on a button pressed again before the last release finished', () => {
+      vi.useFakeTimers()
+      const { container } = renderViewer({ chrome: withPressed })
+      press(container, 'volume_up', 1); release(container, 'volume_up', 1)
+      act(() => { vi.advanceTimersByTime(50) })
+      press(container, 'volume_down', 2)
+      act(() => { vi.advanceTimersByTime(100) })
+      expect(pressedImages(container)).toBe(1)
+      release(container, 'volume_down', 2)
+      act(() => { vi.advanceTimersByTime(100) })
+      expect(pressedImages(container)).toBe(0)
+    })
   })
 
   // An iPad's volume follows orientation (iPadOS 15.4+): turned counter-clockwise, as this viewer

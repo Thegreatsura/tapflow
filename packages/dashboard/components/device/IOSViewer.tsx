@@ -102,6 +102,10 @@ export function IOSViewer({
   // the screenshot chord. A press refused that way is remembered so its release does nothing either.
   const pressedButton = useRef<{ name: string; pointerId: number } | null>(null);
   const refusedButtonPointers = useRef(new Set<number>());
+  // A release keeps the pressed image up for 100 ms. The timer is held so a press that starts inside
+  // that window keeps its own image, and so it does not outlive the viewer.
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current) }, [])
   const touchStartPos = useRef<{ x: number; y: number } | null>(null);
   const isPinchMode = useRef(false);
   const isOptionHeld = useRef(false);
@@ -459,6 +463,7 @@ export function IOSViewer({
     e.stopPropagation()
     if (pressedButton.current) { refusedButtonPointers.current.add(e.pointerId); return }
     setKeyboardActive(true)
+    if (flashTimer.current) { clearTimeout(flashTimer.current); flashTimer.current = null }
     pressedButton.current = { name, pointerId: e.pointerId }; setFlashedButton(name)
     ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
     send({ type: 'input:button', sessionId, requestId: newRequestId(), payload: { name, phase: 'down' } })
@@ -519,7 +524,8 @@ export function IOSViewer({
     touchStartPos.current = null
     if (pressedButton.current?.pointerId === e.pointerId) {
       send({ type: 'input:button', sessionId, requestId: newRequestId(), payload: { name: pressedButton.current.name, phase: 'up' } })
-      pressedButton.current = null; setTimeout(() => setFlashedButton(null), 100); return
+      pressedButton.current = null
+      flashTimer.current = setTimeout(() => { flashTimer.current = null; setFlashedButton(null) }, 100); return
     }
     cursorStateRef.current = 'release'; releaseAnimRef.current = { startTime: performance.now() }
     const _lc = liveCursorRef.current
