@@ -319,8 +319,16 @@ export function IOSViewer({
     }
   }, [recordState, startClientRecording, stopClientRecording, recordCanvasRef])
 
+  // **The orientation last sent, kept beside the state rather than read from it** (#910). The agent is
+  // sent a target, not "turn", and two presses before a re-render must still send landscape then
+  // portrait — the state is a render behind. Updated here and not in a `setState` updater, which
+  // StrictMode calls twice: that would flip it twice and send twice.
+  const landscapeRef = useRef(false)
   const handleRotate = useCallback(() => {
-    send({ type: 'input:rotate', sessionId }); setIsLandscape(prev => !prev)
+    const next = !landscapeRef.current
+    landscapeRef.current = next
+    setIsLandscape(next)
+    send({ type: 'input:rotate', sessionId, payload: { orientation: next ? 'landscape' : 'portrait' } })
   }, [send, sessionId])
 
   // Reset device orientation to portrait on unmount if we left it in landscape.
@@ -329,10 +337,15 @@ export function IOSViewer({
   // and on nothing else, so the dependency list is empty — and an empty list closing over props is
   // exactly what `react-hooks/exhaustive-deps` was suppressed for here. A suppression is not local
   // any more: the React Compiler skips the entire file that carries one, whichever rule it names.
+  //
+  // **Only when landscape**, read from the same ref the button's target comes from. An agent older
+  // than the target toggles, so a portrait sent to an upright device would turn it.
   const undoRotateRef = useRef<(() => void) | null>(null)
   useEffect(() => {
-    undoRotateRef.current = isLandscape ? () => send({ type: 'input:rotate', sessionId }) : null
-  }, [isLandscape, send, sessionId])
+    undoRotateRef.current = () => {
+      if (landscapeRef.current) send({ type: 'input:rotate', sessionId, payload: { orientation: 'portrait' } })
+    }
+  }, [send, sessionId])
   useEffect(() => () => { undoRotateRef.current?.() }, [])
 
   const sendChord = useCallback((code: 'KeyC' | 'KeyV' | 'KeyX', modifiers: number) => {
@@ -359,7 +372,8 @@ export function IOSViewer({
           if (!e.shiftKey && e.code === 'KeyK') { e.preventDefault(); setDeepLinkOpen(true); return }
           if (!e.shiftKey && e.code === 'KeyS') { e.preventDefault(); handleScreenshot(); return }
           if (e.shiftKey && e.code === 'KeyY') { e.preventDefault(); handleRecordToggle(); return }
-          if (e.shiftKey && e.code === 'KeyO') { e.preventDefault(); handleRotate(); return }
+          // A held chord repeats, and each repeat would be another turn.
+          if (e.shiftKey && e.code === 'KeyO') { e.preventDefault(); if (!e.repeat) handleRotate(); return }
           if (e.shiftKey && e.code === 'KeyU') { e.preventDefault(); send({ type: 'input:button', sessionId, requestId: newRequestId(), payload: { name: 'home' } }); return }
           if (e.shiftKey && e.code === 'KeyK') { e.preventDefault(); if (!swKeyboardPending) onKbdToggle(); return }
         }

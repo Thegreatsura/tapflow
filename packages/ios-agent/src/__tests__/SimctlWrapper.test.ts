@@ -3,7 +3,9 @@ import { SimctlWrapper, isDeviceMissingError } from '../SimctlWrapper'
 import type { SimctlRunner, SimctlExecOpts } from '../simctl'
 
 vi.mock('child_process', () => ({
-  execFile: vi.fn((_cmd: string, _args: string[], cb: (err: null, stdout: string, stderr: string) => void) => {
+  // The callback is last whether or not an options object comes before it.
+  execFile: vi.fn((...args: unknown[]) => {
+    const cb = args[args.length - 1] as (err: null, stdout: string, stderr: string) => void
     cb(null, '', '')
     return { on: vi.fn() }
   }),
@@ -400,6 +402,7 @@ describe('SimctlWrapper', () => {
       expect(vi.mocked(execFile)).toHaveBeenCalledWith(
         expect.stringContaining('rotation-helper'),
         ['landscapeRight', 'device-1'],
+        { timeout: 5_000 },
         expect.any(Function),
       )
     })
@@ -411,6 +414,7 @@ describe('SimctlWrapper', () => {
       expect(vi.mocked(execFile)).toHaveBeenCalledWith(
         expect.stringContaining('rotation-helper'),
         ['portrait', 'device-1'],
+        { timeout: 5_000 },
         expect.any(Function),
       )
     })

@@ -1566,6 +1566,15 @@ export interface InputButton {
 export interface InputRotate {
   type: 'input:rotate'
   sessionId: string
+  /**
+   * Where to turn the device, rather than "turn it" (#910). A toggle has a memory on each side, and the
+   * agent's resets on every re-register while the device stays put — after which an undo meant
+   * "go portrait" turned it landscape and every later press stayed inverted. A target is safe to repeat.
+   *
+   * Optional for skew: an agent that predates it ignores the field and toggles, as before. Without it,
+   * an agent toggles.
+   */
+  payload?: { orientation: 'portrait' | 'landscape' }
 }
 
 /**

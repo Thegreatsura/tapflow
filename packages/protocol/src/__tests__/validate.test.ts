@@ -264,6 +264,24 @@ describe('directionOf replaces the hand-written agent list', () => {
   })
 })
 
+// #910. The relay forwards the parsed message, not the raw one, so a field this schema does not declare
+// is stripped at the door and never reaches an agent — declaring it is what delivers it.
+describe('input:rotate carries a target', () => {
+  // Mutation: leave `payload` out of the schema. The parse succeeds and the target is gone.
+  it('keeps the target', () => {
+    const r = ok({ type: 'input:rotate', sessionId: 's', payload: { orientation: 'landscape' } })
+    expect(r.msg).toMatchObject({ payload: { orientation: 'landscape' } })
+  })
+
+  it('still takes one with no target, from a dashboard that sends none', () => {
+    ok({ type: 'input:rotate', sessionId: 's' })
+  })
+
+  it('refuses a target it does not name', () => {
+    expect(fail({ type: 'input:rotate', sessionId: 's', payload: { orientation: 'landscapeLeft' } }).reason).toBe('bad-shape')
+  })
+})
+
 describe('a payload failure the caller can be told about', () => {
   // **The regression this exists to prevent, and it is one the door itself would have shipped.** Today
   // a malformed `open-url` reaches the agent and the agent answers `open-url:error` from its own

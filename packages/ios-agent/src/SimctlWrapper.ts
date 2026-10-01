@@ -37,6 +37,10 @@ function langToKeyboard(lang: string): string {
 // device until it finishes, so "never returns" would leave the device clipboard destroyed.
 const CLIPBOARD_CMD_TIMEOUT_MS = 5_000
 
+// The rotation helper's `mach_msg` waits with no timeout, and rotations are queued one behind another
+// (#910), so one that never returns would hold every later rotation — and the boot that waits on one.
+const ROTATE_TIMEOUT_MS = 5_000
+
 // simctl failures reach a user-facing toast. Node's first line is "Command failed: <argv>",
 // which says nothing and echoes the device UDID, so prefer any other line. When there is none
 // (e.g. the timeout path, where stderr is empty) fall back to a plain description rather than
@@ -380,7 +384,7 @@ export class SimctlWrapper {
   }
 
   async rotate(udid: string, orientation: 'portrait' | 'landscapeLeft' | 'landscapeRight' | 'portraitUpsideDown'): Promise<void> {
-    await execFileAsync(ROTATION_HELPER, [orientation, udid])
+    await execFileAsync(ROTATION_HELPER, [orientation, udid], { timeout: ROTATE_TIMEOUT_MS })
   }
 
   /**

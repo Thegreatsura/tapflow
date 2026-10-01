@@ -290,7 +290,7 @@ describe('AndroidViewer — putting the device back the way it was found', () =>
     // The session the message is addressed to, not only that a message went out: the cleanup reads
     // `sessionId` at unmount now rather than capturing it at mount, and a count cannot tell a
     // rotate sent to this device from one sent to nobody.
-    expect(rotateCalls(send)[1][0]).toEqual({ type: 'input:rotate', sessionId: 's1' })
+    expect(rotateCalls(send)[1][0]).toEqual({ type: 'input:rotate', sessionId: 's1', payload: { orientation: 'portrait' } })
   })
 
   it('leaves a device it never turned alone', () => {
@@ -311,6 +311,32 @@ describe('AndroidViewer — putting the device back the way it was found', () =>
 
     unmount()
     expect(rotateCalls(send)).toHaveLength(2)
+  })
+
+  // #910: the agent is sent a target, not "turn". Two presses inside one render still have to go
+  // landscape then portrait — read from the state, both would say landscape.
+  //
+  // Mutation: compute the target from the state instead of the ref.
+  it('sends where to turn, in order, even before a re-render', () => {
+    const { send } = renderViewer(0)
+    readyToCompose()
+    const chord = () => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyO', metaKey: true, shiftKey: true }))
+    act(() => { chord(); chord() })
+    expect(rotateCalls(send).map(([m]) => (m as { payload?: { orientation?: string } }).payload?.orientation))
+      .toEqual(['landscape', 'portrait'])
+  })
+
+  // A held chord repeats every few dozen milliseconds, and each repeat would be another turn.
+  //
+  // Mutation: drop the `e.repeat` check.
+  it('ignores a held chord repeating', () => {
+    const { send } = renderViewer(0)
+    readyToCompose()
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyO', metaKey: true, shiftKey: true }))
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyO', metaKey: true, shiftKey: true, repeat: true }))
+    })
+    expect(rotateCalls(send)).toHaveLength(1)
   })
 })
 

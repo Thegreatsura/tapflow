@@ -208,6 +208,28 @@ describe('AdbWrapper', () => {
     })
   })
 
+  // Outputs measured on API 34 (`Pixel_9_tapflow`, 2026-10-02).
+  //
+  // Mutation: read anything unrecognised as `free`. The boot would then leave a landscape lock alone.
+  describe('getUserRotation', () => {
+    const reading = (out: string) => {
+      const runner = mockRunner()
+      ;(runner.exec as ReturnType<typeof vi.fn>).mockResolvedValue(out)
+      return new AdbWrapper(runner).getUserRotation('emulator-5554')
+    }
+
+    it('reads free and each lock', async () => {
+      await expect(reading('free\n')).resolves.toEqual({ mode: 'free' })
+      await expect(reading('lock 3\n')).resolves.toEqual({ mode: 'lock', rotation: 3 })
+      await expect(reading('lock 0')).resolves.toEqual({ mode: 'lock', rotation: 0 })
+    })
+
+    it('refuses an answer it cannot read', async () => {
+      await expect(reading('Error: argument needs to be either -d, free or lock.')).rejects.toThrow(/rotation lock/)
+      await expect(reading('')).rejects.toThrow(/rotation lock/)
+    })
+  })
+
   describe('inputText', () => {
     it('sends `input text` with spaces encoded as %s', async () => {
       const runner = mockRunner()

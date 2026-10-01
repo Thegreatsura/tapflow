@@ -192,6 +192,9 @@ function mockSimctl(booted: boolean | 'unknown' = false): SimctlWrapper {
     // assertion below read a state assembled from a failure nobody could see.
     setStatusBarOffline: vi.fn().mockResolvedValue(undefined),
     setSimulatorEnv: vi.fn().mockResolvedValue(undefined),
+    // Every boot stands the simulator up (#910). Absent, that step threw into the rotation queue's
+    // `.catch` and every boot test ran the failure path without saying so.
+    rotate: vi.fn().mockResolvedValue(undefined),
   } as unknown as SimctlWrapper
   // `handleDeviceBoot` awaits this before it announces readiness (#486). The real one polls
   // `listDevices` until the device reports `booted`, so the double reads the same list — a test that
@@ -3178,6 +3181,103 @@ describe('IOSAgent', () => {
       expect(sim.hideSoftwareKeyboard).not.toHaveBeenCalled()
       agent.disconnect()
       browser.close()
+    })
+  })
+
+  // #910: rotation was a toggle with a memory on each side, and the agent's reset on every
+  // re-register while the simulator stayed put. These go through the relay, so they also hold that
+  // the schema lets the target through — the relay forwards the parsed message, not the raw one.
+  describe('input:rotate handler (#910)', () => {
+    beforeEach(() => { MockTouchHelper.mockClear() })
+
+    async function setupSession(sim = mockSimctl(true)) {
+      const browser = new WebSocket(`ws://localhost:${port}`)
+      await waitForOpen(browser)
+      const agent = new IOSAgent({ intervalMs: 50 }, sim)
+      await agent.connect(`ws://localhost:${port}`)
+      browser.send(JSON.stringify({ type: 'session:start', sessionId: agent.sessionId }))
+      await waitForType(browser, 'session:joined')
+      browser.send(JSON.stringify({ type: 'device:boot', requestId: 'rq-910', sessionId: agent.sessionId, payload: { deviceId: 'dev-1' } }))
+      await waitForType(browser, 'device:ready')
+      return { browser, agent, sim }
+    }
+    const rotate = (browser: WebSocket, agent: IOSAgent, orientation?: 'portrait' | 'landscape') =>
+      browser.send(JSON.stringify({
+        type: 'input:rotate', sessionId: agent.sessionId, ...(orientation ? { payload: { orientation } } : {}),
+      }))
+    const targets = (sim: SimctlWrapper) => vi.mocked(sim.rotate).mock.calls.map((c) => c[1])
+
+    // A fresh viewer starts portrait, so the simulator has to as well — before the chrome goes out,
+    // which constructs the touch helper synchronously.
+    //
+    // Mutation: drop the boot reset, or move it after `sendChromeData`.
+    it('stands the simulator up on boot, before describing it', async () => {
+      const { browser, agent, sim } = await setupSession()
+      expect(sim.rotate).toHaveBeenCalledWith('dev-1', 'portrait')
+      expect(vi.mocked(sim.rotate).mock.invocationCallOrder[0])
+        .toBeLessThan(MockTouchHelper.mock.invocationCallOrder[0])
+      agent.disconnect(); browser.close()
+    })
+
+    // Mutation: let the reset's failure escape. The boot then fails over a rotation.
+    it('boots anyway when the reset fails', async () => {
+      const sim = mockSimctl(true)
+      vi.mocked(sim.rotate).mockRejectedValueOnce(new Error('helper timed out'))
+      const { browser, agent } = await setupSession(sim)
+      agent.disconnect(); browser.close()
+    })
+
+    // Mutation: ignore the payload. The second `landscape` toggles back to portrait.
+    it('goes to the target it is given, however often', async () => {
+      const { browser, agent, sim } = await setupSession()
+      vi.mocked(sim.rotate).mockClear()
+      rotate(browser, agent, 'landscape'); rotate(browser, agent, 'landscape'); rotate(browser, agent, 'portrait')
+      await vi.waitFor(() => expect(sim.rotate).toHaveBeenCalledTimes(3), { timeout: 1000 })
+      expect(targets(sim)).toEqual(['landscapeRight', 'landscapeRight', 'portrait'])
+      agent.disconnect(); browser.close()
+    })
+
+    it('toggles for a dashboard that sends no target', async () => {
+      const { browser, agent, sim } = await setupSession()
+      vi.mocked(sim.rotate).mockClear()
+      rotate(browser, agent); rotate(browser, agent)
+      await vi.waitFor(() => expect(sim.rotate).toHaveBeenCalledTimes(2), { timeout: 1000 })
+      expect(targets(sim)).toEqual(['landscapeRight', 'portrait'])
+      agent.disconnect(); browser.close()
+    })
+
+    // Each rotation is its own helper process. Without the queue the second starts before the first
+    // lands, and the simulator ends on whichever finishes last.
+    //
+    // Mutation: run the step directly instead of chaining it.
+    it('sends one rotation at a time, in the order they came', async () => {
+      const { browser, agent, sim } = await setupSession()
+      vi.mocked(sim.rotate).mockClear()
+      let release!: () => void
+      vi.mocked(sim.rotate).mockImplementationOnce(() => new Promise<void>((r) => { release = r }))
+      rotate(browser, agent, 'landscape'); rotate(browser, agent, 'portrait')
+      await vi.waitFor(() => expect(sim.rotate).toHaveBeenCalledTimes(1), { timeout: 1000 })
+      await new Promise((r) => setTimeout(r, 30))
+      expect(sim.rotate).toHaveBeenCalledTimes(1)
+      release()
+      await vi.waitFor(() => expect(sim.rotate).toHaveBeenCalledTimes(2), { timeout: 1000 })
+      expect(targets(sim)).toEqual(['landscapeRight', 'portrait'])
+      agent.disconnect(); browser.close()
+    })
+
+    // The memory is what an older dashboard's next toggle reads. A rotation that failed left the
+    // simulator where it was.
+    //
+    // Mutation: write the memory before the helper answers. The next toggle then goes to portrait,
+    // which the simulator already is.
+    it('keeps the memory where the simulator is when a rotation fails', async () => {
+      const { browser, agent, sim } = await setupSession()
+      vi.mocked(sim.rotate).mockClear()
+      vi.mocked(sim.rotate).mockRejectedValueOnce(new Error('helper timed out'))
+      rotate(browser, agent); rotate(browser, agent)
+      await vi.waitFor(() => expect(sim.rotate).toHaveBeenCalledTimes(2), { timeout: 1000 })
+      expect(targets(sim)).toEqual(['landscapeRight', 'landscapeRight'])
+      agent.disconnect(); browser.close()
     })
   })
 

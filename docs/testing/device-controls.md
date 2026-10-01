@@ -40,7 +40,9 @@ The keyboard button in the toolbar (**Software keyboard**, <kbd>⌘</kbd> <kbd>�
 
 ## Rotate {#rotate}
 
-Each press of **Rotate** (<kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>O</kbd>) turns the device between portrait and landscape. If you leave the session in landscape, the device is turned back to portrait before it shuts down.
+Each press of **Rotate** (<kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>O</kbd>) turns the device between portrait and landscape. Holding the shortcut down turns it once. If you leave the session in landscape, the device is turned back to portrait before it shuts down.
+
+A session starts in portrait. If the device was left in landscape, for example after you reloaded the page or the agent restarted, it is turned upright when the session starts. The exception is an Android emulator set to auto-rotate that you turned outside tapflow, which is left as it is.
 
 ## Fold and unfold {#fold}
 
