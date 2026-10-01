@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Pressing the device frame's body on iOS no longer presses a side button.** The press area of volume, Action and power reached all the way to the screen, so a click on the black frame between a button and the screen pressed the button. It now stops where the frame begins, on iPhone and iPad alike, including iPad buttons on the top edge. Outside the device the area reaches as far as before, and two buttons close together still split the space between them halfway.
+
 - **Every form that sets a password says how long it must be before you submit.** The first-admin setup, invitation, password reset and the password change in **Settings** show "Use at least 8 characters" under the new password field. Before, the rule appeared only as an error after a submit had been refused. Screen readers hear it as the field's description. A refused submit replaces it in the same place with the error, which states the rule itself.
 
 ### Fixed

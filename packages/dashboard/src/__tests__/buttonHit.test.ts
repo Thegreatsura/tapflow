@@ -13,9 +13,11 @@
 // Every case names the mutation that kills it.
 import type { ChromeButton } from '@tapflowio/protocol'
 import { describe, expect, it } from 'vitest'
-import { buttonHitRect, distanceToRect, pickButton } from '../../lib/buttonHit'
+import { buttonHitRect, buttonTargets } from '../../lib/buttonHit'
 
-const MARGIN = 100
+const REACH = 100
+/** Far to the right of every fixture, so only the tests that move it see it. */
+const FAR_SCREEN = { x: 4000, y: 0, width: 100, height: 100 }
 
 /**
  * 2× composite px, shaped like an iPhone 15 Pro's left edge: Action above a much taller Volume Up.
@@ -64,65 +66,106 @@ describe('buttonHitRect', () => {
   })
 })
 
-describe('distanceToRect', () => {
-  // Mutation: return the distance to the rect's centre instead. Nothing scores 0 any more and a
-  // press inside a button can lose to a neighbour.
-  it('is zero anywhere inside', () => {
-    expect(distanceToRect(40, 715, buttonHitRect(VOLUME_UP))).toBe(0)
-    expect(distanceToRect(40, 989, buttonHitRect(VOLUME_UP))).toBe(0)
-  })
-
-  it('measures from the nearest edge, not the centre', () => {
-    expect(distanceToRect(40, 705, buttonHitRect(VOLUME_UP))).toBe(5)
-    expect(distanceToRect(40, 675 + 40, buttonHitRect(ACTION))).toBe(40)
-  })
-})
-
-describe('pickButton — the defect found on the simulator', () => {
-  // y=715 is inside Volume Up, 40 below Action's bottom edge — and **nearer Action's centre**
-  // (95) than Volume Up's (135). So this one case kills both the old rule and a half-fix that
-  // only switches first-match to nearest-*centre*.
+// The targets the viewer renders as elements for the browser to hit-test (#785). What
+// `pickButton` used to decide per pointer event is now decided once per layout, so the #783 cases
+// carry over as properties of the rectangles.
+describe('buttonTargets', () => {
+  // Fixture side buttons sit at x 20…44, centred on 32. Outward and along the edge they grow by the
+  // reach; towards the device they stop at that centre (see the frame-body case below).
   //
-  // Mutation A (the original): `for (…) if (dist(centre) < MARGIN) return btn.name` → 'action'.
-  // Mutation B (half-fix): nearest by centre distance → 'action'.
-  it('presses the button the point is inside, not the neighbour whose centre is closer', () => {
-    expect(pickButton(40, 715, BUTTONS, MARGIN)).toBe('volume_up')
+  // Mutation: grow by `reach / 2`, or not at all. Either shrinks the target back towards the ~10 CSS
+  // px a side button is drawn at.
+  it('grows a lone button by the reach away from the device and along its edge', () => {
+    expect(buttonTargets([ACTION], FAR_SCREEN, REACH)).toEqual([{ left: -80, top: 465, right: 32, bottom: 775 }])
   })
 
-  // Mutation: take the first match rather than the nearest. Action is listed first and its margin
-  // reaches here, so it wins the whole band.
-  it('splits the gap between two buttons at the midpoint', () => {
-    // Action ends at 675, Volume Up starts at 710 — the midline is 692.5.
-    expect(pickButton(40, 680, BUTTONS, MARGIN)).toBe('action')
-    expect(pickButton(40, 705, BUTTONS, MARGIN)).toBe('volume_up')
-  })
-
-  // The margin is inclusive, and exactly 100 is the only input that says so.
+  // The #783 defect as a layout fact. Action ends at 675, Volume Up starts at 710; the midline is
+  // 692.5, and y=715 — inside Volume Up, nearer Action's centre — is Volume Up's.
   //
-  // Mutation: `best < margin`. Survives every other case here, because they only ever use 99 and
-  // 101 — a boundary nobody names is a boundary nothing holds.
-  it('still presses a button from just outside it, so targets stay generous', () => {
-    expect(pickButton(40, 565 - 99, BUTTONS, MARGIN)).toBe('action')
-    expect(pickButton(40, 565 - 100, BUTTONS, MARGIN)).toBe('action')
-    expect(pickButton(40, 990 + 100, BUTTONS, MARGIN)).toBe('volume_up')
+  // Mutation: skip the cut, so the two grown rectangles overlap and stacking order decides.
+  it('splits the gap between two stacked buttons at the midline, with no overlap', () => {
+    const [action, up] = buttonTargets(BUTTONS, FAR_SCREEN, REACH)
+    expect(action.bottom).toBe(692.5)
+    expect(up.top).toBe(692.5)
+    expect(up.top <= 715 && 715 <= up.bottom).toBe(true)
   })
 
-  // Mutation: drop the `best <= margin` test and return `hit`. Every press anywhere on the page
-  // that reaches this code presses whichever button is least far away.
-  it('presses nothing beyond the margin', () => {
-    expect(pickButton(40, 990 + 101, BUTTONS, MARGIN)).toBeNull()
-    expect(pickButton(4000, 715, BUTTONS, MARGIN)).toBeNull()
+  // Mutation: cut only the earlier button (or only the later one). The answer then depends on the
+  // order the agent listed them in, which is the other half of what #783 fixed.
+  it('gives the same boundary whatever order the buttons are listed in', () => {
+    const [up, action] = buttonTargets([VOLUME_UP, ACTION], FAR_SCREEN, REACH)
+    expect(action.bottom).toBe(692.5)
+    expect(up.top).toBe(692.5)
   })
 
-  // Mutation: `<=` instead of `<` when comparing distances. The later button wins ties, reversing
-  // the documented rule — invisible in every other case here.
-  it('gives an exact tie to the earlier button', () => {
-    const a = button('a', 500, 100) // 450 … 550
-    const b = button('b', 700, 100) // 650 … 750
-    expect(pickButton(40, 600, [a, b], MARGIN)).toBe('a')
+  // The frame's body is not a button. The device chrome centres an edge button on the body's edge
+  // (measured: body at 30 against a centre of 32 on an iPhone 15 Pro), so the target stops there.
+  // Stopping at the screen instead — x 74 here, as the hit test before #785 did — made the bezel
+  // between button and screen press Volume Down, found by hand on the simulator.
+  //
+  // Mutation: stop every button at the screen edge. `right` becomes 74.
+  it('stops a left-edge button at its own centre line, where the frame body begins', () => {
+    const [action] = buttonTargets([ACTION], { x: 74, y: 0, width: 500, height: 2000 }, REACH)
+    expect(action.right).toBe(32)
+    expect(action.left).toBe(-80)
   })
 
-  it('presses nothing when the device has no buttons', () => {
-    expect(pickButton(40, 715, [], MARGIN)).toBeNull()
+  // Mutation: drop the `right` case. The power button's target then covers the right bezel.
+  it('stops a right-edge button at its centre line', () => {
+    const power = { ...button('power', 900, 200, 'right'), rolloverOffset: { x: 878, y: 900 } } // x 866 … 890
+    const [t] = buttonTargets([power], { x: 62, y: 0, width: 780, height: 2000 }, REACH)
+    expect(t.left).toBe(878)
+    expect(t.right).toBe(990)
+  })
+
+  // An iPad's power button, and an iPad mini's volume pair, sit on the top edge. This one lies wholly
+  // left of the screen's left edge, as a button near a corner can, so a test of where it sits against
+  // the screen would read it as a left-edge button and cut it on the wrong axis.
+  //
+  // Mutation: decide the side from position rather than `anchor`. `right` is then cut to 12 and
+  // `bottom` is left at the full reach, over the bezel.
+  it('takes the side facing the device from the anchor, not from position', () => {
+    const corner = { ...button('power', 0, 32, 'top'), rolloverOffset: { x: 12, y: 0 } } // x 0 … 24, y 0 … 32
+    const [t] = buttonTargets([corner], { x: 40, y: 60, width: 800, height: 1000 }, REACH)
+    expect(t.bottom).toBe(16)
+    expect(t.right).toBe(124)
+  })
+
+  // A button drawn on the device's face has no body edge to stop at — its whole face is bezel — so it
+  // stops where the screen begins. A tap inside the screen is a screen tap.
+  //
+  // Mutation: treat it like an edge button. Its target then ends at its own centre and loses the half
+  // of its face nearest the screen.
+  it('stops a button on the device face (the SE home button) at the screen', () => {
+    const home = { ...button('home', 1700, 130, 'bottom'), onTop: true } // y 1635 … 1765
+    const [t] = buttonTargets([home], { x: 0, y: 0, width: 2000, height: 1556 }, REACH)
+    expect(t.top).toBe(1556)
+  })
+
+  // Top-edge buttons sit side by side, so the gap between neighbours is horizontal.
+  //
+  // Mutation: only ever cut on y. Two side-by-side targets then overlap across their whole height.
+  it('splits side-by-side buttons at the horizontal midline', () => {
+    const left = { ...button('a', 0, 20, 'top'), rolloverOffset: { x: 100, y: 0 } }  // x 88 … 112
+    const right = { ...button('b', 0, 20, 'top'), rolloverOffset: { x: 200, y: 0 } } // x 188 … 212
+    const [a, b] = buttonTargets([left, right], FAR_SCREEN, REACH)
+    expect(a.right).toBe(150)
+    expect(b.left).toBe(150)
+  })
+
+  // WCAG 2.5.8: 24 × 24 CSS px. The viewer draws 2× composite px at about 0.4 CSS px each (a
+  // logical height scaled to at most 750), so 24 CSS px is about 60 composite px. The visible part
+  // of a side button is half its 24 px width — about 5 CSS px — so the floor is met only by the reach.
+  //
+  // Mutation: a reach under 48. The narrow side drops below 60 and this fails.
+  it('keeps every target at least 24 CSS px on its short side', () => {
+    const MIN = 60
+    for (const t of buttonTargets(BUTTONS, { x: 74, y: 0, width: 500, height: 2000 }, REACH)) {
+      expect(Math.min(t.right - t.left, t.bottom - t.top)).toBeGreaterThanOrEqual(MIN)
+    }
+  })
+
+  it('answers nothing for a device with no buttons', () => {
+    expect(buttonTargets([], FAR_SCREEN, REACH)).toEqual([])
   })
 })

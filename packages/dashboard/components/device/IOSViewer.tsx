@@ -2,7 +2,7 @@
 
 import type { BrowserToRelay } from '@tapflowio/protocol'
 import { newRequestId } from '@/lib/requestId';
-import { buttonHitRect, pickButton } from '@/lib/buttonHit';
+import { buttonHitRect, buttonTargets } from '@/lib/buttonHit';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, Fragment } from 'react';
 import { useClientRecording } from '@/hooks/useClientRecording';
 import { Home, Keyboard, Loader2, Play } from 'lucide-react';
@@ -29,21 +29,15 @@ const CURSOR_DOT_R = 8;
 const MOVE_THROTTLE_MS = 16;
 const DRAG_THRESHOLD = 0.02;
 /**
- * How far outside a button's own rectangle a press still counts, in 2× composite px.
+ * How far outside a button's own rectangle a press still counts, in 2× composite px — about 40 CSS
+ * px at the usual display scale, against a side button drawn about 10 px wide.
  *
- * This was a radius measured from the button's *centre*, and the nearest match was not taken — the
- * first button in `chrome.buttons` within the radius won. On an iPhone 15 Pro the Action button sits
- * close enough above Volume Up that its circle covered Volume Up's upper half, so pressing there
- * pressed Action: the tooltip said so, and the press followed the tooltip. Measured on 2026-09-11
- * against a real simulator.
- *
- * The value is unchanged, but what it surrounds is not — a button's rectangle rather than its
- * centre — so reach is **at least** what it was rather than the same. Further by `buttonH / 2` above
- * and below and `buttonW / 2` to each side; and *narrower* on one side for a button whose rollover
- * and normal x differ by more than `buttonW / 2`, since the rectangle is centred on the rollover
- * pair while the old circle was centred on the normal one. See `buttonHitRect`.
+ * The value predates #785 and is kept so the reach feels the same: it used to be a margin the
+ * pointer handler measured against, and is now how far `buttonTargets` grows each button's element
+ * before splitting neighbours at the midline. It also carries WCAG 2.5.8's 24 × 24 CSS px floor,
+ * which a side button's own pixels do not meet — `buttonHit.test.ts` holds that.
  */
-const BUTTON_HIT_MARGIN = 100;
+const BUTTON_REACH = 100;
 
 interface IOSViewerProps {
   sessionId: string;
@@ -422,32 +416,6 @@ export function IOSViewer({
     return makePinchFingers(f1)
   }, [toNormScreen])
 
-  const toButton = useCallback((e: { clientX: number; clientY: number }): string | null => {
-    const target = (isLandscape ? screenAreaRef.current : containerRef.current)
-    if (!target) return null
-    const rect = target.getBoundingClientRect()
-    let cx: number, cy: number
-    if (isLandscape) {
-      // screenAreaRef is the untransformed wrapper (width=displayH, height=displayW in landscape)
-      // inverse of rotate(-90deg): portrait X ← bottom edge distance, portrait Y ← left edge distance
-      const lx = rect.height - (e.clientY - rect.top)
-      const ly = e.clientX - rect.left
-      cx = lx * (chrome.compositeWidth / rect.height)
-      cy = ly * (chrome.compositeHeight / rect.width)
-    } else {
-      cx = (e.clientX - rect.left) * (chrome.compositeWidth / rect.width)
-      cy = (e.clientY - rect.top) * (chrome.compositeHeight / rect.height)
-    }
-    // Screen area takes priority: a tap inside the screen rect is never a physical-button
-    // press, even if it falls within a button's hit area (buttons near the bezel edge — e.g.
-    // iPhone SE — otherwise hijack screen taps). The area is a rectangle plus a margin now, not
-    // a circle; this guard runs before it either way, so the iPhone SE behaviour is unchanged —
-    // but the reach grew, which is why the shape is named rather than left as it was.
-    const sr = chrome.screenRect
-    if (cx >= sr.x && cx <= sr.x + sr.width && cy >= sr.y && cy <= sr.y + sr.height) return null
-    return pickButton(cx, cy, chrome.buttons, BUTTON_HIT_MARGIN)
-  }, [chrome, isLandscape])
-
   const normToRecordCanvas = useCallback((norm: { x: number; y: number }) => {
     const fc = canvasRef.current; const rc = recordCanvasRef.current
     if (fc && fc.clientWidth > 0) return { x: fc.offsetLeft + norm.x * fc.clientWidth, y: fc.offsetTop + norm.y * fc.clientHeight }
@@ -463,13 +431,6 @@ export function IOSViewer({
       ;(e.target as Element).setPointerCapture(e.pointerId)
       setPinchHint(fingers); send({ type: 'input:pinch:start', sessionId, payload: fingers }); return
     }
-    const btn = toButton(e)
-    if (btn) {
-      pressedButton.current = btn; setFlashedButton(btn)
-      ;(e.target as Element).setPointerCapture(e.pointerId)
-      send({ type: 'input:button', sessionId, requestId: newRequestId(), payload: { name: btn, phase: 'down' } })
-      return
-    }
     const pos = toNormScreen(e); if (!pos) return
     touchStartPos.current = pos
     ;(e.target as Element).setPointerCapture(e.pointerId)
@@ -484,11 +445,28 @@ export function IOSViewer({
       _lc.style.boxShadow = '0 0 0 1px rgba(0,0,0,0.15), 0 0 8px rgba(255,255,255,0.25)'
     }
     send({ type: 'input:touch:start', sessionId, payload: pos })
-  }, [toButton, toNormScreen, toPinchFingers, normToRecordCanvas, send, sessionId])
+  }, [toNormScreen, toPinchFingers, normToRecordCanvas, send, sessionId])
+
+  // A frame button is its own element, so the browser decides which one a press lands on — through
+  // the landscape rotation too, which is the container's transform rather than arithmetic here.
+  // Only the press is handled on the element: the release and a cancel bubble to the container,
+  // whose handlers already send `up` for `pressedButton`. Option held means a pinch, which starts
+  // wherever the drag does, so the event goes on to the container untouched.
+  //
+  // `useCallback` is not for identity here: as a plain function this writes `pressedButton` from
+  // render scope, and the compiler then cannot keep the three pointer callbacks below that read it,
+  // so it skips the whole component (`noSuppressedCompilation.test.ts` fails, measured).
+  const pressFrameButton = useCallback((name: string, e: React.PointerEvent) => {
+    if (isOptionHeld.current) return
+    e.stopPropagation()
+    setKeyboardActive(true)
+    pressedButton.current = name; setFlashedButton(name)
+    ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
+    send({ type: 'input:button', sessionId, requestId: newRequestId(), payload: { name, phase: 'down' } })
+  }, [send, sessionId])
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (e.buttons === 0) {
-      setHoveredButton(toButton(e))
       if (isOptionHeld.current) {
         setPinchHint(toPinchFingers(e)); cursorPosRef.current = null
         const _lc = liveCursorRef.current; if (_lc) _lc.style.display = 'none'
@@ -529,7 +507,7 @@ export function IOSViewer({
       _lc.style.left = `${e.clientX - _r.left}px`; _lc.style.top = `${e.clientY - _r.top}px`
     }
     send({ type: 'input:touch:move', sessionId, payload: pos })
-  }, [toButton, toNormScreen, toPinchFingers, normToRecordCanvas, send, sessionId])
+  }, [toNormScreen, toPinchFingers, normToRecordCanvas, send, sessionId])
 
   const handlePointerUp = useCallback(() => {
     if (isPinchMode.current) {
@@ -581,6 +559,7 @@ export function IOSViewer({
   const screenPctW = (chrome.screenRect.width / chrome.compositeWidth) * 100;
   const screenPctH = (chrome.screenRect.height / chrome.compositeHeight) * 100;
   const cssCornerRadius = Math.round((chrome.screenCornerRadius / 2) * displayScale);
+  const targets = buttonTargets(chrome.buttons, chrome.screenRect, BUTTON_REACH);
 
   // Home moves around the OS; the software keyboard leaves the device in a condition that stays up
   // until somebody puts it away. Two groups, per `packages/dashboard/AGENTS.md` → "Where a new device
@@ -704,7 +683,7 @@ export function IOSViewer({
         <div ref={screenAreaRef} style={{ width: isLandscape ? displayH : displayW, height: isLandscape ? displayW : displayH, position: 'relative', flexShrink: 0 }}>
           <div
             ref={containerRef}
-            className={`relative ${hoveredButton ? 'cursor-pointer' : 'cursor-default'}`}
+            className="relative cursor-default"
             style={{
               width: displayW, height: displayH,
               ...(isLandscape ? { position: 'absolute', top: (displayW - displayH) / 2, left: (displayH - displayW) / 2, transform: 'rotate(-90deg)', transformOrigin: 'center center' } : {}),
@@ -770,7 +749,7 @@ export function IOSViewer({
                 <span style={{ color: 'white', fontSize: '0.875rem' }}>Waiting for first frame...</span>
               </div>
             )}
-            {chrome.buttons.map((btn) => {
+            {chrome.buttons.map((btn, i) => {
               const isFlashed = flashedButton === btn.name; const isHovered = hoveredButton === btn.name
               const isTopAnchor = btn.anchor === 'top'
               // **One formula for where a button sits at rest**, shared with the hit test. It used
@@ -789,8 +768,28 @@ export function IOSViewer({
               const tooltipTopPct = imgTopPct
               const hoverTopPct = isTopAnchor ? ((2 * btn.rolloverOffset.y - btn.normalOffset.y) / chrome.compositeHeight) * 100 : 0
               const btnZ = btn.onTop ? 4 : 1
+              const target = targets[i]
               return (
                 <Fragment key={btn.name}>
+                  {/* The press target. Hidden from assistive tech and out of the tab order on
+                      purpose: the frame is part of the streamed device, which this package leaves
+                      out of scope — see "The streamed device is out of scope" in AGENTS.md. It sits
+                      still while the image beside it slides on hover, or hovering would move the
+                      target out from under the pointer. */}
+                  <div
+                    data-frame-button={btn.name}
+                    aria-hidden="true"
+                    onPointerDown={(e) => pressFrameButton(btn.name, e)}
+                    onPointerEnter={() => setHoveredButton(btn.name)}
+                    onPointerLeave={() => setHoveredButton((h) => (h === btn.name ? null : h))}
+                    style={{
+                      position: 'absolute', zIndex: 6, cursor: 'pointer',
+                      left: `${(target.left / chrome.compositeWidth) * 100}%`,
+                      top: `${(target.top / chrome.compositeHeight) * 100}%`,
+                      width: `${((target.right - target.left) / chrome.compositeWidth) * 100}%`,
+                      height: `${((target.bottom - target.top) / chrome.compositeHeight) * 100}%`,
+                    }}
+                  />
                   {btn.buttonPng && (
                     <img src={`data:image/png;base64,${btn.buttonPng}`} style={{
                       position: 'absolute', zIndex: btnZ,

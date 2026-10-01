@@ -475,8 +475,10 @@ tester who cannot see the screen cannot do manual QA on it whatever we label. Pu
 controls over those pixels would announce an affordance that leads nowhere, which is worse than the
 absence: it is a11y theatre, and it costs the keyboard user tab stops that do not help them.
 
-So the physical side buttons drawn on the frame — volume, action, power, and the hit-testing behind
-them in `IOSViewer`'s `toButton` — carry no accessible name and take no focus, on purpose. An
+So the physical side buttons drawn on the frame — volume, action, power, and the press targets behind
+them in `IOSViewer` (`aria-hidden` elements laid out by `buttonTargets`, #785) — carry no accessible
+name and take no focus, on purpose. They are elements so the browser can hit-test them, not so
+anything can reach them. An
 `a11y-lens` finding against that surface is answered with `A11Y_LENS_SKIP=1` and a line in the commit
 message saying which surface and why.
 
