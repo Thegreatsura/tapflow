@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An iOS side button shows as pressed for as long as you hold it.** Pressing a frame button within a tenth of a second of releasing another made the second one look released while it was still held, because the first release's timer cleared the image. The press itself always reached the device; only the picture was wrong.
+
 - **The placeholder shown while a device boots has the device's shape.** It used to be phone-shaped for every device, so an iPad or an Android tablet changed shape the moment it came up. An iPad or a foldable now boots behind an upright tablet shape, and an Android tablet behind a sideways one, the way each comes up. To know this before the device is running, the Android agent now reads each emulator's settings and reports whether it is a phone, a tablet or a foldable. A flip phone counts as a phone, and TV, Wear, desktop and car emulators report nothing and keep the phone shape.
 
 - **An iPad's volume buttons are named by what they do in landscape.** iPadOS raises the volume with whichever button is on the right or on top as the iPad is held, so after rotating an iPad Pro the button whose tooltip said "Volume Up" lowered the volume. The tooltip now follows the effect. Pressing a button still sends the same physical button as before, as on a real iPad. To tell the two apart, the iOS agent now reports whether each device is an iPhone or an iPad when it registers. With an older relay or agent that information is missing, and the tooltips keep the physical names.
