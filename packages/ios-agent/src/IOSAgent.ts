@@ -318,6 +318,9 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     const devices = this.deviceFilter
       ? allDevices.filter((d) => d.name === this.deviceFilter || d.id === this.deviceFilter)
       : allDevices
+    // A `disconnect()` during this await or the one above does not cancel the connect. Every caller
+    // today exits the process on the next line (the CLI's SIGINT handlers); one that keeps running
+    // needs a generation check here before the socket is built.
     // An answer the lookup cannot give costs the field, not the register: a viewer draws a device with
     // no form factor as a phone, which is what it did before there was one. A reconnect falls back to
     // the last answer rather than to none (see `formFactors`).

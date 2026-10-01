@@ -214,7 +214,7 @@ describe('QASession — Full reset applies to exactly one pick (#439)', () => {
 
 // The viewer reads an iPad's form factor to name its volume buttons by what they do. The device list
 // it comes from is rebuilt every few seconds and leaves out a device whose agent is reconnecting, so
-// the page hands the viewer the live value when there is one and the picked one when there is not.
+// the page hands the viewer the live value when there is one and the last known one when there is not.
 //
 // Mutation: pass only the live value (the second assertion fails). Passing only the picked one
 // survives, and nothing here pins the order of the two: a simulator udid's device type never changes,
