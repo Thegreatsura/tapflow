@@ -8,8 +8,9 @@ export interface Rect { left: number; top: number; right: number; bottom: number
  * **These are the numbers `IOSViewer` draws the button at**, and they have to stay that way: a hit
  * area computed from a different position than the pixels the user is aiming at is a target that
  * lies about where it is. The renderer's resting placement is
- * `left: rolloverOffset.x - buttonW / 2`, and a top-anchored button (the home button) takes its
- * `top` from `rolloverOffset.y` while every other anchor measures from `normalOffset.y`.
+ * `left: rolloverOffset.x - buttonW / 2`, and a top-edge button (an iPad's power button, an iPad
+ * mini's volume pair) takes its `top` from `rolloverOffset.y` while every other anchor measures from
+ * `normalOffset.y`.
  *
  * `normalOffset` is the retracted position and `rolloverOffset` the extended one; this UI draws
  * buttons extended at rest, which is why the horizontal centre comes from the rollover pair.
@@ -21,8 +22,18 @@ export function buttonHitRect(btn: ChromeButton): Rect {
 }
 
 /**
- * The area each button answers to, in 2× composite px: its resting rectangle grown by `reach` on
- * every side but the one facing the device (see `inward`), and **never overlapping a neighbour**.
+ * The area each button answers to, in 2× composite px: its resting rectangle grown by `reach` along
+ * its edge, stopped towards the device where the frame begins (see `inward`) and outwards at the
+ * edge of the composite `box`, and **never overlapping a neighbour**.
+ *
+ * **The box is the outer limit, as it was before #785.** The old hit test ran in the container's
+ * pointer handlers, so nothing outside the frame's box could press anything; past a button's outer
+ * edge it reached only the few px to the box's edge. An element can overflow its container, and an
+ * unclipped target reached about 35 CSS px into the page — clicking the gap between the device and
+ * the status card pressed Power and locked the device. Reaching the box keeps a target at about 13
+ * CSS px across, under WCAG 2.5.8's 24, and the criterion's spacing exception is what it meets:
+ * neighbours sit far enough apart that a 24 px circle on each touches no other target.
+ * `buttonHit.test.ts` holds that on measured iPhone and iPad layouts.
  *
  * The browser hit-tests these as elements, so this runs once per layout rather than per pointer
  * event, and the landscape rotation is the container's transform rather than arithmetic here.
@@ -36,9 +47,17 @@ export function buttonHitRect(btn: ChromeButton): Rect {
  * on the order the agent listed the buttons in. That order is what pressed Action from the upper
  * half of Volume Up (#783).
  */
-export function buttonTargets(buttons: readonly ChromeButton[], screen: ChromeRect, reach: number): Rect[] {
+export function buttonTargets(
+  buttons: readonly ChromeButton[],
+  screen: ChromeRect,
+  box: { width: number; height: number },
+  reach: number,
+): Rect[] {
   const rest = buttons.map(buttonHitRect)
-  const grown = rest.map((r) => ({ left: r.left - reach, top: r.top - reach, right: r.right + reach, bottom: r.bottom + reach }))
+  const grown = rest.map((r) => ({
+    left: Math.max(0, r.left - reach), top: Math.max(0, r.top - reach),
+    right: Math.min(box.width, r.right + reach), bottom: Math.min(box.height, r.bottom + reach),
+  }))
   const out = grown.map((g, i) => inward(buttons[i], rest[i], g, screen))
 
   for (let i = 0; i < rest.length; i++) {
