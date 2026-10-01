@@ -213,7 +213,9 @@ describe('IOSViewer — frame buttons are pressed through their own elements', (
     const release = (container: HTMLElement, name: string, pointerId: number) =>
       fireEvent.pointerUp(target(container, name), { pointerId, button: 0 })
 
-    afterEach(() => vi.useRealTimers())
+    // Spies first: the outer `restoreAllMocks` runs after this one, and would put back the fake
+    // `setTimeout` the spy was laid over, leaving every later test in the file on a frozen clock.
+    afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers() })
 
     // Counting pending timers does not tell: the viewer has another that unmount clears, so the
     // count drops either way. This follows the one the release started.
