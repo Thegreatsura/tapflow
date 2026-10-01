@@ -24,7 +24,7 @@ describe('DeviceViewer — the boot skeleton takes the device\'s shape', () => {
     [undefined, 'ios', 324, 720],
     ['tablet', 'ios', 540, 720],
     ['tablet', 'android', 720, 450],
-    ['foldable', 'android', 720, 450],
+    ['foldable', 'android', 540, 720],
   ] as const)('draws %s on %s at %i×%i', (formFactor, platform, width, height) => {
     const { container } = render(<DeviceViewer sessionId="s" deviceId="d" formFactor={formFactor} platform={platform} />)
     expect(placeholder(container).style.width).toBe(`${width}px`)

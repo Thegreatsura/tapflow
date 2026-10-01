@@ -14,7 +14,7 @@ export function parseIni(text: string): Record<string, string> {
 }
 
 /** Images that are neither a phone nor a tablet, though their screen size would say one or the other. */
-const NOT_HANDHELD = /(^|[,\s])(android-tv|google-tv|android-wear|wear|android-desktop|android-automotive[\w-]*)(?=$|[,\s])/
+const NOT_HANDHELD = /(^|[,\s])(android-tv|google-tv|android-wear[\w-]*|wear|android-desktop|android-automotive[\w-]*)(?=$|[,\s])/
 
 /**
  * What kind of device an AVD is, from its config.ini — or nothing when it cannot tell.
@@ -74,8 +74,12 @@ export function formFactorOf(
     for (const dir of avdHomes(env, home)) {
       const ini = join(dir, `${avdName}.ini`)
       if (!fs.existsSync(ini)) continue
-      const avdDir = parseIni(fs.readFileSync(ini, 'utf8')).path || join(dir, `${avdName}.avd`)
-      return classifyAvd(parseIni(fs.readFileSync(join(avdDir, 'config.ini'), 'utf8')))
+      // `path=` is absolute and goes stale when a home directory is renamed or the AVDs are copied
+      // over; the emulator still finds the AVD beside its .ini, so this does too.
+      const named = parseIni(fs.readFileSync(ini, 'utf8')).path
+      const candidates = [named, join(dir, `${avdName}.avd`)].filter((p): p is string => Boolean(p))
+      const config = candidates.map((d) => join(d, 'config.ini')).find((p) => fs.existsSync(p))
+      return config ? classifyAvd(parseIni(fs.readFileSync(config, 'utf8'))) : undefined
     }
   } catch {
     // Unreadable is the same as unknown.

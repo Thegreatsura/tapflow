@@ -88,6 +88,7 @@ describe('classifyAvd', () => {
     ['android-tv', 1920, 1080, 320],
     ['google-tv', 1920, 1080, 320],
     ['android-wear', 454, 454, 320],
+    ['android-wear-cn', 454, 454, 320],
     ['android-desktop', 3840, 2160, 320],
     ['android-automotive-playstore', 1024, 768, 160],
   ])('says nothing for a %s image', (tag, w, h, d) => {
@@ -132,6 +133,13 @@ describe('formFactorOf', () => {
 
   it('falls back to <home>/<name>.avd when the .ini names no path', () => {
     const fs = files({ '/h/.android/avd/P6.ini': 'target=android-34\n', '/h/.android/avd/P6.avd/config.ini': PIXEL_6 })
+    expect(formFactorOf('P6', {}, '/h', fs)).toBe('phone')
+  })
+
+  // Mutation: trust `path=` alone. A stale absolute path — a renamed home directory — then reports
+  // nothing for an AVD the emulator still boots from beside its .ini.
+  it('finds the AVD beside its .ini when `path=` has gone stale', () => {
+    const fs = files({ '/h/.android/avd/P6.ini': 'path=/Users/old-name/.android/avd/P6.avd\n', '/h/.android/avd/P6.avd/config.ini': PIXEL_6 })
     expect(formFactorOf('P6', {}, '/h', fs)).toBe('phone')
   })
 
