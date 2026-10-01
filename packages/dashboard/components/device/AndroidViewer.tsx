@@ -380,7 +380,7 @@ export function AndroidViewer({
   // exactly what `react-hooks/exhaustive-deps` was suppressed for here. A suppression is not local
   // any more: the React Compiler skips the entire file that carries one, whichever rule it names.
   //
-  // **Only when landscape**, read from the ref so a press just before unmount counts. An agent older
+  // **Only when landscape**, read from the same ref the button's target comes from. An agent older
   // than the target toggles, so a portrait sent to an upright device would turn it.
   const undoRotateRef = useRef<(() => void) | null>(null)
   useEffect(() => {

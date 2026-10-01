@@ -2459,15 +2459,19 @@ describe('AndroidAgent', () => {
         expect(rotateSpy).toHaveBeenLastCalledWith('emulator-5554', 3)
       })
 
-      // A restart keeps the viewer mounted, and it keeps showing landscape — so an older
-      // dashboard's next toggle has to go portrait, not to landscape again.
+      // A restart keeps the viewer mounted, and it keeps showing landscape — so neither the device
+      // nor an older dashboard's next toggle may be put back to portrait.
       //
-      // Mutation: reset `landscape` on a restart too.
-      it('keeps the memory across a stream restart', async () => {
+      // Mutations: reset `landscape` on a restart too; stand the device up on a restart too.
+      it('keeps the memory, and the device, across a stream restart', async () => {
         inject({ type: 'input:rotate', payload: { orientation: 'landscape' } })
         await vi.waitFor(() => expect(getState().landscape).toBe(true))
+        vi.mocked(adb.getUserRotation).mockResolvedValue({ mode: 'lock', rotation: 3 })
+        const rotateSpy = vi.spyOn(adb, 'setRotation')
+        rotateSpy.mockClear()
         await internals(agent).restartVideoStream(getState())
         expect(getState().landscape).toBe(true)
+        expect(rotateSpy).not.toHaveBeenCalled()
       })
 
       // scrcpy does not go through `normaliseOnBoot`, so a reset placed there would miss it. This
@@ -4387,6 +4391,24 @@ describe('what a rotation does on each backend', () => {
     await new Promise((r) => setTimeout(r, 60))
     return { metrics, state }
   }
+
+  // Settling the display after a rotation samples it until it holds still — up to 3.6s. That ran in
+  // the background before rotations were queued (#910), and has to stay there: inside the queue it
+  // held every later rotation, and the boot waiting to stand the device up, for that long.
+  //
+  // Mutation: await the re-read inside the queued step.
+  it('does not hold the next rotation while the screen is re-read', async () => {
+    const adb = mockAdb(true)
+    const set = vi.spyOn(adb, 'setRotation').mockResolvedValue(undefined)
+    const agent = new AndroidAgent({}, adb)
+    vi.spyOn(agent as unknown as { reconcileSerial(): Promise<boolean> }, 'reconcileSerial')
+      .mockReturnValue(new Promise<boolean>(() => {}))
+    internals(agent).deviceStates.set('s1', stateOn('grpc'))
+    internals(agent).handleRelayMessage({ type: 'input:rotate', sessionId: 's1', payload: { orientation: 'landscape' } })
+    internals(agent).handleRelayMessage({ type: 'input:rotate', sessionId: 's1', payload: { orientation: 'portrait' } })
+    await vi.waitFor(() => expect(set).toHaveBeenCalledTimes(2))
+    expect(set.mock.calls.map((c) => c[1])).toEqual([3, 0])
+  })
 
   it('does not re-describe the screen on scrcpy, which would blank the viewer', async () => {
     // **The regression this guard exists for.** scrcpy captures with `capture_orientation=@0`, so

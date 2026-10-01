@@ -385,6 +385,34 @@ describe('RelayServer', () => {
     browser.close()
   })
 
+  // #910. The relay forwards the parsed message rather than the raw one, so the target reaches the
+  // agent only because the schema declares it — and a relay that rebuilt the message would drop it
+  // with every other test here still green.
+  //
+  // Mutation: forward `{ type, sessionId }` for input:rotate.
+  it('routes input:rotate to the agent with its target', async () => {
+    const devices = [{ id: 'devA', name: 'iPhone A', platform: 'ios', status: 'shutdown' }]
+    const agent = new WebSocket(`ws://localhost:${port}`)
+    await waitForOpen(agent)
+    agent.send(JSON.stringify({ type: 'agent:register', platform: 'ios', agentName: 'RelayServer-910', devices }))
+    const { registeredSessions } = await waitForMessage<AgentRegistered>(agent)
+    const sessionId = registeredSessions[0]!.sessionId
+
+    const browser = new WebSocket(`ws://localhost:${port}`)
+    await waitForOpen(browser)
+    browser.send(JSON.stringify({ type: 'session:start', sessionId }))
+    await waitForMessage(browser)
+
+    const rotatePromise = waitForMessage(agent)
+    browser.send(JSON.stringify({ type: 'input:rotate', sessionId, payload: { orientation: 'landscape' } }))
+    const rotate = await rotatePromise
+    expect(rotate.type).toBe('input:rotate')
+    expect(rotate.payload).toEqual({ orientation: 'landscape' })
+
+    agent.close()
+    browser.close()
+  })
+
   it('input from browserA does not reach browserB session agent', async () => {
     const devices = [
       { id: 'devA', name: 'iPhone A', platform: 'ios', status: 'shutdown' },

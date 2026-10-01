@@ -460,8 +460,8 @@ describe('input:error from the relay carries a reason (#492)', () => {
     ['input:touch:move', { x: 0.5, y: 0.5 }],
     ['input:pinch:start', { f0: { x: 0.4, y: 0.4 }, f1: { x: 0.6, y: 0.6 } }],
     ['input:pinch:move', { f0: { x: 0.4, y: 0.4 }, f1: { x: 0.6, y: 0.6 } }],
-    // A target the schema names (#910): an unnamed one is dropped at the door and would pass this
-    // without ever reaching the forward path it is here for.
+    // A target the schema names (#910): an unnamed one is dropped at the door, which is silent too, so
+    // this would pass without testing the forward path. Delivery itself is held in `RelayServer.test.ts`.
     ['input:rotate', { orientation: 'landscape' }],
     ['input:keyboard:toggle', {}],
   ]

@@ -2438,7 +2438,11 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
   }
 
   /** Run `step` after every rotation already queued for this device. A failing step is logged and does
-   *  not stop the ones behind it. */
+   *  not stop the ones behind it.
+   *
+   *  **No timeout, unlike iOS.** A hung `adb` would hold this device's queue and the boot waiting on it.
+   *  The boot already awaits other `adb` calls with none (`normaliseOnBoot`), and bounding them means a
+   *  timeout on `AdbRunner.exec` for every caller — a change to make once a hang has been seen. */
   private enqueueRotation(deviceId: string, step: () => Promise<void>): Promise<void> {
     const next = (this.rotations.get(deviceId) ?? Promise.resolve())
       .then(step)
@@ -2689,13 +2693,17 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
           // rotated `cur=` as the screen: the viewer would then see landscape content, switch
           // that CSS quarter *off*, and find the frame no longer matches the screen it was told
           // about — a blank bezel with no way back but pressing rotate again. It would also set
-          // `live.rotation` on a backend whose frames are already natural, which `toDevicePx`
+          // `state.rotation` on a backend whose frames are already natural, which `toDevicePx`
           // says must never happen.
           if (!live.grpcClient) return
           const client = live.grpcClient
-          const changed = await this.reconcileSerial(
+          // **Outside the queue.** Settling samples the display until it holds still — 0.6s at best,
+          // 3.6s at worst — and the next rotation, or a boot waiting to stand the device up, must not
+          // wait on that. `reconcileSerial` coalesces per device, so a later pass still runs.
+          void this.reconcileSerial(
             live, serial, live.videoWidth, live.videoHeight, live.skin, () => live.grpcClient === client)
-          if (changed && live.booted) this.sendChrome(live)
+            .then((changed) => { if (changed && live.booted) this.sendChrome(live) })
+            .catch((e: unknown) => { logger.warn(`rotate: could not re-read the screen: ${(e as Error).message}`) })
         })
         break
       }
