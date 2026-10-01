@@ -93,7 +93,12 @@ export function IOSViewer({
   const pinchHintRef = useRef(pinchHint);
   useEffect(() => { pinchHintRef.current = pinchHint; }, [pinchHint]);
 
-  const pressedButton = useRef<string | null>(null);
+  // The frame button held down, and the pointer holding it. One at a time: a second pointer pressing
+  // another button used to overwrite this slot, so the first button never got its `up` and stayed
+  // held on the device — reachable with two fingers on a touchscreen dashboard, power + volume being
+  // the screenshot chord. A press refused that way is remembered so its release does nothing either.
+  const pressedButton = useRef<{ name: string; pointerId: number } | null>(null);
+  const refusedButtonPointers = useRef(new Set<number>());
   const touchStartPos = useRef<{ x: number; y: number } | null>(null);
   const isPinchMode = useRef(false);
   const isOptionHeld = useRef(false);
@@ -449,8 +454,9 @@ export function IOSViewer({
   const pressFrameButton = useCallback((name: string, e: React.PointerEvent) => {
     if (isOptionHeld.current) return
     e.stopPropagation()
+    if (pressedButton.current) { refusedButtonPointers.current.add(e.pointerId); return }
     setKeyboardActive(true)
-    pressedButton.current = name; setFlashedButton(name)
+    pressedButton.current = { name, pointerId: e.pointerId }; setFlashedButton(name)
     ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
     send({ type: 'input:button', sessionId, requestId: newRequestId(), payload: { name, phase: 'down' } })
   }, [send, sessionId])
@@ -483,7 +489,7 @@ export function IOSViewer({
       const now = performance.now(); if (now - lastMoveSentAt.current < MOVE_THROTTLE_MS) return
       lastMoveSentAt.current = now; setPinchHint(fingers); send({ type: 'input:pinch:move', sessionId, payload: fingers }); return
     }
-    if (pressedButton.current) return
+    if (pressedButton.current?.pointerId === e.pointerId) return
     if (!touchStartPos.current) return
     const pos = toNormScreen(e); if (!pos) return
     const dx = pos.x - touchStartPos.current.x; const dy = pos.y - touchStartPos.current.y
@@ -499,13 +505,14 @@ export function IOSViewer({
     send({ type: 'input:touch:move', sessionId, payload: pos })
   }, [toNormScreen, toPinchFingers, normToRecordCanvas, send, sessionId])
 
-  const handlePointerUp = useCallback(() => {
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    if (refusedButtonPointers.current.delete(e.pointerId)) return
     if (isPinchMode.current) {
       isPinchMode.current = false; setPinchActive(false); setPinchHint(null); send({ type: 'input:pinch:end', sessionId, requestId: newRequestId() }); return
     }
     touchStartPos.current = null
-    if (pressedButton.current) {
-      send({ type: 'input:button', sessionId, requestId: newRequestId(), payload: { name: pressedButton.current, phase: 'up' } })
+    if (pressedButton.current?.pointerId === e.pointerId) {
+      send({ type: 'input:button', sessionId, requestId: newRequestId(), payload: { name: pressedButton.current.name, phase: 'up' } })
       pressedButton.current = null; setTimeout(() => setFlashedButton(null), 100); return
     }
     cursorStateRef.current = 'release'; releaseAnimRef.current = { startTime: performance.now() }
@@ -518,14 +525,15 @@ export function IOSViewer({
     send({ type: 'input:touch:end', sessionId, requestId: newRequestId() })
   }, [send, sessionId])
 
-  const handlePointerCancel = useCallback(() => {
+  const handlePointerCancel = useCallback((e: React.PointerEvent) => {
+    if (refusedButtonPointers.current.delete(e.pointerId)) return
     if (isPinchMode.current) {
       isPinchMode.current = false; setPinchActive(false); setPinchHint(null); send({ type: 'input:pinch:end', sessionId, requestId: newRequestId() }); return
     }
     touchStartPos.current = null
-    if (pressedButton.current) {
+    if (pressedButton.current?.pointerId === e.pointerId) {
       // Release the held button, else the HID button stays down on the device.
-      send({ type: 'input:button', sessionId, requestId: newRequestId(), payload: { name: pressedButton.current, phase: 'up' } })
+      send({ type: 'input:button', sessionId, requestId: newRequestId(), payload: { name: pressedButton.current.name, phase: 'up' } })
       pressedButton.current = null; setFlashedButton(null); return
     }
     cursorStateRef.current = 'release'; releaseAnimRef.current = { startTime: performance.now() }

@@ -108,6 +108,48 @@ describe('IOSViewer — frame buttons are pressed through their own elements', (
     expect(phases(send)).toEqual(['volume_up:down', 'volume_up:up'])
   })
 
+  // Two fingers on a touchscreen dashboard, power + volume being the screenshot chord. The slot holds
+  // one button, and a second press used to overwrite it: the first button never got its `up` and
+  // stayed held on the device. The second press is refused, and so is its release, whichever finger
+  // lifts first — found by CodeRabbit on #909.
+  //
+  // Mutations: drop the occupancy check (a second `down` goes out); release without matching the
+  // pointer (the refused finger releases the held button early); drop the refused set (its release
+  // reaches the screen path as a stray `input:touch:end`).
+  it.each([
+    ['the holding finger lifts first', [1, 2]],
+    ['the refused finger lifts first', [2, 1]],
+  ] as const)('holds one button at a time when %s', (_case, liftOrder) => {
+    const { send, container } = renderViewer()
+    fireEvent.pointerDown(target(container, 'volume_up'), { pointerId: 1, button: 0 })
+    fireEvent.pointerDown(target(container, 'action'), { pointerId: 2, button: 0 })
+    const ids = { 1: 'volume_up', 2: 'action' } as const
+    const released: string[] = []
+    for (const id of liftOrder) {
+      fireEvent.pointerUp(target(container, ids[id]), { pointerId: id, button: 0 })
+      released.push(phases(send).join(','))
+    }
+    expect(phases(send)).toEqual(['volume_up:down', 'volume_up:up'])
+    // The held button is released by its own finger, not by the other one lifting.
+    expect(released[liftOrder.indexOf(1)]).toBe('volume_up:down,volume_up:up')
+    expect(sent(send, 'input:touch:end')).toHaveLength(0)
+  })
+
+  // A screen touch by another finger while a button is held is the screen's: its release must not
+  // release the button, which used to happen because the release path asked only "is a button held".
+  //
+  // Mutation: release the held button on any pointer's up.
+  it('does not release a held button when another finger lifts off the screen', () => {
+    const { send, container } = renderViewer()
+    fireEvent.pointerDown(target(container, 'volume_up'), { pointerId: 1, button: 0 })
+    const screenArea = target(container, 'volume_up').parentElement!
+    fireEvent.pointerDown(screenArea, { pointerId: 2, button: 0 })
+    fireEvent.pointerUp(screenArea, { pointerId: 2, button: 0 })
+    expect(phases(send)).toEqual(['volume_up:down'])
+    fireEvent.pointerUp(target(container, 'volume_up'), { pointerId: 1, button: 0 })
+    expect(phases(send)).toEqual(['volume_up:down', 'volume_up:up'])
+  })
+
   // Option + drag is a pinch wherever it starts, as when the container decided everything.
   //
   // Mutation: drop the `isOptionHeld` early return. The button is pressed instead.
