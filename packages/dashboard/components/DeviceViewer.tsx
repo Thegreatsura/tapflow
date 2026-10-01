@@ -1,6 +1,6 @@
 'use client';
 
-import type { BrowserToRelay, SessionTerminatedReason } from '@tapflowio/protocol'
+import type { BrowserToRelay, FormFactor, SessionTerminatedReason } from '@tapflowio/protocol'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useRelay } from '@/hooks/useRelay';
 import { usePerfMode } from '@/hooks/usePerfMode';
@@ -24,6 +24,8 @@ import { toast } from 'sonner';
 interface Props {
   sessionId: string;
   deviceId: string;
+  /** From the device list; the iOS viewer reads it for an iPad's volume tooltips. */
+  formFactor?: FormFactor;
   buildId?: number;
   resetMode?: 'app-only' | 'full-erase';
   onRecordingUploaded?: () => void;
@@ -36,7 +38,7 @@ interface Props {
   onSessionEnded?: (reason: SessionTerminatedReason | 'busy-elsewhere' | 'mac-overloaded') => void;
 }
 
-export function DeviceViewer({ sessionId, deviceId, buildId, resetMode, onRecordingUploaded, onSessionEnded }: Props) {
+export function DeviceViewer({ sessionId, deviceId, formFactor, buildId, resetMode, onRecordingUploaded, onSessionEnded }: Props) {
   const sendRef = useRef<(msg: BrowserToRelay) => void>(() => {});
   // One reset per mount; see the boot handler below.
   const resetSentRef = useRef(false);
@@ -731,7 +733,7 @@ export function DeviceViewer({ sessionId, deviceId, buildId, resetMode, onRecord
 
   return (
     <>
-      {iosChrome && <IOSViewer {...commonProps} chrome={iosChrome} perfHookRef={devPerfHookRef} />}
+      {iosChrome && <IOSViewer {...commonProps} chrome={iosChrome} formFactor={formFactor} perfHookRef={devPerfHookRef} />}
       {androidChrome && <AndroidViewer {...commonProps} androidButtons={androidChrome.buttons} screenWidth={androidChrome.screenWidth} screenHeight={androidChrome.screenHeight} cornerRadius={androidChrome.cornerRadius} postures={postures} streamRotation={androidChrome.streamRotation} perfHookRef={devPerfHookRef} />}
       {import.meta.env.DEV && perfMode && perfVisible && (
         <>

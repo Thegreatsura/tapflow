@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An iPad's volume buttons are named by what they do in landscape.** iPadOS raises the volume with whichever button is on the right or on top as the iPad is held, so after rotating an iPad Pro the button whose tooltip said "Volume Up" lowered the volume. The tooltip now follows the effect. Pressing a button still sends the same physical button as before, as on a real iPad. To tell the two apart, the iOS agent now reports whether each device is an iPhone or an iPad when it registers. With an older relay or agent that information is missing, and the tooltips keep the physical names.
+
 - **Shift+Arrow selects text on Android.** Holding Shift with an arrow key, Home, End, Page Up or Page Down used to move the caret on Android devices, so you could not select text from the keyboard. The modifier now reaches the device: Shift selects, and <kbd>⌘</kbd> (or Ctrl) with an arrow moves or selects a word at a time. Android 12 and older cannot receive a held modifier, so there those combinations show "That input is not supported on this device" instead of moving the caret. Other keys, such as Shift+Space, type as before.
 
 - **The Android agent finds your emulators without `ANDROID_HOME`.** With the SDK installed by Android Studio and `adb` on your `PATH` but no `ANDROID_HOME`, `tapflow doctor` passed and the agent connected, yet it reported 0 devices, even with an emulator running. The agent now also looks in the places doctor checks: `ANDROID_HOME`, `ANDROID_SDK_ROOT`, the standard SDK folder, and finally `PATH`. If it still cannot list your AVDs, it logs why once instead of staying silent.

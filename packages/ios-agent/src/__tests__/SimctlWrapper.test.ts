@@ -40,6 +40,41 @@ function mockRunner(outputs: Record<string, string> = {}): SimctlRunner {
 }
 
 describe('SimctlWrapper', () => {
+  // `simctl list devices` carries no device family; `list devicetypes` does, as `productFamily`. The
+  // map is read once per connect, never by `listDevices` — that one runs inside the boot poll, whose
+  // per-call timeout is the only thing standing between it and a wedged CoreSimulatorService.
+  describe('formFactorsByType', () => {
+    const TYPES = JSON.stringify({ devicetypes: [
+      { identifier: 'com.apple.CoreSimulator.SimDeviceType.iPhone-15', productFamily: 'iPhone' },
+      { identifier: 'com.apple.CoreSimulator.SimDeviceType.iPad-mini-A17-Pro', productFamily: 'iPad' },
+      { identifier: 'com.apple.CoreSimulator.SimDeviceType.Apple-Watch-Ultra-2-49mm', productFamily: 'Apple Watch' },
+    ] })
+
+    // Mutations: swap the two families; or map every family (the watch then answers something).
+    it('maps iPhone to phone and iPad to tablet, and nothing else', async () => {
+      const map = await new SimctlWrapper(mockRunner({ list: TYPES })).formFactorsByType()
+      expect(map.get('com.apple.CoreSimulator.SimDeviceType.iPhone-15')).toBe('phone')
+      expect(map.get('com.apple.CoreSimulator.SimDeviceType.iPad-mini-A17-Pro')).toBe('tablet')
+      expect(map.has('com.apple.CoreSimulator.SimDeviceType.Apple-Watch-Ultra-2-49mm')).toBe(false)
+    })
+
+    // Mutation: call it without a bound. A wedged service then holds `connect()` forever.
+    it('reads devicetypes with a timeout', async () => {
+      const runner = mockRunner({ list: TYPES })
+      await new SimctlWrapper(runner).formFactorsByType()
+      expect(runner.execWithOpts).toHaveBeenCalledWith(
+        expect.objectContaining({ timeoutMs: expect.any(Number) }), 'list', 'devicetypes', '-j')
+    })
+
+    // Mutation: fold the lookup into `listDevices`.
+    it('is never what listDevices runs', async () => {
+      const runner = mockRunner({ list: SIMCTL_LIST_OUTPUT })
+      await new SimctlWrapper(runner).listDevices(1000)
+      const calls = [...(runner.exec as ReturnType<typeof vi.fn>).mock.calls, ...(runner.execWithOpts as ReturnType<typeof vi.fn>).mock.calls]
+      expect(calls.flat().includes('devicetypes')).toBe(false)
+    })
+  })
+
   describe('listDevices', () => {
     it('returns only available devices', async () => {
       const runner = mockRunner({ list: SIMCTL_LIST_OUTPUT })

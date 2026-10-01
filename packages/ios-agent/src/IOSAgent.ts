@@ -9,7 +9,7 @@ import type { BootAbandonReason, ClipboardErrorPayload, Device, DeviceAgent, Net
 import { createLogger, PlatformError, ValidationError, bootAbandonMessage, BOOT_NO_SESSION_STATE, SHUTDOWN_NO_SESSION_STATE, downloadBuild } from '@tapflowio/agent-core'
 import type {
   AgentControlOutbound, InputErrorReason, ClipboardReplyBody, OpenUrlReplyBody,
-  AppInstallReplyBody, AppLaunchReplyBody, AppClearStateReplyBody,
+  AppInstallReplyBody, AppLaunchReplyBody, AppClearStateReplyBody, FormFactor,
 } from '@tapflowio/protocol'
 
 const logger = createLogger('ios-agent')
@@ -248,6 +248,10 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
   // simulator capture/encode when the Mac is unattended. No-op off macOS.
   private readonly sleepBlocker: SleepBlocker
   private relayUrl: string | null = null
+  /** The last device-type lookup that answered. A udid's type never changes, so on a reconnect whose
+   *  lookup fails this is still right — and the relay overwrites device fields on every register, so
+   *  falling back to nothing would blank a form factor it already had until the next reconnect. */
+  private formFactors = new Map<string, FormFactor>()
   private resourcesTimer: ReturnType<typeof setInterval> | null = null
   private readonly resources = createResourceSampler()
   private _stopping = false
@@ -314,6 +318,19 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     const devices = this.deviceFilter
       ? allDevices.filter((d) => d.name === this.deviceFilter || d.id === this.deviceFilter)
       : allDevices
+    // A `disconnect()` during this await or the one above does not cancel the connect. Every caller
+    // today exits the process on the next line (the CLI's SIGINT handlers); one that keeps running
+    // needs a generation check here before the socket is built.
+    // An answer the lookup cannot give costs the field, not the register: a viewer draws a device with
+    // no form factor as a phone, which is what it did before there was one. A reconnect falls back to
+    // the last answer rather than to none (see `formFactors`).
+    const formFactors = await this.simctl.formFactorsByType().then(
+      (map) => (this.formFactors = map),
+      (e: unknown) => {
+        logger.warn(`device types unavailable, registering with the last known form factors: ${e instanceof Error ? e.message : String(e)}`)
+        return this.formFactors
+      },
+    )
 
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(relayUrl, this.wsClientOptions())
@@ -341,6 +358,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
             platform: d.platform,
             status: d.status,
             osVersion: d.osVersion,
+            formFactor: d.typeId ? formFactors.get(d.typeId) : undefined,
           })),
         })
       })

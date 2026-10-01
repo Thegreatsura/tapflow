@@ -13,7 +13,7 @@
 // Every case names the mutation that kills it.
 import type { ChromeButton } from '@tapflowio/protocol'
 import { describe, expect, it } from 'vitest'
-import { buttonHitRect, buttonTargets, type Rect } from '../../lib/buttonHit'
+import { buttonHitRect, buttonTargets, buttonTitles, type Rect } from '../../lib/buttonHit'
 
 /** The frame's composite box, where a test does not name its own. */
 const BOX = { width: 1000, height: 2000 }
@@ -162,5 +162,61 @@ describe('buttonTargets', () => {
 
   it('answers nothing for a device with no buttons', () => {
     expect(buttonTargets([], BOX)).toEqual([])
+  })
+})
+
+// The tooltip names what a press *does*. On an iPad that is not always the physical button's name:
+// iPadOS (15.4+) raises the volume with whichever button is on the right or on top as the device is
+// held, and current iPads cannot turn that off. The press itself still sends the physical button's
+// HID usage — the device does the remapping — so only the title moves. Layouts are measured from the
+// real chrome (2× composite px); the viewer's landscape is `rotate(-90deg)`, counter-clockwise.
+describe('buttonTitles', () => {
+  const vol = (name: string, title: string, usage: number, anchor: string, x: number, y: number, w: number, h: number): ChromeButton => ({
+    ...button(name, y, h, anchor), accessibilityTitle: title, usagePage: 12, usage,
+    rolloverOffset: { x, y: anchor === 'top' ? 0 : y }, normalOffset: { x, y }, buttonW: w,
+  })
+  // iPad Pro 13 (M5): both on the right edge, Up above Down.
+  const PRO = { box: { width: 2274, height: 2946 }, buttons: [
+    vol('volume-up', 'Volume Up', 233, 'right', 2242, 210, 32, 104),
+    vol('volume-down', 'Volume Down', 234, 'right', 2242, 336, 32, 104),
+  ] }
+  // iPad mini (A17 Pro): both on the top edge, Down left of Up.
+  const MINI = { box: { width: 1728, height: 2516 }, buttons: [
+    vol('volume-up', 'Volume Up', 233, 'top', 371, 16, 130, 32),
+    vol('volume-down', 'Volume Down', 234, 'top', 219, 16, 130, 32),
+  ] }
+
+  it('names the physical buttons in portrait, on both layouts', () => {
+    expect(buttonTitles(PRO.buttons, PRO.box, false, 'tablet')).toEqual(['Volume Up', 'Volume Down'])
+    expect(buttonTitles(MINI.buttons, MINI.box, false, 'tablet')).toEqual(['Volume Up', 'Volume Down'])
+  })
+
+  // The pair that pins the rotation's direction. Turned counter-clockwise, the Pro's right edge
+  // becomes the top with Up on the left — so Down is the one raising the volume, as the maintainer
+  // saw. The mini's top edge becomes the left with Up on top, so its names stay. Turned clockwise it
+  // would be the other way round, which is why both are here.
+  //
+  // Mutations: rotate the other way (both cases flip); swap whenever landscape (the mini fails).
+  it('follows the effect in landscape: the Pro swaps, the mini does not', () => {
+    expect(buttonTitles(PRO.buttons, PRO.box, true, 'tablet')).toEqual(['Volume Down', 'Volume Up'])
+    expect(buttonTitles(MINI.buttons, MINI.box, true, 'tablet')).toEqual(['Volume Up', 'Volume Down'])
+  })
+
+  // An iPhone's volume does not follow orientation. Mutation: drop the form-factor gate.
+  it('leaves a phone, or a device that did not say, with its physical names', () => {
+    expect(buttonTitles(PRO.buttons, PRO.box, true, 'phone')).toEqual(['Volume Up', 'Volume Down'])
+    expect(buttonTitles(PRO.buttons, PRO.box, true, undefined)).toEqual(['Volume Up', 'Volume Down'])
+  })
+
+  // The pair is found by HID usage — Consumer page 12, Volume Increment 233 / Decrement 234, which
+  // Apple's chrome states for each input — not by the `name` string. Mutation: match on name.
+  it('finds the volume pair by HID usage, not by name', () => {
+    const renamed = PRO.buttons.map((b, i) => ({ ...b, name: `vol-${i}` }))
+    expect(buttonTitles(renamed, PRO.box, true, 'tablet')).toEqual(['Volume Down', 'Volume Up'])
+  })
+
+  it('leaves a tablet with no volume pair alone', () => {
+    const power = { ...button('power', 0, 32, 'top'), accessibilityTitle: 'Sleep/Wake', usagePage: 12, usage: 48 }
+    expect(buttonTitles([power], PRO.box, true, 'tablet')).toEqual(['Sleep/Wake'])
   })
 })

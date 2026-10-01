@@ -137,6 +137,36 @@ describe('an agent older than a field still registers', () => {
     expect(fail(raw).reason).toBe('bad-shape')
   })
 
+  // `formFactor` (PR B of #785's follow-up) is how a viewer tells an iPad from an iPhone. A value this
+  // relay does not know yet — an agent newer than it, reporting a form factor added later — must cost
+  // that one field, not the registration: the rejection here is the most expensive one in the
+  // protocol (see above).
+  describe('a device form factor', () => {
+    const register = (formFactor: unknown) =>
+      ({ type: 'agent:register', devices: [{ id: 'd', name: 'iPad', platform: 'ios', status: 'booted', formFactor }] })
+    const device = (r: ReturnType<typeof ok>) => (r.msg as { devices: Array<{ formFactor?: string }> }).devices[0]
+
+    it.each(['phone', 'tablet', 'foldable'])('keeps %s', (v) => {
+      expect(device(ok(register(v))).formFactor).toBe(v)
+    })
+
+    // Mutation: a plain `z.enum`. The whole register is refused and the Mac drops out of the list.
+    it('drops a form factor it does not know, and still registers', () => {
+      expect(device(ok(register('watch'))).formFactor).toBeUndefined()
+    })
+
+    it('registers a device that reports none', () => {
+      const r = ok({ type: 'agent:register', devices: [{ id: 'd', name: 'iPhone', platform: 'ios', status: 'booted' }] })
+      expect(device(r).formFactor).toBeUndefined()
+    })
+
+    // Unknown is upward compatibility; not a string is a broken agent — the same line `capabilities`
+    // draws above. Mutation: `.catch(undefined)` over the whole field, which swallows this too.
+    it('still refuses a form factor that is not a string', () => {
+      expect(fail(register(5)).reason).toBe('bad-shape')
+    })
+  })
+
   it('defaults a screenshot format the way the relay used to', () => {
     const raw = { type: 'screenshot:done', sessionId: 's', requestId: 'r', data: 'AAA' }
     expect(ok(raw).msg).toMatchObject({ format: 'png' })

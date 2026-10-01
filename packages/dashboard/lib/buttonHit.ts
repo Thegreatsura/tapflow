@@ -1,4 +1,4 @@
-import type { ChromeButton } from '@tapflowio/protocol'
+import type { ChromeButton, FormFactor } from '@tapflowio/protocol'
 
 export interface Rect { left: number; top: number; right: number; bottom: number }
 
@@ -72,4 +72,49 @@ export function buttonTargets(buttons: readonly ChromeButton[], box: { width: nu
       default: return r
     }
   })
+}
+
+/** HID Consumer page, and its Volume Increment / Decrement usages — what Apple's device chrome states
+ *  for each volume input, and so what identifies the pair without leaning on its `name` string. */
+const CONSUMER_PAGE = 12
+const VOLUME_INCREMENT = 233
+const VOLUME_DECREMENT = 234
+
+/**
+ * The tooltip for each button: what pressing it does, which on an iPad is not always its name.
+ *
+ * iPadOS (15.4+) raises the volume with whichever button is on the right or on top as the device is
+ * held, and current iPads cannot turn that off. The press still sends the physical button's HID
+ * usage — the device does the remapping — so only the title follows the effect. An iPhone's volume
+ * does not follow orientation, so anything but a `tablet` keeps the physical names.
+ *
+ * `landscape` is the viewer's `rotate(-90deg)`, counter-clockwise: a composite point (x, y) is seen
+ * at (y, width − x). Of the two volume buttons as seen, the one further right wins when they are
+ * apart side by side, and the one higher up when they are stacked. Measured on 2026-10-01 against the
+ * real chrome: an iPad Pro's right-edge pair swaps in landscape, an iPad mini's top-edge pair does not
+ * — the pair that would both be wrong if the turn were the other way.
+ */
+export function buttonTitles(
+  buttons: readonly ChromeButton[],
+  box: { width: number; height: number },
+  landscape: boolean,
+  formFactor: FormFactor | undefined,
+): string[] {
+  const titles = buttons.map((b) => b.accessibilityTitle)
+  if (formFactor !== 'tablet') return titles
+  const find = (usage: number) => buttons.findIndex((b) => b.usagePage === CONSUMER_PAGE && b.usage === usage)
+  const up = find(VOLUME_INCREMENT)
+  const down = find(VOLUME_DECREMENT)
+  if (up < 0 || down < 0) return titles
+  const seen = (b: ChromeButton) => {
+    const r = buttonHitRect(b)
+    const cx = (r.left + r.right) / 2
+    const cy = (r.top + r.bottom) / 2
+    return landscape ? { x: cy, y: box.width - cx } : { x: cx, y: cy }
+  }
+  const u = seen(buttons[up])
+  const d = seen(buttons[down])
+  const upRaises = Math.abs(u.x - d.x) > Math.abs(u.y - d.y) ? u.x > d.x : u.y < d.y
+  if (!upRaises) [titles[up], titles[down]] = [titles[down], titles[up]]
+  return titles
 }

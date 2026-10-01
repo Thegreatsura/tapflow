@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto'
 import { WebSocket } from 'ws'
 import type { DeviceStatus } from '@tapflowio/agent-core'
 import type { AgentResources, SessionInfo } from './types.js'
-import type { ChromePayload, DeviceDetails, DeviceReport, PosturesPayload } from '@tapflowio/protocol'
+import type { ChromePayload, DeviceDetails, DeviceReport, FormFactor, PosturesPayload } from '@tapflowio/protocol'
 
 export interface Session {
   id: string
@@ -45,6 +45,8 @@ export interface Session {
    *  session marked `booted` before the agent has done anything for it (#440). */
   readySent: boolean
   deviceOsVersion?: string
+  /** From the agent's register, like `deviceOsVersion`; the viewer reads it off `agents:listed`. */
+  deviceFormFactor?: FormFactor
   chromeData?: ChromePayload
   /** Cached like `chromeData`, and replayed to a re-joining viewer for the same reason. */
   postures?: PosturesPayload
@@ -108,7 +110,7 @@ export class SessionManager {
   private static agentFields(
     agent: AgentIdentity,
     device: DeviceReport,
-  ): Pick<Session, 'agentId' | 'agentName' | 'agentPlatform' | 'agentCapabilities' | 'deviceName' | 'devicePlatform' | 'deviceStatus' | 'deviceOsVersion'> {
+  ): Pick<Session, 'agentId' | 'agentName' | 'agentPlatform' | 'agentCapabilities' | 'deviceName' | 'devicePlatform' | 'deviceStatus' | 'deviceOsVersion' | 'deviceFormFactor'> {
     return {
       agentId: agent.agentId,
       agentName: agent.agentName,
@@ -118,6 +120,7 @@ export class SessionManager {
       devicePlatform: device.platform,
       deviceStatus: device.status as DeviceStatus,
       deviceOsVersion: device.osVersion,
+      deviceFormFactor: device.formFactor,
     }
   }
 
@@ -448,6 +451,7 @@ export class SessionManager {
         platform: s.devicePlatform,
         status: s.deviceStatus,
         osVersion: s.deviceOsVersion,
+        formFactor: s.deviceFormFactor,
         sessionId: s.id,
         busy:
           s.owner !== null &&

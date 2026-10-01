@@ -223,6 +223,10 @@ const AGENT_CONSUMED = {
     devices: z.array(z.object({
       id: z.string(), name: z.string(), platform: z.string(), status: z.string(),
       osVersion: z.string().optional(),
+      // A form factor this relay does not know is a newer agent, not a broken one: the field goes and
+      // the register stands. Anything that is not a string is still refused, the line `capabilities`
+      // draws — `.catch` over the whole field would swallow that too.
+      formFactor: z.union([z.enum(['phone', 'tablet', 'foldable']), z.string().transform(() => undefined)]).optional(),
     })).default([]),
   }),
   'agent:resources': z.object({

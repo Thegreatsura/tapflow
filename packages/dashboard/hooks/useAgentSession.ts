@@ -1,17 +1,34 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRelay } from '@/hooks/useRelay'
 import type { DeviceSummary, BrowserInbound, SessionInfo } from '@/lib/types'
+import type { FormFactor } from '@tapflowio/protocol'
 
 export function useAgentSession(os: string) {
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [deviceId, setDeviceId] = useState('')
+  // The last form factor known for the active device: from the pick, then from any listing that
+  // names one. The list is rebuilt every few seconds and leaves out a device whose agent is
+  // reconnecting, so reading it live would blank the value — and flip an iPad's volume tooltips back —
+  // for as long as the agent is away. A listing without one never clears it.
+  const [activeFormFactor, setActiveFormFactor] = useState<FormFactor | undefined>(undefined)
   const [booting, setBooting] = useState(false)
   const [status, setStatus] = useState('')
 
+  // ref to avoid stale closure in shutdown callbacks
+  const activeSessionRef = useRef({ sessionId: activeSessionId, deviceId })
+  useEffect(() => {
+    activeSessionRef.current = { sessionId: activeSessionId, deviceId }
+  }, [activeSessionId, deviceId])
+
   const handleMessage = useCallback((msg: BrowserInbound) => {
-    if (msg.type === 'agents:listed') setSessions(msg.sessions)
+    if (msg.type === 'agents:listed') {
+      setSessions(msg.sessions)
+      const { deviceId: active } = activeSessionRef.current
+      const known = active ? msg.sessions.flatMap((s) => s.devices).find((d) => d.id === active)?.formFactor : undefined
+      if (known) setActiveFormFactor(known)
+    }
     if (msg.type === 'session:joined') { setBooting(false); setStatus('Connected') }
     if (msg.type === 'error') { setBooting(false); setStatus(`Error: ${msg.message}`) }
   }, [])
@@ -24,12 +41,6 @@ export function useAgentSession(os: string) {
     const id = setInterval(() => send({ type: 'agents:list' }), 5000)
     return () => clearInterval(id)
   }, [connected, send])
-
-  // ref to avoid stale closure in shutdown callbacks
-  const activeSessionRef = useRef({ sessionId: activeSessionId, deviceId })
-  useEffect(() => {
-    activeSessionRef.current = { sessionId: activeSessionId, deviceId }
-  }, [activeSessionId, deviceId])
 
   // These three `device:shutdown` sends carry **no `requestId`, on purpose.** Nothing in this hook reads
   // `device:shutdown-done` — the correlator would be minted for a reply no one is waiting for, and one of
@@ -51,6 +62,7 @@ export function useAgentSession(os: string) {
   const agentGroups = sessions.filter((s) => s.devices.some((d) => d.platform === os))
 
   const startDevice = useCallback((d: DeviceSummary) => {
+    setActiveFormFactor(d.formFactor)
     setDeviceId(d.id)
     setBooting(true)
     setStatus('Booting…')
@@ -102,6 +114,7 @@ export function useAgentSession(os: string) {
 
   return {
     sessions,
+    activeFormFactor,
     selectedAgent,
     setSelectedAgent,
     activeSessionId,
