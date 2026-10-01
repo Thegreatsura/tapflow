@@ -462,6 +462,9 @@ export function IOSViewer({
   }, [send, sessionId])
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    // A refused button press is nobody's: its finger must not drive a screen drag or a pinch that
+    // another finger started.
+    if (refusedButtonPointers.current.has(e.pointerId)) return
     if (e.buttons === 0) {
       if (isOptionHeld.current) {
         setPinchHint(toPinchFingers(e)); cursorPosRef.current = null

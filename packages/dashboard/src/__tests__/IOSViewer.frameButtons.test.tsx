@@ -150,6 +150,26 @@ describe('IOSViewer — frame buttons are pressed through their own elements', (
     expect(phases(send)).toEqual(['volume_up:down', 'volume_up:up'])
   })
 
+  // Three fingers: one dragging on the screen, one holding a button, one refused on another button.
+  // The refused finger's movement is nobody's — it used to reach the screen path and move the first
+  // finger's drag to its own coordinates. Found by CodeRabbit on #909. jsdom has no layout, so the
+  // container is given the box the composite draws at (640 × 1240 composite px at 2×).
+  //
+  // Mutation: drop the refused-pointer check at the top of the move handler.
+  it('ignores movement from a refused button press', () => {
+    const { send, container } = renderViewer()
+    const area = target(container, 'volume_up').parentElement!
+    vi.spyOn(area, 'getBoundingClientRect').mockReturnValue(
+      { left: 0, top: 0, width: 320, height: 620, right: 320, bottom: 620, x: 0, y: 0, toJSON: () => ({}) } as DOMRect,
+    )
+    fireEvent.pointerDown(area, { pointerId: 1, button: 0, buttons: 1, clientX: 160, clientY: 300 })
+    expect(sent(send, 'input:touch:start')).toHaveLength(1)
+    fireEvent.pointerDown(target(container, 'volume_up'), { pointerId: 2, button: 0 })
+    fireEvent.pointerDown(target(container, 'action'), { pointerId: 3, button: 0 })
+    fireEvent.pointerMove(area, { pointerId: 3, buttons: 1, clientX: 250, clientY: 500 })
+    expect(sent(send, 'input:touch:move')).toHaveLength(0)
+  })
+
   // Option + drag is a pinch wherever it starts, as when the container decided everything.
   //
   // Mutation: drop the `isOptionHeld` early return. The button is pressed instead.
