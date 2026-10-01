@@ -291,6 +291,20 @@ export class AdbWrapper {
     await this.runner.exec('-s', serial, 'shell', 'wm', 'user-rotation', 'lock', String(rotation))
   }
 
+  /**
+   * The rotation lock `setRotation` writes: `free` when the device auto-rotates, else the locked
+   * quarter. Read with the same command family, so an image that lacks one lacks the other. The
+   * output is `free` or `lock 3`, measured on API 34.
+   */
+  async getUserRotation(serial: string): Promise<{ mode: 'free' } | { mode: 'lock'; rotation: 0 | 1 | 2 | 3 }> {
+    const out = (await this.runner.exec('-s', serial, 'shell', 'wm', 'user-rotation')).trim()
+    if (out === 'free') return { mode: 'free' }
+    const lock = /^lock ([0-3])$/.exec(out)
+    if (lock) return { mode: 'lock', rotation: Number(lock[1]) as 0 | 1 | 2 | 3 }
+    // An answer this cannot read is not "free": the caller would leave a landscape lock in place.
+    throw new PlatformError(`Cannot read the rotation lock from: ${out || '(empty)'}`)
+  }
+
   async sendInput(serial: string, ...args: string[]): Promise<void> {
     await this.runner.exec('-s', serial, 'shell', 'input', ...args)
   }

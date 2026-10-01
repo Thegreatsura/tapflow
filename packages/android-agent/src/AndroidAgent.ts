@@ -444,6 +444,14 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     ws.send(JSON.stringify(msg))
   }
   private deviceStates = new Map<string, DeviceState>()
+  /**
+   * One queue of rotation commands per device (#910). Each `setRotation` is its own `adb` process, so
+   * two sent back to back can land in either order, and a held ⌘⇧O or a boot reset racing the first
+   * press would leave the device on the earlier target. Keyed here rather than on `DeviceState`
+   * because a re-register replaces the states while a command already in flight keeps running — the
+   * boot reset that follows has to queue behind it, not start fresh beside it.
+   */
+  private readonly rotations = new Map<string, Promise<void>>()
   // Holds a macOS power assertion while connected so the host doesn't idle-throttle the
   // emulator (its software H.264 encoder starves badly when the Mac idles). No-op off macOS.
   private readonly sleepBlocker: SleepBlocker
@@ -1350,6 +1358,10 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     // Was a silent return, and the boot went on to answer `device:ready` for a stream that never
     // started (#611). The boot checks this before describing the device or declaring it ready; this is the backstop.
     if (!serial) throw new PlatformError(EMULATOR_GONE)
+    // Ahead of the backend split, so scrcpy stands the device up too: `normaliseOnBoot` runs on the
+    // gRPC path only. Queued with the rotations, so an undo from the viewer this boot replaced lands
+    // first and is then overridden, rather than racing the read.
+    if (!opts.restart) await this.enqueueRotation(state.deviceId, () => this.uprightOnBoot(serial))
 
     // Emulator: capture via gRPC streamScreenshot + Mac VideoToolbox (bypasses the guest SW H.264
     // encoder). On any failure (e.g. an externally-booted emulator without `-grpc`), fall back to
@@ -1383,7 +1395,8 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
       const info = await session.start(serial)
       if (!owns()) throw new StreamSuperseded()
       state.scrcpySession = session
-      state.landscape = false
+      // A restart is not a boot: the viewer stays mounted and keeps the orientation it shows.
+      if (!opts.restart) state.landscape = false
 
       state.displayWidth = info.width
       state.displayHeight = info.height
@@ -1583,7 +1596,8 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     state.emulatorVideo = video
     const info = await video.start()
     if (!owns()) throw new StreamSuperseded()
-    state.landscape = false
+    // A restart is not a boot: the viewer stays mounted and keeps the orientation it shows.
+    if (!opts.restart) state.landscape = false
     // Orientation from the frame, magnitude from `wm size` — see `reconcileScreen` for why neither
     // alone is right. The first frame has already fired `onSizeChange`, but that ran before
     // `state.booted`, so nothing was sent; this settles the values the boot `session:chrome` carries.
@@ -2423,6 +2437,32 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     } catch { return false }
   }
 
+  /** Run `step` after every rotation already queued for this device. A failing step is logged and does
+   *  not stop the ones behind it. */
+  private enqueueRotation(deviceId: string, step: () => Promise<void>): Promise<void> {
+    const next = (this.rotations.get(deviceId) ?? Promise.resolve())
+      .then(step)
+      .catch((e: unknown) => { logger.warn(`rotate failed: ${(e as Error).message}`) })
+    this.rotations.set(deviceId, next)
+    void next.then(() => { if (this.rotations.get(deviceId) === next) this.rotations.delete(deviceId) })
+    return next
+  }
+
+  /**
+   * Stand a device up for a new session (#910): a fresh viewer always starts portrait, so a device
+   * left turned by an earlier session — or by one whose undo never arrived, as on a reload — would
+   * otherwise stream sideways under an upright frame. Only a device that is already **locked** to a
+   * turn is touched: `wm user-rotation lock` is persistent device state, and writing one onto an
+   * auto-rotating AVD would take auto-rotate away from it outside tapflow too (see `normaliseOnBoot`).
+   * Replacing one lock with another takes nothing away. An unreadable lock is left alone.
+   */
+  private async uprightOnBoot(serial: string): Promise<void> {
+    const lock = await this.adb.getUserRotation(serial)
+    if (lock.mode !== 'lock' || lock.rotation === 0) return
+    logger.info(`rotation: standing the device up from lock ${lock.rotation}`)
+    await this.adb.setRotation(serial, 0)
+  }
+
   private handleRelayMessage(msg: { type: string; sessionId: string; requestId?: string; payload?: unknown }): void {
     switch (msg.type) {
       case 'device:boot': {
@@ -2625,34 +2665,38 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
         // rotate so rotation-capable apps re-layout. user_rotation=3 = canonical landscape
         // (home-left/punch-right). Portrait-locked apps ignore it — the viewer's CSS handles
         // their cosmetic rotation.
-        const next = !state.landscape
-        state.landscape = next
-        void this.adb.setRotation(serial, next ? 3 : 0)
-          .then(async () => {
-            // **Report it, rather than leaving it to the watcher's next tick.** A rotation changes
-            // the correction the viewer applies but *not* the frame's dimensions — the capture is
-            // the skin, which does not move — so the viewer cannot tell from the stream that
-            // anything happened, and an idle screen sends no new frame to reveal it either. Until
-            // this lands the viewer is holding the picture back; up to two seconds of that reads as
-            // the rotate button doing nothing.
-            // **gRPC only, and the guard is the point.** scrcpy captures with
-            // `capture_orientation=@0`, so its frame never changes shape and the viewer's CSS
-            // quarter is the only thing that rotates it. Reconciling here would report the
-            // rotated `cur=` as the screen: the viewer would then see landscape content, switch
-            // that CSS quarter *off*, and find the frame no longer matches the screen it was told
-            // about — a blank bezel with no way back but pressing rotate again. It would also set
-            // `state.rotation` on a backend whose frames are already natural, which `toDevicePx`
-            // says must never happen.
-            if (!state.grpcClient) return
-            const client = state.grpcClient
-            const changed = await this.reconcileSerial(
-              state, serial, state.videoWidth, state.videoHeight, state.skin, () => state.grpcClient === client)
-            if (changed && state.booted) this.sendChrome(state)
-          })
-          .catch((e: unknown) => {
-            state.landscape = !next
-            logger.warn(`rotate failed: ${(e as Error).message}`)
-          })
+        //
+        // **A target when the viewer sends one, a toggle when it does not** (#910) — an older
+        // dashboard's. `landscape` is read when the step runs, not when it was queued, and written
+        // only once the device took it: a step queued behind another toggles from what that one
+        // applied, and a failed one leaves the memory where the device still is.
+        const sessionId = msg.sessionId
+        const target = (msg.payload as { orientation?: 'portrait' | 'landscape' } | undefined)?.orientation
+        void this.enqueueRotation(state.deviceId, async () => {
+          const live = this.deviceStates.get(sessionId) ?? state
+          const next = target ? target === 'landscape' : !live.landscape
+          await this.adb.setRotation(serial, next ? 3 : 0)
+          live.landscape = next
+          // **Report it, rather than leaving it to the watcher's next tick.** A rotation changes
+          // the correction the viewer applies but *not* the frame's dimensions — the capture is
+          // the skin, which does not move — so the viewer cannot tell from the stream that
+          // anything happened, and an idle screen sends no new frame to reveal it either. Until
+          // this lands the viewer is holding the picture back; up to two seconds of that reads as
+          // the rotate button doing nothing.
+          // **gRPC only, and the guard is the point.** scrcpy captures with
+          // `capture_orientation=@0`, so its frame never changes shape and the viewer's CSS
+          // quarter is the only thing that rotates it. Reconciling here would report the
+          // rotated `cur=` as the screen: the viewer would then see landscape content, switch
+          // that CSS quarter *off*, and find the frame no longer matches the screen it was told
+          // about — a blank bezel with no way back but pressing rotate again. It would also set
+          // `live.rotation` on a backend whose frames are already natural, which `toDevicePx`
+          // says must never happen.
+          if (!live.grpcClient) return
+          const client = live.grpcClient
+          const changed = await this.reconcileSerial(
+            live, serial, live.videoWidth, live.videoHeight, live.skin, () => live.grpcClient === client)
+          if (changed && live.booted) this.sendChrome(live)
+        })
         break
       }
       case 'input:posture': {

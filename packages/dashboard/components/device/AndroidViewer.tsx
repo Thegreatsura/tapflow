@@ -363,10 +363,14 @@ export function AndroidViewer({
     setRotatePending(false)
   }, [streamRotation, screenWidth, screenHeight])
 
+  // The orientation last sent, beside the state — see `IOSViewer` (#910).
+  const landscapeRef = useRef(false)
   const handleRotate = useCallback(() => {
+    const next = !landscapeRef.current
+    landscapeRef.current = next
     setRotatePending(true)
-    send({ type: 'input:rotate', sessionId })
-    setUserWantsLandscape((prev) => !prev)
+    send({ type: 'input:rotate', sessionId, payload: { orientation: next ? 'landscape' : 'portrait' } })
+    setUserWantsLandscape(next)
   }, [send, sessionId])
 
   // Reset device orientation to portrait on unmount if we left it in landscape (iOS pattern).
@@ -375,10 +379,15 @@ export function AndroidViewer({
   // and on nothing else, so the dependency list is empty — and an empty list closing over props is
   // exactly what `react-hooks/exhaustive-deps` was suppressed for here. A suppression is not local
   // any more: the React Compiler skips the entire file that carries one, whichever rule it names.
+  //
+  // **Only when landscape**, read from the ref so a press just before unmount counts. An agent older
+  // than the target toggles, so a portrait sent to an upright device would turn it.
   const undoRotateRef = useRef<(() => void) | null>(null)
   useEffect(() => {
-    undoRotateRef.current = userWantsLandscape ? () => send({ type: 'input:rotate', sessionId }) : null
-  }, [userWantsLandscape, send, sessionId])
+    undoRotateRef.current = () => {
+      if (landscapeRef.current) send({ type: 'input:rotate', sessionId, payload: { orientation: 'portrait' } })
+    }
+  }, [send, sessionId])
   useEffect(() => () => { undoRotateRef.current?.() }, [])
 
   const sendChord = useCallback((code: 'KeyC' | 'KeyV' | 'KeyX', modifiers: number) => {
@@ -405,7 +414,8 @@ export function AndroidViewer({
           if (!e.shiftKey && e.code === 'KeyK') { e.preventDefault(); setDeepLinkOpen(true); return }
           if (!e.shiftKey && e.code === 'KeyS') { e.preventDefault(); handleScreenshot(); return }
           if (e.shiftKey && e.code === 'KeyY') { e.preventDefault(); handleRecordToggle(); return }
-          if (e.shiftKey && e.code === 'KeyO') { e.preventDefault(); handleRotate(); return }
+          // A held chord repeats, and each repeat would be another turn.
+          if (e.shiftKey && e.code === 'KeyO') { e.preventDefault(); if (!e.repeat) handleRotate(); return }
         }
       }
       if (!keyboardActive) return

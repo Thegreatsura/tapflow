@@ -211,6 +211,7 @@ interface AndroidAgentInternals {
   reconcileScreen(state: TestState, serial: string, frameW: number, frameH: number, skin: SkinRotation | null): Promise<boolean>
   toDevicePx(state: TestState, x: number, y: number): { px: number; py: number }
   normaliseOnBoot(state: TestState, serial: string): Promise<void>
+  uprightOnBoot(serial: string): Promise<void>
   watchScreen(state: TestState, serial: string, skin: SkinRotation): void
 }
 const internals = (agent: AndroidAgent): AndroidAgentInternals =>
@@ -228,6 +229,8 @@ function mockAdb(booted = false): AdbWrapper {
   // `unsupported-device` path — a default device that is a device tapflow cannot steer. The
   // network tests spy over this; everyone else just gets a device that is on the network.
   vi.spyOn(adb, 'airplaneMode').mockResolvedValue(false)
+  // Every boot reads the rotation lock (#910); an auto-rotating device is the one it leaves alone.
+  vi.spyOn(adb, 'getUserRotation').mockResolvedValue({ mode: 'free' })
   if (booted) adb.setSerial('avd:Pixel_8_API_34', 'emulator-5554')
   vi.spyOn(adb, 'listDevices').mockResolvedValue([{
     id: 'avd:Pixel_8_API_34',
@@ -2388,21 +2391,91 @@ describe('AndroidAgent', () => {
     })
 
     describe('input — rotate', () => {
-      it('toggles landscape and asks the device to rotate to canonical landscape (3)', () => {
+      // An older dashboard sends no target, and toggles.
+      it('toggles landscape and asks the device to rotate to canonical landscape (3)', async () => {
         const rotateSpy = vi.spyOn(adb, 'setRotation')
         expect(getState().landscape).toBe(false)
 
         inject({ type: 'input:rotate' })
+        await vi.waitFor(() => expect(getState().landscape).toBe(true))
         expect(rotateSpy).toHaveBeenCalledWith('emulator-5554', 3)
+      })
+
+      it('rotates back to portrait (0) on the second toggle', async () => {
+        const rotateSpy = vi.spyOn(adb, 'setRotation')
+        inject({ type: 'input:rotate' })
+        inject({ type: 'input:rotate' })
+        await vi.waitFor(() => expect(rotateSpy).toHaveBeenCalledTimes(2))
+        expect(rotateSpy).toHaveBeenNthCalledWith(2, 'emulator-5554', 0)
+        expect(getState().landscape).toBe(false)
+      })
+
+      // #910: a target is safe to repeat, which is what makes the viewer's unmount undo correct
+      // against an agent whose memory was reset by a re-register.
+      //
+      // Mutation: ignore the payload. The second `landscape` toggles back to portrait.
+      it('goes to the target it is given, however often', async () => {
+        const rotateSpy = vi.spyOn(adb, 'setRotation')
+        inject({ type: 'input:rotate', payload: { orientation: 'landscape' } })
+        inject({ type: 'input:rotate', payload: { orientation: 'landscape' } })
+        inject({ type: 'input:rotate', payload: { orientation: 'portrait' } })
+        await vi.waitFor(() => expect(rotateSpy).toHaveBeenCalledTimes(3))
+        expect(rotateSpy.mock.calls.map((c) => c[1])).toEqual([3, 3, 0])
+        expect(getState().landscape).toBe(false)
+      })
+
+      // Each `setRotation` is its own adb process. Without the queue, the second starts before the
+      // first lands, and the device ends on whichever finishes last.
+      //
+      // Mutation: call `step` directly instead of chaining it. The portrait call starts while the
+      // landscape one is still pending.
+      it('sends one rotation at a time, in the order they came', async () => {
+        let release!: () => void
+        const rotateSpy = vi.spyOn(adb, 'setRotation')
+          .mockImplementationOnce(() => new Promise<void>((r) => { release = r }))
+        inject({ type: 'input:rotate', payload: { orientation: 'landscape' } })
+        inject({ type: 'input:rotate', payload: { orientation: 'portrait' } })
+        await vi.waitFor(() => expect(rotateSpy).toHaveBeenCalledTimes(1))
+        await new Promise((r) => setTimeout(r, 20))
+        expect(rotateSpy).toHaveBeenCalledTimes(1)
+        release()
+        await vi.waitFor(() => expect(rotateSpy).toHaveBeenCalledTimes(2))
+        expect(rotateSpy.mock.calls.map((c) => c[1])).toEqual([3, 0])
+      })
+
+      // The memory is what an older dashboard's next toggle reads, so it has to say where the device
+      // is. A failed rotation left the device where it was.
+      //
+      // Mutation: write the memory before the device answers. The failed `landscape` then leaves the
+      // memory landscape over a portrait device, and the next toggle goes nowhere.
+      it('keeps the memory where the device is when a rotation fails, and goes on with the next', async () => {
+        const rotateSpy = vi.spyOn(adb, 'setRotation').mockRejectedValueOnce(new Error('adb went away'))
+        inject({ type: 'input:rotate', payload: { orientation: 'landscape' } })
+        await vi.waitFor(() => expect(rotateSpy).toHaveBeenCalledTimes(1))
+        await new Promise((r) => setTimeout(r, 10))
+        expect(getState().landscape).toBe(false)
+        inject({ type: 'input:rotate' })
+        await vi.waitFor(() => expect(rotateSpy).toHaveBeenCalledTimes(2))
+        expect(rotateSpy).toHaveBeenLastCalledWith('emulator-5554', 3)
+      })
+
+      // A restart keeps the viewer mounted, and it keeps showing landscape — so an older
+      // dashboard's next toggle has to go portrait, not to landscape again.
+      //
+      // Mutation: reset `landscape` on a restart too.
+      it('keeps the memory across a stream restart', async () => {
+        inject({ type: 'input:rotate', payload: { orientation: 'landscape' } })
+        await vi.waitFor(() => expect(getState().landscape).toBe(true))
+        await internals(agent).restartVideoStream(getState())
         expect(getState().landscape).toBe(true)
       })
 
-      it('rotates back to portrait (0) on the second toggle', () => {
-        const rotateSpy = vi.spyOn(adb, 'setRotation')
-        inject({ type: 'input:rotate' })
-        inject({ type: 'input:rotate' })
-        expect(rotateSpy).toHaveBeenNthCalledWith(2, 'emulator-5554', 0)
-        expect(getState().landscape).toBe(false)
+      // scrcpy does not go through `normaliseOnBoot`, so a reset placed there would miss it. This
+      // suite boots on scrcpy.
+      //
+      // Mutation: move the reset into `normaliseOnBoot`.
+      it('reads the rotation lock on a scrcpy boot', () => {
+        expect(adb.getUserRotation).toHaveBeenCalledWith('emulator-5554')
       })
     })
 
@@ -4246,6 +4319,45 @@ describe('reconcileScreen (the wiring, not the arithmetic)', () => {
     expect(await internals(agent).reconcileScreen(state, 'emulator-5554', 1080, 2424, 'REVERSE_LANDSCAPE')).toBe(true)
     expect([state.videoWidth, state.videoHeight]).toEqual([1080, 2424])
     expect(state.rotation).toBe(0)
+  })
+})
+
+// #910: a session starts upright on both platforms, because a fresh viewer does.
+describe('standing a device up on boot', () => {
+  const upright = async (lock: Awaited<ReturnType<AdbWrapper['getUserRotation']>> | Error) => {
+    const adb = mockAdb(true)
+    if (lock instanceof Error) vi.spyOn(adb, 'getUserRotation').mockRejectedValue(lock)
+    else vi.spyOn(adb, 'getUserRotation').mockResolvedValue(lock)
+    const set = vi.spyOn(adb, 'setRotation').mockResolvedValue(undefined)
+    const agent = new AndroidAgent({}, adb)
+    const outcome = internals(agent).uprightOnBoot('emulator-5554')
+    return { outcome, set }
+  }
+
+  // Mutation: reset only 1 and 3. Upside down (2) is left by a fold carried across at 180, and on
+  // scrcpy it shows the picture inverted.
+  it.each([3, 2, 1] as const)('stands a device locked at %i back at 0', async (rotation) => {
+    const { outcome, set } = await upright({ mode: 'lock', rotation })
+    await outcome
+    expect(set).toHaveBeenCalledWith('emulator-5554', 0)
+  })
+
+  // The recorded decision in `normaliseOnBoot`: a lock written onto an auto-rotating AVD takes
+  // auto-rotate away from it outside tapflow too.
+  //
+  // Mutation: lock 0 whatever the reading.
+  it('leaves an auto-rotating device, and one already upright, alone', async () => {
+    for (const lock of [{ mode: 'free' } as const, { mode: 'lock', rotation: 0 } as const]) {
+      const { outcome, set } = await upright(lock)
+      await outcome
+      expect(set).not.toHaveBeenCalled()
+    }
+  })
+
+  it('writes nothing when the lock cannot be read', async () => {
+    const { outcome, set } = await upright(new Error('Cannot read the rotation lock'))
+    await expect(outcome).rejects.toThrow(/rotation lock/)
+    expect(set).not.toHaveBeenCalled()
   })
 })
 
