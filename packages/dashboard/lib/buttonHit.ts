@@ -1,64 +1,75 @@
 import type { ChromeButton } from '@tapflowio/protocol'
 
+export interface Rect { left: number; top: number; right: number; bottom: number }
+
 /**
  * Where a physical side button sits when nothing is hovering it, in 2× composite px.
  *
  * **These are the numbers `IOSViewer` draws the button at**, and they have to stay that way: a hit
  * area computed from a different position than the pixels the user is aiming at is a target that
  * lies about where it is. The renderer's resting placement is
- * `left: rolloverOffset.x - buttonW / 2`, and a top-anchored button (the home button) takes its
- * `top` from `rolloverOffset.y` while every other anchor measures from `normalOffset.y`.
+ * `left: rolloverOffset.x - buttonW / 2`, and a top-edge button (an iPad's power button, an iPad
+ * mini's volume pair) takes its `top` from `rolloverOffset.y` while every other anchor measures from
+ * `normalOffset.y`.
  *
  * `normalOffset` is the retracted position and `rolloverOffset` the extended one; this UI draws
  * buttons extended at rest, which is why the horizontal centre comes from the rollover pair.
  */
-export function buttonHitRect(btn: ChromeButton): { left: number; top: number; right: number; bottom: number } {
+export function buttonHitRect(btn: ChromeButton): Rect {
   const left = btn.rolloverOffset.x - btn.buttonW / 2
   const top = btn.anchor === 'top' ? btn.rolloverOffset.y : btn.normalOffset.y - btn.buttonH / 2
   return { left, top, right: left + btn.buttonW, bottom: top + btn.buttonH }
 }
 
 /**
- * Distance from a point to a rectangle — 0 anywhere inside it.
+ * The area each button answers to, in 2× composite px, laid out once per layout as an element the
+ * browser hit-tests — so the landscape rotation is the container's transform, not arithmetic here.
  *
- * The zero is the point. A press inside a button's own rectangle can never lose to a neighbour
- * whose margin happens to reach the same pixel, which is the whole defect this replaces: catchment
- * measured from centres, with the first match in array order winning the overlap.
+ * **Along its edge a target is exactly as long as the button.** WCAG 2.5.8's 24 × 24 CSS px counts
+ * the whole target, and every side button is already longer than that (an iPhone 15 Pro's Action is
+ * about 29 CSS px). The 100 composite px margin the hit test carried before #785 added about 40 CSS
+ * px above and below each button on top of that, which no criterion asked for and which a tester
+ * found too wide. With no growth along the edge two targets cannot overlap, so there is nothing to
+ * split and nothing for listing order to decide — the two halves of #783.
+ *
+ * **Across the edge it runs from the frame's box to the button's centre line.**
+ *
+ * - Outwards, the box: the old hit test ran in the container's pointer handlers, so nothing outside
+ *   the box could press anything. An element can overflow its container, and an unclipped target
+ *   reached about 35 CSS px into the page, where a click in the gap between the device and the
+ *   status card pressed Power.
+ * - Inwards, the centre line, which is where the frame's body begins. Half of an edge button is
+ *   tucked under the frame, and the device chrome centres it on the body's edge. Measured on
+ *   2026-10-01 from rendered frames, body edge against centre in composite px: 30 / 32 on the left
+ *   of an iPhone 15 Pro, 17 Pro and SE (3rd gen); 879 / 878 for the 15 Pro's power button; 12–14 /
+ *   16 for the top buttons of an iPad Pro 13 (M5), iPad mini (A17 Pro), iPad (A16) and iPad Air 11
+ *   (M4); 2243 / 2242 and 1873 / 1870 for the iPads' right-side volume. Reaching on to the screen's
+ *   edge instead, as before #785, made the black bezel between button and screen a Volume Down
+ *   press. The body's exact edge is known only inside `ios-agent` and is not on the wire; the
+ *   centre is, to within 4 composite px.
+ *
+ * That leaves a side target about 13 CSS px across on an iPhone and about 5 on an iPad's top edge —
+ * under 24, so the criterion's spacing exception is the one it meets: a 24 px circle on each target
+ * touches no other. `buttonHit.test.ts` holds that on measured layouts.
+ *
+ * **Which side faces the device comes from `anchor`**, not from where the button sits against the
+ * screen: a top button near a corner can lie wholly left of the screen's left edge, and a position
+ * test would read it as a left-edge button. **A button on the device's face (`onTop`, the iPhone SE
+ * home button) is its own rectangle**: its whole face is bezel, so there is no body edge to reach to.
  */
-export function distanceToRect(
-  x: number,
-  y: number,
-  r: { left: number; top: number; right: number; bottom: number },
-): number {
-  const dx = Math.max(r.left - x, 0, x - r.right)
-  const dy = Math.max(r.top - y, 0, y - r.bottom)
-  return Math.hypot(dx, dy)
-}
-
-/**
- * Which physical button a point presses, or `null` for none — the nearest one whose rectangle the
- * point is within `margin` of.
- *
- * **Nearest, not the first in range.** Neighbouring catchment areas overlap whenever the margin is
- * more than half the gap between two buttons, and taking the first match hands that entire band to
- * whichever button the agent listed earlier. Measured on 2026-09-11: on an iPhone 15 Pro the upper
- * half of Volume Up pressed the Action button, because Action is listed first and the old catchment
- * was a fixed radius around each *centre*. Nearest-by-rectangle puts the boundary midway between the
- * two, and a point inside a button always scores 0.
- *
- * Ties go to the earlier button, which only happens on the exact midline.
- */
-export function pickButton(
-  x: number,
-  y: number,
-  buttons: readonly ChromeButton[],
-  margin: number,
-): string | null {
-  let hit: string | null = null
-  let best = Infinity
-  for (const btn of buttons) {
-    const d = distanceToRect(x, y, buttonHitRect(btn))
-    if (d < best) { best = d; hit = btn.name }
-  }
-  return best <= margin ? hit : null
+export function buttonTargets(buttons: readonly ChromeButton[], box: { width: number; height: number }): Rect[] {
+  return buttons.map((btn) => {
+    const r = buttonHitRect(btn)
+    if (btn.onTop) return r
+    const cx = (r.left + r.right) / 2
+    const cy = (r.top + r.bottom) / 2
+    switch (btn.anchor) {
+      case 'left': return { ...r, left: 0, right: cx }
+      case 'right': return { ...r, left: cx, right: box.width }
+      case 'top': return { ...r, top: 0, bottom: cy }
+      case 'bottom': return { ...r, top: cy, bottom: box.height }
+      // An anchor no measured chrome has: the button's own pixels, and nothing more.
+      default: return r
+    }
+  })
 }
