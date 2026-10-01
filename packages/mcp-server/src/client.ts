@@ -109,9 +109,6 @@ interface Waiter {
    *  keying per session "is not available"; it is available now, by putting the id on the record rather than
    *  by guessing it. */
   sessionId?: string
-  /** Set only by `bootDevice`. Lets `session:rebound` settle the one request type a rebind provably
-   *  invalidates, by metadata rather than by matching message prose (#583). */
-  isBoot: boolean
 }
 
 /**
@@ -161,19 +158,20 @@ class RelayClosedError extends Error {}
 /**
  * What the relay has told us about a session, for the three messages this client used to drop.
  *
- * **`terminated` settles every waiter for the session, and `rebound` settles the boot waiters.**
- * `agent-away` settles nothing, and holding the other two as state is precisely why they do not
- * settle anything beyond that:
+ * **Only `terminated` settles waiters here.** `agent-away` and `rebound` are held as state, and
+ * holding them is precisely why they settle nothing beyond that:
  *
  * - `agent-away` means the relay is *holding* the session for `TAPFLOW_AGENT_GRACE_MS` (15s by default) so
  *   a reconnecting agent keeps it. Rejecting here kills the case the grace exists for.
- * - `rebound` settles **boot waiters only** (#583). The binding a boot creates is exactly what the
- *   rebind loses, so a boot already in flight can never be answered — while every other request type
- *   keeps waiting. Both agents reconnect without restarting the process, so the request is still
- *   running and its reply goes out through `sendMsg`, which reads the socket at *completion* time:
- *   finish after the reconnect and the reply lands and matches on `requestId`; finish during the
- *   backoff and `this.ws` is null and `?.` swallows it. For a non-boot request a rebound is
- *   therefore not evidence that no answer can come (#573 stays separate).
+ * - `rebound` settles nothing client-side (#885). The relay answers the boots the rebind stranded
+ *   with a correlated `device:boot-error` itself — it is the only layer that knows which agent
+ *   socket each boot went to — while every other request type keeps waiting. Both agents reconnect
+ *   without restarting the process, so the request is still running and its reply goes out through
+ *   `sendMsg`, which reads the socket at *completion* time: finish after the reconnect and the reply
+ *   lands and matches on `requestId`; finish during the backoff and `this.ws` is null and `?.`
+ *   swallows it. For a non-boot request a rebound is therefore not evidence that no answer can come
+ *   (#573 stays separate). Settling a boot here instead would fail a recovery boot the new agent was
+ *   already handling, which is the defect #885 removes.
  *
  * What they are good for is the **deadline**. Three of this file's ten waiters are shorter than the grace
  * — `awaitInputAck` is 2s against 15s — and three more sit exactly on it, so for those no outcome message
@@ -211,9 +209,11 @@ interface SessionLifecycle {
  * waiter here — in ~15s when the agent process dies and its socket sends a FIN, and in ~60s when the
  * connection is merely lost, since the relay then has to notice through the heartbeat first (30s interval,
  * 1.5 of them to declare it dead) before the 15s grace starts. Both clear this deadline with room. What it
-  * actually covers is a request no live relay will ever answer — whatever is not yet known. The rebound
-  * session used to be that request (a new agent never saw the boot, #583), but an invalidated boot now
-  * fails fast in `rejectInvalidatedBoots` instead of burning this deadline.
+  * actually covers is a request no live relay will ever answer — whatever is not yet known. A boot
+  * stranded by a rebind used to be that request (a new agent never saw the boot, #583), but the relay
+  * now answers it with a correlated `device:boot-error` instead of leaving it to burn this deadline
+  * (#885). Against a relay older than that, the client-side settle is gone and the boot waits out
+  * the deadline again, as it did before #865 — a slow answer, not a wrong one.
  *
  * **The cost is real and belongs here rather than in a changelog.** A wedged relay now blocks a caller for
  * three minutes where it used to fail in 30 seconds, and an MCP host with its own 60s tool timeout will cut
@@ -497,35 +497,6 @@ export class TapflowClient {
     }
   }
 
-  /**
-   * Settle the boot waiters a rebound just invalidated, and only those (#583).
-   *
-   * The binding a boot creates is exactly what the rebind loses — the reconnect clears the agent's
-   * device state, so a boot already pending when the rebound arrives can never be answered. Every
-   * other request type keeps waiting: the reply goes out through `sendMsg`, which reads the socket
-   * at *completion* time, so a finish after the reconnect still answers and matches on `requestId`
-   * (#573 stays separate, and a boot issued *after* the rebound is the recovery boot that restores
-   * the binding, so it must remain untouched — settling here is synchronous, which is what keeps a
-   * later boot out of it).
-   *
-   * Through `failed()` like every other session-scoped failure here, so the rejection carries the
-   * rebound lifecycle note and `SESSION_NOTE_MARKERS` in `tools.ts` classifies it environmental.
-   * No automatic re-boot: fail fast with the cause and leave recovery to the caller.
-   */
-  private rejectInvalidatedBoots(sessionId: string): void {
-    for (let i = this.waiters.length - 1; i >= 0; i--) {
-      const w = this.waiters[i]
-      if (w.sessionId !== sessionId || !w.isBoot) continue
-      this.waiters.splice(i, 1)
-      clearTimeout(w.timer)
-      w.reject(this.failed(
-        sessionId,
-        `Boot failed: session ${sessionId} rebounded to a new agent while the request was in flight, ` +
-        'and that agent never saw it',
-      ))
-    }
-  }
-
   /** Settle the waiters of a session the relay has just removed. */
   private rejectSession(sessionId: string, reason: SessionTerminatedReason | 'unknown'): void {
     this.settleSessionWaiters(sessionId, () => (
@@ -540,9 +511,10 @@ export class TapflowClient {
 
   private dispatch(msg: RelayMsg): void {
     // Read before the waiter loop, and read whether or not anything is waiting — the same rule the ack
-    // ledger below is written to, for the same reason. `terminated` settles every waiter for its session
-    // and `rebound` settles the boot waiters (#583); the copy that arrives with nothing pending is precisely
-    // the one that has to be kept, because it is the *next* request that would otherwise be unexplainable.
+    // ledger below is written to, for the same reason. `terminated` settles every waiter for its session;
+    // `rebound` settles nothing — the relay answers the stranded boots itself (#885) — and the copy that
+    // arrives with nothing pending is precisely the one that has to be kept, because it is the *next*
+    // request that would otherwise be unexplainable.
     const lifecycleSession = msg['sessionId']
     if (typeof lifecycleSession === 'string') {
       switch (msg['type']) {
@@ -556,10 +528,13 @@ export class TapflowClient {
           )
           break
         case 'session:rebound': {
+          // Records the binding loss and nothing else (#885). The boots this rebind stranded are
+          // answered by the relay with a correlated `device:boot-error` — settling them here as
+          // well would fail a boot the new agent was already handling. `needsReboot` stays: it is
+          // what the next failure carries as its cause, until a boot answers it.
           const s = this.lifecycleOf(lifecycleSession)
           s.away = false
           s.needsReboot = true
-          this.rejectInvalidatedBoots(lifecycleSession)
           break
         }
         case 'session:terminated': {
@@ -642,7 +617,6 @@ export class TapflowClient {
     predicate: (msg: RelayMsg) => boolean,
     timeoutMs: number,
     sessionId?: string,
-    isBoot = false,
   ): Promise<RelayMsg> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -654,7 +628,7 @@ export class TapflowClient {
         const note = sessionId ? this.sessionNote(sessionId) : undefined
         reject(new RequestTimeoutError(note ? `Request timed out — ${note}` : 'Request timed out'))
       }, timeoutMs)
-      this.waiters.push({ predicate, resolve, reject, timer, sessionId, isBoot })
+      this.waiters.push({ predicate, resolve, reject, timer, sessionId })
     })
   }
 
@@ -744,8 +718,11 @@ export class TapflowClient {
         correlatesWith(m, requestId),
       BOOT_DEADLINE_MS,
       sessionId,
-      true,
     )
+    // A stranded boot arrives here as the relay's correlated `device:boot-error` (#885), after the
+    // `session:rebound` that set `needsReboot` — so `failed()` carries the rebound cause and the
+    // tools guard reads it as environmental. Against an older relay nothing answers it and the
+    // deadline runs, which is slow rather than wrong.
     if (msg['type'] === 'device:boot-error') {
       throw this.failed(sessionId, (msg['message'] as string) ?? 'Boot failed')
     }

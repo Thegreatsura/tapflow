@@ -147,21 +147,22 @@ export class SessionLeftError extends PlatformError {}
 /**
  * What the relay has told us about a session, for the three messages this client used to drop.
  *
- * **`terminated` settles every waiter for the session, and `rebound` settles the boot waiters.**
- * `agent-away` settles nothing, and that asymmetry is the whole reason this is state rather
- * than a handler that settles waiters:
+ * **Only `terminated` settles waiters here.** `agent-away` and `rebound` are held as state, and
+ * that asymmetry is the whole reason this is state rather than a handler that settles waiters:
  *
  * - `agent-away` means the relay is *holding* the session for `TAPFLOW_AGENT_GRACE_MS` (15s by default),
  *   precisely so a reconnecting agent keeps it. Rejecting here would kill the case the grace exists for.
- * - `rebound` settles **boot waiters only** (#583). The binding a boot creates is exactly what the
- *   rebind loses, so a boot already in flight can never be answered — while every other request type
- *   keeps waiting: both agents reconnect without restarting the process, so the request is still
- *   executing and its reply closure goes out through `sendMsg`, which reads `this.ws` at
- *   *completion* time. Finish after the reconnect and the reply lands on the new socket, the relay
- *   forwards it to the same session, and the waiter below matches it on `requestId` and resolves.
- *   Finish during the backoff and `this.ws` is null, so `?.` swallows it. So for a non-boot request
- *   a rebound is not evidence that no answer can come, and rejecting on it would fail requests that
- *   succeed today (#573 stays separate).
+ * - `rebound` settles nothing client-side (#885). The relay answers the boots the rebind stranded
+ *   with a correlated `device:boot-error` itself — it is the only layer that knows which agent
+ *   socket each boot went to — while every other request type keeps waiting: both agents reconnect
+ *   without restarting the process, so the request is still executing and its reply closure goes
+ *   out through `sendMsg`, which reads `this.ws` at *completion* time. Finish after the reconnect
+ *   and the reply lands on the new socket, the relay forwards it to the same session, and the
+ *   waiter below matches it on `requestId` and resolves. Finish during the backoff and `this.ws`
+ *   is null, so `?.` swallows it. So for a non-boot request a rebound is not evidence that no
+ *   answer can come, and rejecting on it would fail requests that succeed today (#573 stays
+ *   separate). Settling a boot here instead would fail a recovery boot the new agent was already
+ *   handling, which is the defect #885 removes.
  *
  * What the un-settled states *are* good for is the **timeout** branch: when a waiter does give up, this is what
  * turns "timed out" into a cause. That is the half `agent-away` was costing us — see `awaitInputAck`.
@@ -305,9 +306,6 @@ interface Waiter {
   /** The operation's name, for the rejection's prose. `waitFor` already took it for the timeout message;
    *  keeping it on the record is what lets a message the *dispatcher* builds name the request too. */
   what: string
-  /** Set only by `bootDevice`. Lets `session:rebound` settle the one request type a rebind provably
-   *  invalidates, by metadata rather than by matching the prose in `what` (#583). */
-  isBoot: boolean
 }
 
 /** How long to wait for a boot before giving up on it.
@@ -330,9 +328,11 @@ interface Waiter {
  * waiter here — in ~15s when the agent process dies and its socket sends a FIN, and in ~60s when the
  * connection is merely lost, since the relay then has to notice through the heartbeat first (30s interval,
  * 1.5 of them to declare it dead) before the 15s grace starts. Both clear this deadline with room. What it
- * actually covers is a request no live relay will ever answer — whatever is not yet known. The rebound
- * session used to be that request (a new agent never saw the boot, #583), but an invalidated boot now
- * fails fast in `rejectInvalidatedBoots` instead of burning this deadline.
+ * actually covers is a request no live relay will ever answer — whatever is not yet known. A boot
+ * stranded by a rebind used to be that request (a new agent never saw the boot, #583), but the relay
+ * now answers it with a correlated `device:boot-error` instead of leaving it to burn this deadline
+ * (#885). Against a relay older than that, the client-side settle is gone and the boot waits out
+ * the deadline again, as it did before #865 — a slow answer, not a wrong one.
  *
  * **The cost is real and belongs here rather than in a changelog.** A wedged relay now blocks a caller for
  * three minutes where it used to fail in 30 seconds, and an MCP host with its own 60s tool timeout will cut
@@ -523,36 +523,6 @@ export class RelayClient {
     }
   }
 
-  /**
-   * Settle the boot waiters a rebound just invalidated, and only those (#583).
-   *
-   * The binding a boot creates is exactly what the rebind loses — `_scheduleReconnect` clears the
-   * agent's `deviceStates`, and the parked boot resumes against an unowned state `abandonBoot`
-   * answers with silence — so a boot already pending when the rebound arrives can never be
-   * answered. Every other request type keeps waiting: the reply closure reads `this.ws` at
-   * completion time, so a finish after the reconnect lands on the new socket and matches on
-   * `requestId` (#573 stays separate, and a boot issued *after* the rebound is the recovery boot
-   * that restores the binding, so it must remain untouched — settling here is synchronous, which
-   * is what keeps a later boot out of it).
-   *
-   * Through `failed()` like every other session-scoped failure here, so the rejection carries the
-   * rebound cause and `RelayDriver` classifies it environmental (exit 2). `SessionUnavailableError`,
-   * not `SessionEndedError`: the session is alive, only its binding is gone.
-   */
-  private rejectInvalidatedBoots(sessionId: string): void {
-    for (let i = this.waiters.length - 1; i >= 0; i--) {
-      const w = this.waiters[i]
-      if (w.sessionId !== sessionId || !w.isBoot) continue
-      this.waiters.splice(i, 1)
-      clearTimeout(w.timer)
-      w.reject(this.failed(
-        sessionId,
-        `${w.what} failed: session ${sessionId} rebounded to a new agent while it was in flight, ` +
-        'and that agent never saw this request',
-      ))
-    }
-  }
-
   /** Settle the waiters of a session the relay has just removed. */
   private rejectSession(sessionId: string, reason: SessionTerminatedReason | 'unknown'): void {
     this.settleSessionWaiters(sessionId, (w) => new SessionEndedError(
@@ -564,9 +534,9 @@ export class RelayClient {
 
   private dispatch(msg: RelayMsg): void {
     // Read before the waiter loop, and read whether or not anything is waiting. `terminated` settles every
-    // waiter for its session and `rebound` settles the boot waiters (#583) — the frame that arrives with
-    // nothing pending is exactly the one that has to be remembered, because it is the next request that
-    // will be confused without it.
+    // waiter for its session; `rebound` settles nothing — the relay answers the stranded boots itself
+    // (#885) — and the frame that arrives with nothing pending is exactly the one that has to be
+    // remembered, because it is the next request that will be confused without it.
     const sessionId = msg['sessionId']
     if (typeof sessionId === 'string') {
       switch (msg['type']) {
@@ -580,10 +550,13 @@ export class RelayClient {
           )
           break
         case 'session:rebound': {
+          // Records the binding loss and nothing else (#885). The boots this rebind stranded are
+          // answered by the relay with a correlated `device:boot-error` — settling them here as
+          // well would fail a boot the new agent was already handling. `needsReboot` stays: it is
+          // what the next failure carries as its cause, until a boot answers it.
           const s = this.lifecycleOf(sessionId)
           s.away = false
           s.needsReboot = true
-          this.rejectInvalidatedBoots(sessionId)
           break
         }
         case 'session:terminated': {
@@ -652,7 +625,6 @@ export class RelayClient {
     timeoutMs: number,
     what: string,
     sessionId?: string,
-    isBoot = false,
   ): Promise<RelayMsg> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -664,7 +636,7 @@ export class RelayClient {
         const note = sessionId ? this.sessionNote(sessionId) : undefined
         reject(new RequestTimeoutError(note ? `${what} timed out — ${note}` : `${what} timed out`))
       }, timeoutMs)
-      this.waiters.push({ predicate, resolve, reject, timer, sessionId, what, isBoot })
+      this.waiters.push({ predicate, resolve, reject, timer, sessionId, what })
     })
   }
 
@@ -743,8 +715,11 @@ export class RelayClient {
       BOOT_DEADLINE_MS,
       'device boot',
       sessionId,
-      true,
     )
+    // A stranded boot arrives here as the relay's correlated `device:boot-error` (#885), after the
+    // `session:rebound` that set `needsReboot` — so `failed()` carries the rebound cause and the
+    // driver reads it as environmental. Against an older relay nothing answers it and the deadline
+    // runs, which is slow rather than wrong.
     if (msg['type'] === 'device:boot-error') throw this.failed(sessionId, (msg['message'] as string) ?? 'boot failed')
     // The one thing that clears `needsReboot`, because it is the one thing that answers it: a rebound session
     // is missing the agent-side binding a boot creates. Clearing it anywhere else would let the note go quiet
