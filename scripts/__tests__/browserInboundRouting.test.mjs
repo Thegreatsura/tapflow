@@ -145,6 +145,27 @@ function unionMembers(src, name) {
   return types
 }
 
+/** Interface names a union lists directly, without following nested union refs
+ *  (so `RelayOrAgentToBrowser` inside `AgentToBrowser` stays one entry). */
+function unionOwnRefs(src, name) {
+  const out = []
+  for (const m of unionBody(src, name).matchAll(/^\s*\|\s*(\w+)\s*$/gm)) {
+    if (IFACES.has(m[1])) out.push(m[1])
+  }
+  return out
+}
+
+/** Message `type` literals from directly-listed interfaces only (shared unions excluded). */
+function unionOwnMembers(src, name) {
+  const types = new Set()
+  for (const ref of unionOwnRefs(src, name)) {
+    const lit = literalOf(ref)
+    expect(lit, `${ref} declares no type literal`).not.toBeNull()
+    types.add(lit)
+  }
+  return types
+}
+
 /** The pinned signature lookup: find the interface in this union that owns `type`, return its fields. */
 function memberSignature(src, name, type) {
   for (const ref of unionRefs(src, name)) {
@@ -248,10 +269,12 @@ describe('browser-inbound routing matches the protocol union', () => {
       'keyboard:toggled': 'payload sessionId',
       'clipboard:data': 'payload requestId sessionId',
       'clipboard:write-done': 'requestId sessionId',
+      'network:state': 'payload requestId? sessionId',
     },
     RelayOrAgentToBrowser: {
       'session:chrome': 'payload sessionId',
       'session:deviceInfo': 'payload sessionId',
+      'device:postures': 'payload sessionId',
       'device:ready': 'payload requestId? sessionId?',
       'app:install-error': 'message requestId sessionId',
       'app:launch-error': 'message requestId sessionId',
@@ -269,6 +292,7 @@ describe('browser-inbound routing matches the protocol union', () => {
       'clipboard:error': 'message payload? requestId sessionId',
       // Moved here from RelayToBrowser (#455): both agents answer a shutdown they could not confirm.
       'device:shutdown-error': 'message requestId? sessionId',
+      'network:error': 'message requestId sessionId',
     },
     BrowserToRelay: {
       'agents:list': '',
@@ -292,8 +316,10 @@ describe('browser-inbound routing matches the protocol union', () => {
       'input:button': 'payload requestId sessionId',
       'input:rotate': 'sessionId',
       'input:keyboard:toggle': 'sessionId',
+      'input:posture': 'payload sessionId',
       'clipboard:read': 'payload? requestId sessionId',
       'clipboard:write': 'payload requestId sessionId',
+      'network:set': 'payload requestId sessionId',
     },
     RelayToAgent: {
       'agent:registered': 'registeredSessions',
@@ -315,11 +341,28 @@ describe('browser-inbound routing matches the protocol union', () => {
     },
   }
 
+  // `AgentToBrowser` and `RelayToBrowser` embed the shared `RelayOrAgentToBrowser`
+  // union, whose members are pinned under that key — these two maps pin their own
+  // members only. Every other map must cover its union in full.
+  const OWN_ONLY = new Set(['AgentToBrowser', 'RelayToBrowser'])
+
   for (const [union, members] of Object.entries(SIGNATURES)) {
     it(`${union} member fields are unchanged`, () => {
       const actual = {}
       for (const type of Object.keys(members)) actual[type] = memberSignature(protocolSrc, union, type)
       expect(actual).toEqual(members)
+    })
+
+    // #569: the loop above iterates the map, not the union, so a message added to
+    // the protocol and not to SIGNATURES is field-checked by nothing and the suite
+    // stays green (`device:shutdown-error` shipped that way in #542). Pin the
+    // coverage contract itself: the map keys must equal the union's members
+    // (own members only for the two unions embedding the shared one).
+    it(`${union} signatures cover every union member`, () => {
+      const expected = OWN_ONLY.has(union)
+        ? unionOwnMembers(protocolSrc, union)
+        : unionMembers(protocolSrc, union)
+      expect(new Set(Object.keys(members))).toEqual(expected)
     })
   }
 
