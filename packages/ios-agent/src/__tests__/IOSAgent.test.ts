@@ -2900,7 +2900,7 @@ describe('IOSAgent', () => {
     // A Mac whose simulator service cannot answer the lookup still registers every device — without
     // the field, which a viewer draws as a phone. Mutation: let the rejection propagate out of
     // `connect()`, and the whole Mac drops out of the list over a tooltip.
-    it('registers without a form factor when the lookup fails', async () => {
+    it('registers without a form factor when the first lookup fails', async () => {
       const simctl = mockSimctl()
       ;(simctl.formFactorsByType as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('service wedged'))
       const agent = new IOSAgent({}, simctl)
@@ -2912,6 +2912,31 @@ describe('IOSAgent', () => {
       const sessions = listed.sessions as Array<{ devices: Array<{ name: string; formFactor?: string }> }>
       expect(sessions[0]?.devices[0]?.name).toBe('iPhone 15')
       expect(sessions[0]?.devices[0]?.formFactor).toBeUndefined()
+      agent.disconnect()
+      browser.close()
+    })
+
+    // A relay overwrites a session's device fields on every register, so a lookup that fails on a
+    // reconnect — a simulator service slow after sleep — would blank a form factor the relay already
+    // had, until the next reconnect. A udid's device type never changes, so the last good answer is
+    // still the answer. Found by review of the formFactor PR.
+    //
+    // Mutation: fall back to an empty map rather than the last one.
+    it('keeps the last form factors when a reconnect\'s lookup fails', async () => {
+      const simctl = mockSimctl()
+      ;(simctl.formFactorsByType as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce(new Map([['type-iphone-15', 'phone']]))
+        .mockRejectedValueOnce(new Error('service slow after sleep'))
+      const agent = new IOSAgent({}, simctl)
+      await agent.connect(`ws://localhost:${port}`)
+      agent.disconnect()
+      await agent.connect(`ws://localhost:${port}`)
+      const browser = new WebSocket(`ws://localhost:${port}`)
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'agents:list' }))
+      const listed = await waitForType(browser, 'agents:listed')
+      const sessions = listed.sessions as Array<{ devices: Array<{ formFactor?: string }> }>
+      expect(sessions.flatMap((s) => s.devices)[0]?.formFactor).toBe('phone')
       agent.disconnect()
       browser.close()
     })

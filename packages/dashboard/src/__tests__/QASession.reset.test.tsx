@@ -216,8 +216,9 @@ describe('QASession — Full reset applies to exactly one pick (#439)', () => {
 // it comes from is rebuilt every few seconds and leaves out a device whose agent is reconnecting, so
 // the page hands the viewer the live value when there is one and the picked one when there is not.
 //
-// Mutations: pass only the live value (the second assertion fails); pass only the picked one (the
-// first still passes — a rebind that changes the value is covered in the relay).
+// Mutation: pass only the live value (the second assertion fails). Passing only the picked one
+// survives, and nothing here pins the order of the two: a simulator udid's device type never changes,
+// so the live value and the picked one cannot disagree.
 describe('QASession — the viewer keeps the form factor while the agent is away', () => {
   beforeEach(() => { viewerMounts.length = 0; send.mockClear(); deliver = null })
 

@@ -118,6 +118,18 @@ describe('useAgentSession', () => {
     expect(result.current.sessions).toEqual(sessions)
   })
 
+  // The list a device was picked from is rebuilt every few seconds and drops a device whose agent is
+  // reconnecting, so the viewer cannot read the form factor off it live — it would blank, and an
+  // iPad's volume tooltips would flip back, for as long as the agent is away. The pick is kept.
+  //
+  // Mutation: stop recording it in `startDevice`.
+  it('keeps the form factor of the device a session was started on', () => {
+    const { result } = renderHook(() => useAgentSession('ios'))
+    act(() => result.current.startDevice({ ...makeDevice(), formFactor: 'tablet' }))
+    act(() => capturedOnMessage({ type: 'agents:listed', sessions: [] }))
+    expect(result.current.startedFormFactor).toBe('tablet')
+  })
+
   it('clears booting flag and sets status on session:joined', async () => {
     const { result } = renderHook(() => useAgentSession('android'))
 
@@ -139,18 +151,6 @@ describe('useAgentSession', () => {
   // `sessionId` here is arbitrary — the handler does not read it — and required only because L5d made
   // `error` an addressed reply. That the compiler asked for it at all is what surfaced the reachability
   // question: a fixture had to name a session this socket never joins.
-  // The list a device was picked from is rebuilt every few seconds and drops a device whose agent is
-  // reconnecting, so the viewer cannot read the form factor off it live — it would blank, and an
-  // iPad's volume tooltips would flip back, for as long as the agent is away. The pick is kept.
-  //
-  // Mutation: stop recording it in `startDevice`.
-  it('keeps the form factor of the device a session was started on', () => {
-    const { result } = renderHook(() => useAgentSession('ios'))
-    act(() => result.current.startDevice({ ...makeDevice(), formFactor: 'tablet' }))
-    act(() => capturedOnMessage({ type: 'agents:listed', sessions: [] }))
-    expect(result.current.startedFormFactor).toBe('tablet')
-  })
-
   it('clears booting flag and sets error status on error message', () => {
     const { result } = renderHook(() => useAgentSession('android'))
 

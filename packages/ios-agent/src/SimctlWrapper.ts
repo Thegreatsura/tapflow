@@ -135,7 +135,7 @@ export class SimctlWrapper {
    * Read once per `connect()`, the only place it is used, and **never from `listDevices`**: that runs
    * inside the boot poll, whose per-call timeout is what keeps a wedged CoreSimulatorService from
    * holding the loop, and an unbounded lookup there would undo it. Bounded here for the same reason.
-   * Rejects on failure; the caller registers without the field.
+   * Rejects on failure; the caller falls back to its last answer, or to none.
    */
   async formFactorsByType(): Promise<Map<string, FormFactor>> {
     const out = await this.runner.execWithOpts({ timeoutMs: DEVICE_TYPES_TIMEOUT_MS }, 'list', 'devicetypes', '-j')
