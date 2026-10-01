@@ -15,10 +15,7 @@ import type { ChromeButton } from '@tapflowio/protocol'
 import { describe, expect, it } from 'vitest'
 import { buttonHitRect, buttonTargets, type Rect } from '../../lib/buttonHit'
 
-const REACH = 100
-/** Far to the right of every fixture, so only the tests that move it see it. */
-const FAR_SCREEN = { x: 4000, y: 0, width: 100, height: 100 }
-/** The frame's composite box — larger than any fixture reach, except where a test narrows it. */
+/** The frame's composite box, where a test does not name its own. */
 const BOX = { width: 1000, height: 2000 }
 
 /**
@@ -69,138 +66,89 @@ describe('buttonHitRect', () => {
     expect(buttonHitRect(ACTION)).toEqual({ left: 20, top: 565, right: 44, bottom: 675 })
   })
 
-  // Mutation: measure every anchor from `normalOffset.y`. The home button's rect moves to 1355 and
-  // the target stops matching the pixels it is drawn on.
+  // A top-edge button — an iPad's power button. Mutation: measure every anchor from
+  // `normalOffset.y`. The rect moves to 1355 and stops matching the pixels it is drawn on.
   it('measures a top-anchored button from its rollover offset', () => {
-    const home = button('home', 1400, 90, 'top')
-    expect(buttonHitRect(home).top).toBe(1370)
+    const power = button('power', 1400, 90, 'top')
+    expect(buttonHitRect(power).top).toBe(1370)
   })
 })
 
-// The targets the viewer renders as elements for the browser to hit-test (#785). What
-// `pickButton` used to decide per pointer event is now decided once per layout, so the #783 cases
-// carry over as properties of the rectangles.
+// The targets the viewer renders as elements for the browser to hit-test (#785). What `pickButton`
+// used to decide per pointer event is now a layout fact, and both #783 defects — a neighbour's reach
+// covering a button, and listing order deciding the overlap — are gone by construction: a target is
+// as long as its button, so two never overlap.
 describe('buttonTargets', () => {
-  // Fixture side buttons sit at x 20…44, centred on 32. Along the edge they grow by the reach;
-  // towards the device they stop at that centre (see the frame-body case below); outwards they stop
-  // at the frame's box, x 0.
+  // Fixture side buttons sit at x 20…44, centred on 32.
   //
-  // Mutation: grow by `reach / 2`, or not at all. The target shrinks along the edge, towards the
-  // ~10 CSS px a side button is drawn at.
-  it('grows a lone button by the reach along its edge', () => {
-    expect(buttonTargets([ACTION], FAR_SCREEN, BOX, REACH)).toEqual([{ left: 0, top: 465, right: 32, bottom: 775 }])
+  // Mutations: grow along the edge (any margin on `top`/`bottom`); stop at the button's own outer
+  // edge rather than the box (`left` 20); reach on to the button's far edge (`right` 44).
+  it('is the button\'s length along the edge, and runs from the box to the centre line across it', () => {
+    expect(buttonTargets([ACTION], BOX)).toEqual([{ left: 0, top: 565, right: 32, bottom: 675 }])
   })
 
-  // An element can overflow its container, and the old hit test could not: it ran in the
-  // container's handlers. Unclipped, a target reached about 35 CSS px past the frame, and a click in
-  // the gap between device and status card pressed Power — found by adversarial review of #785.
+  // The #783 position: y=715 is inside Volume Up and nearer Action's centre. With no growth along the
+  // edge it is Volume Up's whatever the order, and the gap between them is nobody's.
   //
-  // Mutation: drop the clamp on any side. `left` becomes -80, `right` 990, `top` -100 or `bottom` 1865.
-  it('stops at the edge of the frame\'s box, never past it', () => {
+  // Mutation: any growth along the edge. Action's target then reaches y=715 or the two overlap.
+  it('never overlaps a neighbour, in either order', () => {
+    for (const order of [BUTTONS, [VOLUME_UP, ACTION]] as const) {
+      const byName = Object.fromEntries(buttonTargets(order, BOX).map((t, i) => [order[i].name, t]))
+      expect(byName.action.bottom).toBe(675)
+      expect(byName.volume_up.top).toBe(710)
+    }
+  })
+
+  // Mutation: drop the `right` case. The power button's target is then its bare rectangle, reaching
+  // over the bezel to x 890 and stopping short of the box.
+  it('mirrors on the right edge: centre line to the box', () => {
     const power = { ...button('power', 900, 200, 'right'), rolloverOffset: { x: 878, y: 900 } } // x 866 … 890
-    const [left] = buttonTargets([ACTION], FAR_SCREEN, BOX, REACH)
-    const [right] = buttonTargets([power], { x: 62, y: 0, width: 780, height: 2000 }, { width: 900, height: 2000 }, REACH)
-    expect(left.left).toBe(0)
-    expect(right.right).toBe(900)
-    // The top and bottom edges: an iPad's power button, and the SE home button below the screen.
-    const [ipad] = buttonTargets([top('power', 1333, 1555)], { x: 120, y: 130, width: 1488, height: 2266 }, { width: 1728, height: 2516 }, REACH)
-    const home = { ...button('home', 1700, 130, 'bottom'), onTop: true } // y 1635 … 1765
-    const [se] = buttonTargets([home], { x: 82, y: 222, width: 750, height: 1334 }, { width: 914, height: 1778 }, REACH)
-    expect(ipad.top).toBe(0)
-    expect(se.bottom).toBe(1778)
+    expect(buttonTargets([power], { width: 900, height: 2000 })[0]).toEqual({ left: 878, top: 800, right: 900, bottom: 1000 })
   })
 
-  // The #783 defect as a layout fact. Action ends at 675, Volume Up starts at 710; the midline is
-  // 692.5, and y=715 — inside Volume Up, nearer Action's centre — is Volume Up's.
+  // An iPad's top edge. This button lies wholly left of x 40 — where a screen would start — as a
+  // button near a corner can, so a test of position against the screen would read it as a left-edge
+  // button and cut it on the wrong axis.
   //
-  // Mutation: skip the cut, so the two grown rectangles overlap and stacking order decides.
-  it('splits the gap between two stacked buttons at the midline, with no overlap', () => {
-    const [action, up] = buttonTargets(BUTTONS, FAR_SCREEN, BOX, REACH)
-    expect(action.bottom).toBe(692.5)
-    expect(up.top).toBe(692.5)
-    expect(up.top <= 715 && 715 <= up.bottom).toBe(true)
-  })
-
-  // Mutation: cut only the earlier button (or only the later one). The answer then depends on the
-  // order the agent listed them in, which is the other half of what #783 fixed.
-  it('gives the same boundary whatever order the buttons are listed in', () => {
-    const [up, action] = buttonTargets([VOLUME_UP, ACTION], FAR_SCREEN, BOX, REACH)
-    expect(action.bottom).toBe(692.5)
-    expect(up.top).toBe(692.5)
-  })
-
-  // The frame's body is not a button. The device chrome centres an edge button on the body's edge
-  // (measured: body at 30 against a centre of 32 on an iPhone 15 Pro), so the target stops there.
-  // Stopping at the screen instead — x 74 here, as the hit test before #785 did — made the bezel
-  // between button and screen press Volume Down, found by hand on the simulator.
-  //
-  // Mutation: stop every button at the screen edge. `right` becomes 74.
-  it('stops a left-edge button at its own centre line, where the frame body begins', () => {
-    const [action] = buttonTargets([ACTION], { x: 74, y: 0, width: 500, height: 2000 }, BOX, REACH)
-    expect(action.right).toBe(32)
-    expect(action.left).toBe(0)
-  })
-
-  // Mutation: drop the `right` case. The power button's target then covers the right bezel.
-  it('stops a right-edge button at its centre line', () => {
-    const power = { ...button('power', 900, 200, 'right'), rolloverOffset: { x: 878, y: 900 } } // x 866 … 890
-    const [t] = buttonTargets([power], { x: 62, y: 0, width: 780, height: 2000 }, BOX, REACH)
-    expect(t.left).toBe(878)
-    expect(t.right).toBe(990)
-  })
-
-  // An iPad's power button, and an iPad mini's volume pair, sit on the top edge. This one lies wholly
-  // left of the screen's left edge, as a button near a corner can, so a test of where it sits against
-  // the screen would read it as a left-edge button and cut it on the wrong axis.
-  //
-  // Mutation: decide the side from position rather than `anchor`. `right` is then cut to 12 and
-  // `bottom` is left at the full reach, over the bezel.
+  // Mutation: decide the side from position. `right` is then cut to 12 and `bottom` left at 32.
   it('takes the side facing the device from the anchor, not from position', () => {
-    const corner = { ...button('power', 0, 32, 'top'), rolloverOffset: { x: 12, y: 0 } } // x 0 … 24, y 0 … 32
-    const [t] = buttonTargets([corner], { x: 40, y: 60, width: 800, height: 1000 }, BOX, REACH)
-    expect(t.bottom).toBe(16)
-    expect(t.right).toBe(124)
+    const corner = top('power', 0, 24)
+    expect(buttonTargets([corner], BOX)[0]).toEqual({ left: 0, top: 0, right: 24, bottom: 16 })
   })
 
-  // A button drawn on the device's face has no body edge to stop at — its whole face is bezel — so it
-  // stops where the screen begins. A tap inside the screen is a screen tap.
+  // Mutation: drop the `bottom` case.
+  it('runs a bottom-edge button from its centre line to the box', () => {
+    const b = { ...button('b', 1900, 40, 'bottom'), rolloverOffset: { x: 500, y: 1900 } } // y 1880 … 1920
+    expect(buttonTargets([b], BOX)[0]).toEqual({ left: 488, top: 1900, right: 512, bottom: 2000 })
+  })
+
+  // The iPhone SE home button sits on the device's face, which is bezel all round — no body edge to
+  // reach to, and the box is far below it.
   //
-  // Mutation: treat it like an edge button. Its target then ends at its own centre and loses the half
-  // of its face nearest the screen.
-  it('stops a button on the device face (the SE home button) at the screen', () => {
+  // Mutation: treat it like an edge button. Its target then reaches down to the bottom of the box.
+  it('keeps a button on the device face (the SE home button) to its own rectangle', () => {
     const home = { ...button('home', 1700, 130, 'bottom'), onTop: true } // y 1635 … 1765
-    const [t] = buttonTargets([home], { x: 0, y: 0, width: 2000, height: 1556 }, BOX, REACH)
-    expect(t.top).toBe(1556)
-  })
-
-  // Top-edge buttons sit side by side, so the gap between neighbours is horizontal.
-  //
-  // Mutation: only ever cut on y. Two side-by-side targets then overlap across their whole height.
-  it('splits side-by-side buttons at the horizontal midline', () => {
-    const left = { ...button('a', 0, 20, 'top'), rolloverOffset: { x: 100, y: 0 } }  // x 88 … 112
-    const right = { ...button('b', 0, 20, 'top'), rolloverOffset: { x: 200, y: 0 } } // x 188 … 212
-    const [a, b] = buttonTargets([left, right], FAR_SCREEN, BOX, REACH)
-    expect(a.right).toBe(150)
-    expect(b.left).toBe(150)
+    expect(buttonTargets([home], { width: 914, height: 1778 })[0]).toEqual(buttonHitRect(home))
   })
 
   // WCAG 2.5.8 accepts a target under 24 × 24 CSS px when a 24 px circle centred on it touches no
-  // other target and no other such circle. Clipped to the frame's box a side target is about 13 CSS
-  // px across, so the spacing exception is the one it meets. Checked on layouts measured from real
-  // chrome on 2026-10-01: an iPhone 15 Pro's left edge (display scale ≈ 0.42 CSS px per composite
-  // px, so the circle is 58 composite px across) and an iPad mini's top edge, where three buttons
-  // share it (≈ 0.29, so 83).
+  // other target and no other such circle. A side target is about 13 CSS px across on an iPhone and
+  // about 5 on an iPad's top edge, so the spacing exception is the one it meets. Checked on layouts
+  // measured from real chrome on 2026-10-01: an iPhone 15 Pro's left edge (display scale ≈ 0.42 CSS
+  // px per composite px, so the circle is 58 composite px across) and an iPad mini's top edge, where
+  // three buttons share it (≈ 0.29, so 83).
   //
-  // Mutation: no midline cut. Neighbouring targets then overlap, and a circle lands on another target.
+  // Mutation: grow targets along the edge by half the gap or more. Neighbours then meet, and a
+  // circle lands on another target.
   it.each([
-    ['iPhone 15 Pro, left edge', 58, { width: 910, height: 1776 }, { x: 62, y: 36, width: 786, height: 1704 }, [
+    ['iPhone 15 Pro, left edge', 58, { width: 910, height: 1776 }, [
       side('action', 16, 286, 354), side('volume-up', 16, 378, 506), side('volume-down', 16, 536, 664),
     ]],
-    ['iPad mini (A17 Pro), top edge', 83, { width: 1728, height: 2516 }, { x: 120, y: 130, width: 1488, height: 2266 }, [
+    ['iPad mini (A17 Pro), top edge', 83, { width: 1728, height: 2516 }, [
       top('volume-down', 154, 284), top('volume-up', 306, 436), top('power', 1333, 1555),
     ]],
-  ] as const)('meets the 24 px spacing exception on %s', (_name, circle, box, screen, buttons) => {
-    const targets = buttonTargets(buttons, screen, box, REACH)
+  ] as const)('meets the 24 px spacing exception on %s', (_name, circle, box, buttons) => {
+    const targets = buttonTargets(buttons, box)
     const r = circle / 2
     const centre = (t: Rect) => ({ x: (t.left + t.right) / 2, y: (t.top + t.bottom) / 2 })
     const distTo = (p: { x: number; y: number }, t: Rect) =>
@@ -213,6 +161,6 @@ describe('buttonTargets', () => {
   })
 
   it('answers nothing for a device with no buttons', () => {
-    expect(buttonTargets([], FAR_SCREEN, BOX, REACH)).toEqual([])
+    expect(buttonTargets([], BOX)).toEqual([])
   })
 })

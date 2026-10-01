@@ -28,15 +28,6 @@ const CURSOR_RING_R = 13;
 const CURSOR_DOT_R = 8;
 const MOVE_THROTTLE_MS = 16;
 const DRAG_THRESHOLD = 0.02;
-/**
- * How far past a button's own rectangle a press still counts, in 2× composite px — about 40 CSS px
- * at the usual display scale — along the device's edge, until a neighbour's half of the gap.
- *
- * The value predates #785, when it was a margin the pointer handler measured against. It is now how
- * far `buttonTargets` grows each button's element, which stops towards the device where the frame
- * begins and outwards at the frame's box — the same outer limit the container's handlers had.
- */
-const BUTTON_REACH = 100;
 
 interface IOSViewerProps {
   sessionId: string;
@@ -558,9 +549,7 @@ export function IOSViewer({
   const screenPctW = (chrome.screenRect.width / chrome.compositeWidth) * 100;
   const screenPctH = (chrome.screenRect.height / chrome.compositeHeight) * 100;
   const cssCornerRadius = Math.round((chrome.screenCornerRadius / 2) * displayScale);
-  const targets = buttonTargets(
-    chrome.buttons, chrome.screenRect, { width: chrome.compositeWidth, height: chrome.compositeHeight }, BUTTON_REACH,
-  );
+  const targets = buttonTargets(chrome.buttons, { width: chrome.compositeWidth, height: chrome.compositeHeight });
 
   // Home moves around the OS; the software keyboard leaves the device in a condition that stays up
   // until somebody puts it away. Two groups, per `packages/dashboard/AGENTS.md` → "Where a new device
