@@ -1,8 +1,8 @@
 'use client';
 
-import type { BrowserToRelay } from '@tapflowio/protocol'
+import type { BrowserToRelay, FormFactor } from '@tapflowio/protocol'
 import { newRequestId } from '@/lib/requestId';
-import { buttonHitRect, buttonTargets } from '@/lib/buttonHit';
+import { buttonHitRect, buttonTargets, buttonTitles } from '@/lib/buttonHit';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, Fragment } from 'react';
 import { useClientRecording } from '@/hooks/useClientRecording';
 import { Home, Keyboard, Loader2, Play } from 'lucide-react';
@@ -46,6 +46,9 @@ interface IOSViewerProps {
   bootError: string | null;
   launching: boolean;
   chrome: ChromeData;
+  /** What the agent reported the device to be. Decides whether a volume button's tooltip follows
+   *  the orientation (an iPad's does); absent reads as a phone. */
+  formFactor?: FormFactor;
   binaryFrameHandlerRef: React.MutableRefObject<BinaryFrameHandler | undefined>;
   clipboardHandlerRef: React.MutableRefObject<ClipboardMessageHandler | undefined>;
   clipboardSupported: boolean;
@@ -66,7 +69,7 @@ interface IOSViewerProps {
 export function IOSViewer({
   sessionId, buildId, send, openUrl, launchApp, connected, joined,
   deviceReady, installing, installed, installError, bootError,
-  launching, chrome,
+  launching, chrome, formFactor,
   binaryFrameHandlerRef, clipboardHandlerRef, clipboardSupported, networkHandlerRef, networkSupported, onRecordingUploaded,
   swKeyboardVisible, swKeyboardPending, onKbdToggle,
   rebootPending, onReboot, restartButtonRef,
@@ -560,7 +563,9 @@ export function IOSViewer({
   const screenPctW = (chrome.screenRect.width / chrome.compositeWidth) * 100;
   const screenPctH = (chrome.screenRect.height / chrome.compositeHeight) * 100;
   const cssCornerRadius = Math.round((chrome.screenCornerRadius / 2) * displayScale);
-  const targets = buttonTargets(chrome.buttons, { width: chrome.compositeWidth, height: chrome.compositeHeight });
+  const box = { width: chrome.compositeWidth, height: chrome.compositeHeight };
+  const targets = buttonTargets(chrome.buttons, box);
+  const titles = buttonTitles(chrome.buttons, box, isLandscape, formFactor);
 
   // Home moves around the OS; the software keyboard leaves the device in a condition that stays up
   // until somebody puts it away. Two groups, per `packages/dashboard/AGENTS.md` → "Where a new device
@@ -819,7 +824,7 @@ export function IOSViewer({
                         transform: 'translate(-50%, calc(-100% - 8px))',
                       }}
                     >
-                      {btn.accessibilityTitle}
+                      {titles[i]}
                     </div>
                   )}
                 </Fragment>

@@ -9,7 +9,7 @@ import type { BootAbandonReason, ClipboardErrorPayload, Device, DeviceAgent, Net
 import { createLogger, PlatformError, ValidationError, bootAbandonMessage, BOOT_NO_SESSION_STATE, SHUTDOWN_NO_SESSION_STATE, downloadBuild } from '@tapflowio/agent-core'
 import type {
   AgentControlOutbound, InputErrorReason, ClipboardReplyBody, OpenUrlReplyBody,
-  AppInstallReplyBody, AppLaunchReplyBody, AppClearStateReplyBody,
+  AppInstallReplyBody, AppLaunchReplyBody, AppClearStateReplyBody, FormFactor,
 } from '@tapflowio/protocol'
 
 const logger = createLogger('ios-agent')
@@ -314,6 +314,12 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     const devices = this.deviceFilter
       ? allDevices.filter((d) => d.name === this.deviceFilter || d.id === this.deviceFilter)
       : allDevices
+    // An answer the lookup cannot give costs the field, not the register: a viewer draws a device with
+    // no form factor as a phone, which is what it did before there was one.
+    const formFactors = await this.simctl.formFactorsByType().catch((e: unknown) => {
+      logger.warn(`device types unavailable, registering without form factors: ${e instanceof Error ? e.message : String(e)}`)
+      return new Map<string, FormFactor>()
+    })
 
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(relayUrl, this.wsClientOptions())
@@ -341,6 +347,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
             platform: d.platform,
             status: d.status,
             osVersion: d.osVersion,
+            formFactor: d.typeId ? formFactors.get(d.typeId) : undefined,
           })),
         })
       })

@@ -38,7 +38,7 @@ const chrome = {
   buttons: [sideButton('action', 'Action', 300), sideButton('volume_up', 'Volume Up', 500)],
 }
 
-function renderViewer() {
+function renderViewer(over: Record<string, unknown> = {}) {
   const send = vi.fn()
   const props = {
     sessionId: 's1', send, openUrl: vi.fn(), launchApp: vi.fn(),
@@ -48,6 +48,7 @@ function renderViewer() {
     clipboardSupported: true, networkHandlerRef: { current: undefined }, networkSupported: false,
     swKeyboardVisible: false, swKeyboardPending: false, onKbdToggle: vi.fn(),
     rebootPending: false, onReboot: vi.fn(), restartButtonRef: { current: null },
+    ...over,
   // The prop surface is wide and none of it is what this file is about.
   } as unknown as React.ComponentProps<typeof IOSViewer>
   return { ...render(<IOSViewer {...props} />), send }
@@ -195,5 +196,44 @@ describe('IOSViewer — frame buttons are pressed through their own elements', (
     expect(screen.getByText('Volume Up')).toBeTruthy()
     fireEvent.pointerLeave(t, { relatedTarget: t.parentElement })
     expect(screen.queryByText('Volume Up')).toBeNull()
+  })
+
+  // An iPad's volume follows orientation (iPadOS 15.4+): turned counter-clockwise, as this viewer
+  // turns it, the right-edge pair ends up on top with Up on the left, so Up lowers the volume. The
+  // tooltip says what the press does; the press still sends the physical button, which the device
+  // remaps. `buttonHit.test.ts` holds the geometry on measured layouts; this holds the wiring.
+  //
+  // Mutations: render `accessibilityTitle` again (the landscape title stays "Volume Up"); send the
+  // displayed title's button (the press goes out as `volume-down`).
+  describe('an iPad turned to landscape', () => {
+    const rightVolume = (name: string, title: string, usage: number, y: number) => ({
+      ...sideButton(name, title, y), anchor: 'right', usagePage: 12, usage,
+      normalOffset: { x: 630, y }, rolloverOffset: { x: 630, y },
+    })
+    const tablet = {
+      ...chrome,
+      buttons: [rightVolume('volume-up', 'Volume Up', 233, 200), rightVolume('volume-down', 'Volume Down', 234, 330)],
+    }
+
+    it('names the button by what it does, and still sends the physical one', async () => {
+      const { send, container } = renderViewer({ chrome: tablet, formFactor: 'tablet' })
+      fireEvent.pointerEnter(target(container, 'volume-up'))
+      expect(screen.getByText('Volume Up')).toBeTruthy()
+      fireEvent.pointerLeave(target(container, 'volume-up'), { relatedTarget: target(container, 'volume-up').parentElement })
+
+      fireEvent.click(screen.getByRole('button', { name: /rotate the device/i }))
+      fireEvent.pointerEnter(target(container, 'volume-up'))
+      expect(screen.getByText('Volume Down')).toBeTruthy()
+
+      fireEvent.pointerDown(target(container, 'volume-up'), { pointerId: 1, button: 0 })
+      expect(phases(send)).toEqual(['volume-up:down'])
+    })
+
+    it('keeps the physical names for a device that is not a tablet', () => {
+      const { container } = renderViewer({ chrome: tablet, formFactor: 'phone' })
+      fireEvent.click(screen.getByRole('button', { name: /rotate the device/i }))
+      fireEvent.pointerEnter(target(container, 'volume-up'))
+      expect(screen.getByText('Volume Up')).toBeTruthy()
+    })
   })
 })

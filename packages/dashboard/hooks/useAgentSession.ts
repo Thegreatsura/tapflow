@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRelay } from '@/hooks/useRelay'
 import type { DeviceSummary, BrowserInbound, SessionInfo } from '@/lib/types'
+import type { FormFactor } from '@tapflowio/protocol'
 
 export function useAgentSession(os: string) {
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [deviceId, setDeviceId] = useState('')
+  // The form factor of the device a session was started on. The list it came from is rebuilt every
+  // few seconds and leaves out a device whose agent is reconnecting, so reading it live would blank
+  // the value — and flip an iPad's volume tooltips back — for as long as the agent is away.
+  const [startedFormFactor, setStartedFormFactor] = useState<FormFactor | undefined>(undefined)
   const [booting, setBooting] = useState(false)
   const [status, setStatus] = useState('')
 
@@ -51,6 +56,7 @@ export function useAgentSession(os: string) {
   const agentGroups = sessions.filter((s) => s.devices.some((d) => d.platform === os))
 
   const startDevice = useCallback((d: DeviceSummary) => {
+    setStartedFormFactor(d.formFactor)
     setDeviceId(d.id)
     setBooting(true)
     setStatus('Booting…')
@@ -102,6 +108,7 @@ export function useAgentSession(os: string) {
 
   return {
     sessions,
+    startedFormFactor,
     selectedAgent,
     setSelectedAgent,
     activeSessionId,

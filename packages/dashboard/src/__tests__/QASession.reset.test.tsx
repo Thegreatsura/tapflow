@@ -38,13 +38,13 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: v
 vi.mock('@/components/DeviceViewer', async () => {
   const { useEffect } = await import('react')
   return {
-    DeviceViewer: ({ deviceId, resetMode }: { deviceId: string; resetMode?: string }) => {
+    DeviceViewer: ({ deviceId, resetMode, formFactor }: { deviceId: string; resetMode?: string; formFactor?: string }) => {
       // Mount only — resetSentRef is per-mount, so "did it remount" is the property under test.
       // With deviceId/resetMode in the deps this would fire on a prop change too and stop
       // distinguishing a remount from a re-render.
       // eslint-disable-next-line react-hooks/exhaustive-deps
       useEffect(() => { viewerMounts.push({ deviceId, resetMode }) }, [])
-      return <div data-testid="device-viewer" />
+      return <div data-testid="device-viewer" data-form-factor={formFactor ?? ''} />
     },
   }
 })
@@ -209,5 +209,26 @@ describe('QASession — Full reset applies to exactly one pick (#439)', () => {
     // and DeviceViewer would keep a resetSentRef that is already spent.
     expect(viewerMounts).toHaveLength(2)
     expect(viewerMounts.map((m) => m.deviceId)).toEqual(['dev-a', 'dev-b'])
+  })
+})
+
+// The viewer reads an iPad's form factor to name its volume buttons by what they do. The device list
+// it comes from is rebuilt every few seconds and leaves out a device whose agent is reconnecting, so
+// the page hands the viewer the live value when there is one and the picked one when there is not.
+//
+// Mutations: pass only the live value (the second assertion fails); pass only the picked one (the
+// first still passes — a rebind that changes the value is covered in the relay).
+describe('QASession — the viewer keeps the form factor while the agent is away', () => {
+  beforeEach(() => { viewerMounts.length = 0; send.mockClear(); deliver = null })
+
+  it('passes the picked device\'s form factor, and keeps it when the list drops the device', async () => {
+    const user = userEvent.setup()
+    const ipad = { ...device('dev-a', 'iPad Pro'), formFactor: 'tablet' as const }
+    await openDeviceList(user, [{ ...AGENTS[0], devices: [ipad] }])
+    await user.click(screen.getByText('iPad Pro'))
+    expect(screen.getByTestId('device-viewer').dataset.formFactor).toBe('tablet')
+
+    await act(async () => { deliver!({ type: 'agents:listed', sessions: [] }) })
+    expect(screen.getByTestId('device-viewer').dataset.formFactor).toBe('tablet')
   })
 })

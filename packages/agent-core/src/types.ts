@@ -1,5 +1,5 @@
 import type {
-  AndroidButton, AgentResources, ClipboardErrorPayload, Point, UIElement, UIElementFrame, UIElementRole,
+  AndroidButton, AgentResources, ClipboardErrorPayload, FormFactor, Point, UIElement, UIElementFrame, UIElementRole,
 } from '@tapflowio/protocol'
 
 // These three are **wire** payload types, so `@tapflowio/protocol` owns them — it is the leaf both
@@ -22,6 +22,8 @@ export interface Device {
   status: DeviceStatus
   typeId?: string     // platform device type identifier (iOS: com.apple.CoreSimulator.SimDeviceType.*)
   osVersion?: string  // e.g. "iOS 18.3"
+  /** Phone, tablet or foldable, when the platform can say; reported in `agent:register`. */
+  formFactor?: FormFactor
 }
 
 

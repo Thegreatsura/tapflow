@@ -164,8 +164,9 @@ function mockSimctl(booted: boolean | 'unknown' = false): SimctlWrapper {
   pasteboardApplyDelayMs = 0
   const sw = {
     listDevices: vi.fn().mockResolvedValue([
-      { id: 'dev-1', name: 'iPhone 15', platform: 'ios', status, osVersion: 'iOS 18.3' },
+      { id: 'dev-1', name: 'iPhone 15', platform: 'ios', status, osVersion: 'iOS 18.3', typeId: 'type-iphone-15' },
     ]),
+    formFactorsByType: vi.fn().mockResolvedValue(new Map([['type-iphone-15', 'phone']])),
     boot: vi.fn().mockResolvedValue(undefined),
     shutdown: vi.fn().mockResolvedValue(undefined),
     erase: vi.fn().mockResolvedValue(undefined),
@@ -2876,6 +2877,41 @@ describe('IOSAgent', () => {
       const sessions = listed.sessions as Array<{ devices: Array<{ osVersion?: string }> }>
       expect(sessions[0]?.devices[0]?.osVersion).toBe('iOS 18.3')
 
+      agent.disconnect()
+      browser.close()
+    })
+
+    // The viewer tells an iPad from an iPhone by this (#785 follow-up), and it can only read what the
+    // register carried. Mutation: leave it out of the register literal — the explicit field list there
+    // is what dropped `typeId` from the wire.
+    it('includes the form factor its device type maps to', async () => {
+      const agent = new IOSAgent({}, mockSimctl())
+      await agent.connect(`ws://localhost:${port}`)
+      const browser = new WebSocket(`ws://localhost:${port}`)
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'agents:list' }))
+      const listed = await waitForType(browser, 'agents:listed')
+      const sessions = listed.sessions as Array<{ devices: Array<{ formFactor?: string }> }>
+      expect(sessions[0]?.devices[0]?.formFactor).toBe('phone')
+      agent.disconnect()
+      browser.close()
+    })
+
+    // A Mac whose simulator service cannot answer the lookup still registers every device — without
+    // the field, which a viewer draws as a phone. Mutation: let the rejection propagate out of
+    // `connect()`, and the whole Mac drops out of the list over a tooltip.
+    it('registers without a form factor when the lookup fails', async () => {
+      const simctl = mockSimctl()
+      ;(simctl.formFactorsByType as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('service wedged'))
+      const agent = new IOSAgent({}, simctl)
+      await agent.connect(`ws://localhost:${port}`)
+      const browser = new WebSocket(`ws://localhost:${port}`)
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'agents:list' }))
+      const listed = await waitForType(browser, 'agents:listed')
+      const sessions = listed.sessions as Array<{ devices: Array<{ name: string; formFactor?: string }> }>
+      expect(sessions[0]?.devices[0]?.name).toBe('iPhone 15')
+      expect(sessions[0]?.devices[0]?.formFactor).toBeUndefined()
       agent.disconnect()
       browser.close()
     })
