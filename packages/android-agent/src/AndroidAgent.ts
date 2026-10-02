@@ -56,7 +56,7 @@ import type { DisplayMetrics } from './displayMetrics.js'
 import { bootPostureId, parseCurrentPosture, parsePostures } from './postures.js'
 import { EmulatorVideo } from './emulator/EmulatorVideo.js'
 import { LEAN_MARKER_PATH, reconcileLean, type LeanDevice } from './LeanPackages.js'
-import { installReclaimingStorage, type ReclaimDevice } from './StorageReclaim.js'
+import { BootSupersededError, installReclaimingStorage, type ReclaimDevice } from './StorageReclaim.js'
 
 const logger = createLogger('android-agent')
 
@@ -3304,7 +3304,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
       },
       hasUpdates: (pkg) => adb.hasSystemUpdates(serial, pkg),
       uninstallUpdates: async (pkg) => {
-        if (seq !== state.bootSeq) throw new Error('the boot was superseded')
+        if (seq !== state.bootSeq) throw new BootSupersededError()
         await adb.uninstallSystemUpdates(serial, pkg)
       },
     }

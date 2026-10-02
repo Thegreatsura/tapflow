@@ -12,6 +12,14 @@ const logger = createLogger('android-agent:storage')
  */
 export const RETRY_DELAYS_MS: readonly number[] = [0, 3000, 6000]
 
+/** Thrown by a `ReclaimDevice` whose boot was replaced mid-way: stop, rather than act on a device nobody is on. */
+export class BootSupersededError extends Error {
+  constructor() {
+    super('the boot was superseded')
+    this.name = 'BootSupersededError'
+  }
+}
+
 /** What reclaiming needs from a booted emulator. `AndroidAgent` adapts `AdbWrapper` to it. */
 export interface ReclaimDevice {
   installedPackages(): Promise<Set<string>>
@@ -26,8 +34,9 @@ export interface ReclaimDevice {
  *
  * **Why these apps and only these.** Play Store images fill /data on their own as Google apps
  * update in the background, and the partition cannot be grown without a wipe (#919). Rolling one of
- * these back frees its update — 450 MB for the Google app alone — and resets its data, which no test
- * relies on. GMS, WebView and Play Store also carry large updates and are never touched: an app
+ * these back frees its update — nearly 600 MB for the Google app alone — and resets its data, which
+ * Lean mode already judged no test needs. This runs whether or not Lean mode is on: the list is the
+ * judgement, not the setting. GMS, WebView and Play Store also carry large updates and are never touched: an app
  * under test signs in, renders and bills through them. A disabled package stays disabled, so Lean
  * mode's state is not disturbed.
  *
@@ -54,7 +63,9 @@ export async function installReclaimingStorage(opts: {
       logger.warn('device storage is full and reclaiming it failed:', (reclaimError as Error).message)
       throw e
     }
-    // Nothing left to roll back — retrying would only repeat the same failure.
+    // Nothing left to roll back — retrying would only repeat the same failure. A second install racing
+    // the first on the same device lands here too and gives up while the first one's space is still
+    // arriving; harmless, and rare enough not to warrant a per-device lock.
     if (reclaimed.length === 0) throw e
     logger.info(`device storage was full: rolled back updates of ${reclaimed.join(', ')}; retrying the install`)
     let last: unknown = e
@@ -77,9 +88,16 @@ async function reclaim(device: ReclaimDevice): Promise<string[]> {
   const rolledBack: string[] = []
   for (const pkg of LEAN_PACKAGES) {
     // `pm uninstall-system-updates` on a package the image lacks throws inside the package manager.
-    if (!installed.has(pkg) || !(await device.hasUpdates(pkg))) continue
-    await device.uninstallUpdates(pkg)
-    rolledBack.push(pkg)
+    // One package failing does not discard what the others freed — a rollback that already happened
+    // has already reset that app's data, so the space it frees is used. A superseded boot stops it all.
+    try {
+      if (!installed.has(pkg) || !(await device.hasUpdates(pkg))) continue
+      await device.uninstallUpdates(pkg)
+      rolledBack.push(pkg)
+    } catch (err) {
+      if (err instanceof BootSupersededError) throw err
+      logger.warn(`could not roll back ${pkg}:`, (err as Error).message)
+    }
   }
   return rolledBack
 }

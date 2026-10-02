@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { ValidationError } from '@tapflowio/agent-core'
 import { StorageFullError } from '../AdbWrapper.js'
 import { LEAN_PACKAGES } from '../LeanPackages.js'
-import { RETRY_DELAYS_MS, installReclaimingStorage, type ReclaimDevice } from '../StorageReclaim.js'
+import { BootSupersededError, RETRY_DELAYS_MS, installReclaimingStorage, type ReclaimDevice } from '../StorageReclaim.js'
 
 const [GSA, YT] = LEAN_PACKAGES
 
@@ -128,12 +128,42 @@ describe('installReclaimingStorage', () => {
     expect(attempts).toHaveLength(2)
   })
 
-  it('keeps the storage error when reclaiming itself fails', async () => {
+  // Mutation: let one package's failure abort the loop, and the first rollback's space goes unused.
+  it('uses what was freed when a later package fails to roll back', async () => {
     const device = new FakeDevice()
-    device.uninstallUpdates = async () => { throw new Error('the boot was superseded') }
+    const real = device.uninstallUpdates.bind(device)
+    device.uninstallUpdates = async (pkg: string) => {
+      if (pkg === YT) throw new Error("Couldn't uninstall package")
+      await real(pkg)
+    }
+    const { install, attempts } = scriptedInstall('full', 'ok')
+    const { sleep } = recordSleep()
+    await expect(installReclaimingStorage({ install, device, owned: true, sleep })).resolves.toEqual([GSA])
+    expect(attempts).toHaveLength(2)
+  })
+
+  it('keeps the storage error when every rollback fails', async () => {
+    const device = new FakeDevice()
+    device.uninstallUpdates = async () => { throw new Error("Couldn't uninstall package") }
     const { install, attempts } = scriptedInstall('full', 'ok')
     const { sleep } = recordSleep()
     await expect(installReclaimingStorage({ install, device, owned: true, sleep })).rejects.toBeInstanceOf(StorageFullError)
+    expect(attempts).toHaveLength(1)
+  })
+
+  // After a rollback already succeeded, so that swallowing the supersede would show up as a retry.
+  // Mutation: treat BootSupersededError like any other per-package failure.
+  it('stops at a superseded boot without retrying, even after a rollback', async () => {
+    const device = new FakeDevice()
+    const real = device.uninstallUpdates.bind(device)
+    device.uninstallUpdates = async (pkg: string) => {
+      if (pkg === YT) throw new BootSupersededError()
+      await real(pkg)
+    }
+    const { install, attempts } = scriptedInstall('full', 'ok')
+    const { sleep } = recordSleep()
+    await expect(installReclaimingStorage({ install, device, owned: true, sleep })).rejects.toBeInstanceOf(StorageFullError)
+    expect(device.rolledBack).toEqual([GSA])
     expect(attempts).toHaveLength(1)
   })
 })
