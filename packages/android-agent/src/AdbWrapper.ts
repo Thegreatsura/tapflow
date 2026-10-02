@@ -13,10 +13,11 @@ export function encodeAdbInputText(text: string): string {
 const NO_FILE = '__TAPFLOW_NO_FILE__'
 
 // Play Store images fill /data on their own as Google apps update in the background, so this is
-// usually not the build's fault.
+// usually not the build's fault — but any image can fill up, so the message does not blame them.
 const STORAGE_FULL_MESSAGE =
-  "Device storage is full — Play Store updates to Google apps fill it over time. Run Full reset to clear it; " +
-  "for a larger partition, raise disk.dataPartition.size in the AVD's config.ini before resetting."
+  'Device storage is full. Turn on Full reset and pick the device again; this erases all its data. ' +
+  "For a larger partition, raise disk.dataPartition.size in the AVD's config.ini first. " +
+  'On Play Store images, background updates to Google apps fill storage over time.'
 
 export class AdbWrapper {
   // avdId ("avd:<name>") → ADB serial ("emulator-5554")
@@ -239,17 +240,21 @@ export class AdbWrapper {
     } catch (e) {
       const stderr = (e as { stderr?: string }).stderr?.trim()
       if (stderr) {
-        // Before the Failure match, which would reduce INSUFFICIENT_STORAGE to a bare code. ENOSPC is
-        // the same condition hit mid-write, after the size pre-check had passed. No
+        // Judged without adb's "failed to install <path>:" prefix: the path ends in the uploaded
+        // build's name, so a build called `fix-ENOSPC.apk` would otherwise read as a full device.
+        const reported = stderr.replace(/^adb: failed to install [^:]+:\s*/, '')
+        // Before the Failure match, which would reduce INSUFFICIENT_STORAGE to a bare code. ENOSPC
+        // is not observed, only expected: a write that runs out after the size pre-check passed. No
         // wipe-free remedy exists: on a metadata-encrypted user build the partition cannot be
         // grown in place (tried both config.ini and `qemu-img resize`), so the advice is a reset.
-        if (/not enough space|INSUFFICIENT_STORAGE|No space left on device|ENOSPC/i.test(stderr)) throw new ValidationError(STORAGE_FULL_MESSAGE)
+        if (/not enough space|INSUFFICIENT_STORAGE|No space left on device|ENOSPC/i.test(reported)) {
+          throw new ValidationError(STORAGE_FULL_MESSAGE, { cause: e })
+        }
         // "Failure [INSTALL_FAILED_...]" → show just the code
         const failureMatch = stderr.match(/Failure\s*\[(.+?)\]/)
         if (failureMatch) throw new ValidationError(failureMatch[1])
         // Strip "adb: failed to install <path>:" prefix and stack trace
-        const stripped = stderr
-          .replace(/^adb: failed to install [^:]+:\s*/, '')
+        const stripped = reported
           .replace(/\s+at\s+[\w$.]+\([\w.]+:\d+\)[\s\S]*$/, '')
           .trim()
         throw new ValidationError(stripped || stderr)

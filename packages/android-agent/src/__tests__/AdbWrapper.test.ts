@@ -130,7 +130,8 @@ describe('AdbWrapper', () => {
       )
     })
 
-    // Verbatim from a Play Store AVD whose /data had filled with Google app updates.
+    // The message measured on a Play Store AVD whose /data had filled with Google app updates,
+    // set in adb's stderr shape (prefix and a stack frame) so the stripping is exercised too.
     const STREAMED_FULL =
       "adb: failed to install /tmp/app.apk: Exception occurred while executing 'install':\n" +
       'android.os.ParcelableException: java.io.IOException: Requested internal only, but not enough space\n' +
@@ -139,6 +140,7 @@ describe('AdbWrapper', () => {
     it.each([
       ['a streamed install', STREAMED_FULL],
       ['a Failure code', 'Failure [INSTALL_FAILED_INSUFFICIENT_STORAGE]'],
+      // Not observed: the expected shape of a write that runs out after the size pre-check passed.
       ['a write that ran out mid-install', 'adb: failed to install /tmp/app.apk: java.io.IOException: write failed: ENOSPC (No space left on device)'],
     ])('explains a full device for %s instead of passing the raw error through', async (_, stderr) => {
       const runner = mockRunner()
@@ -149,6 +151,17 @@ describe('AdbWrapper', () => {
       expect((err as Error).message).toMatch(/^Device storage is full/)
       expect((err as Error).message).toContain('Full reset')
       expect((err as Error).message).toContain('disk.dataPartition.size')
+    })
+
+    it('does not read a full device into a build whose name mentions one', async () => {
+      const runner = mockRunner()
+      ;(runner.exec as ReturnType<typeof vi.fn>).mockRejectedValueOnce({
+        stderr: 'adb: failed to install /tmp/fix-ENOSPC-not-enough-space.apk: Failure [INSTALL_FAILED_VERSION_DOWNGRADE]',
+      })
+      const wrapper = new AdbWrapper(runner)
+      await expect(wrapper.installApp('emulator-5554', '/tmp/app.apk')).rejects.toThrow(
+        new ValidationError('INSTALL_FAILED_VERSION_DOWNGRADE'),
+      )
     })
   })
 
