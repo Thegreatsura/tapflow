@@ -12,6 +12,21 @@ export function encodeAdbInputText(text: string): string {
 
 const NO_FILE = '__TAPFLOW_NO_FILE__'
 
+// Play Store images fill /data on their own as Google apps update in the background, so this is
+// usually not the build's fault — but any image can fill up, so the message does not blame them.
+const STORAGE_FULL_MESSAGE =
+  'Device storage is full. Turn on Full reset and pick the device again; this erases all its data. ' +
+  "For a larger partition, raise disk.dataPartition.size in the AVD's config.ini first. " +
+  'On Play Store images, background updates to Google apps fill storage over time.'
+
+/** An install refused for lack of space on the device. Its own class so a caller can reclaim and retry. */
+export class StorageFullError extends ValidationError {
+  constructor(options?: ErrorOptions) {
+    super(STORAGE_FULL_MESSAGE, options)
+    this.name = 'StorageFullError'
+  }
+}
+
 export class AdbWrapper {
   // avdId ("avd:<name>") → ADB serial ("emulator-5554")
   private readonly serialMap = new Map<string, string>()
@@ -233,12 +248,26 @@ export class AdbWrapper {
     } catch (e) {
       const stderr = (e as { stderr?: string }).stderr?.trim()
       if (stderr) {
+        // Judged without adb's "failed to install <path>:" prefix: the path ends in the uploaded
+        // build's name, so a build called `fix-ENOSPC.apk` would otherwise read as a full device.
+        // Cut by the path we passed rather than up to the first colon, which a build name may contain.
+        const prefix = `adb: failed to install ${apkPath}:`
+        const reported = stderr.startsWith(prefix)
+          ? stderr.slice(prefix.length).trimStart()
+          : stderr.replace(/^adb: failed to install [^:]+:\s*/, '')
+        // Before the Failure match, which would reduce INSUFFICIENT_STORAGE to a bare code. ENOSPC
+        // is not observed, only expected: a write that runs out after the size pre-check passed. The
+        // partition cannot be grown without a wipe on a metadata-encrypted user build (tried both
+        // config.ini and `qemu-img resize`), so once `StorageReclaim` has freed what it can, the
+        // advice is a reset.
+        if (/not enough space|INSUFFICIENT_STORAGE|No space left on device|ENOSPC/i.test(reported)) {
+          throw new StorageFullError({ cause: e })
+        }
         // "Failure [INSTALL_FAILED_...]" → show just the code
         const failureMatch = stderr.match(/Failure\s*\[(.+?)\]/)
         if (failureMatch) throw new ValidationError(failureMatch[1])
         // Strip "adb: failed to install <path>:" prefix and stack trace
-        const stripped = stderr
-          .replace(/^adb: failed to install [^:]+:\s*/, '')
+        const stripped = reported
           .replace(/\s+at\s+[\w$.]+\([\w.]+:\d+\)[\s\S]*$/, '')
           .trim()
         throw new ValidationError(stripped || stderr)
@@ -289,6 +318,20 @@ export class AdbWrapper {
   // wm user-rotation locks regardless of auto-rotate and works on API 34 through 37 alike.
   async setRotation(serial: string, rotation: 0 | 1 | 2 | 3): Promise<void> {
     await this.runner.exec('-s', serial, 'shell', 'wm', 'user-rotation', 'lock', String(rotation))
+  }
+
+  /**
+   * The rotation lock `setRotation` writes: `free` when the device auto-rotates, else the locked
+   * quarter. Read with the same command family, so an image that lacks one lacks the other. The
+   * output is `free` or `lock 3`, measured on API 34.
+   */
+  async getUserRotation(serial: string): Promise<{ mode: 'free' } | { mode: 'lock'; rotation: 0 | 1 | 2 | 3 }> {
+    const out = (await this.runner.exec('-s', serial, 'shell', 'wm', 'user-rotation')).trim()
+    if (out === 'free') return { mode: 'free' }
+    const lock = /^lock ([0-3])$/.exec(out)
+    if (lock) return { mode: 'lock', rotation: Number(lock[1]) as 0 | 1 | 2 | 3 }
+    // An answer this cannot read is not "free": the caller would leave a landscape lock in place.
+    throw new PlatformError(`Cannot read the rotation lock from: ${out || '(empty)'}`)
   }
 
   async sendInput(serial: string, ...args: string[]): Promise<void> {
@@ -350,6 +393,27 @@ export class AdbWrapper {
   async setPackageEnabled(serial: string, pkg: string, enabled: boolean): Promise<void> {
     const out = await this.runner.exec('-s', serial, 'shell', 'pm', enabled ? 'enable' : 'disable-user', '--user', '0', pkg)
     if (!out.includes('new state')) throw new PlatformError(`pm ${enabled ? 'enable' : 'disable-user'} ${pkg} failed: ${out.trim() || 'no output'}`)
+  }
+
+  /** Whether an installed package runs an update from /data/app rather than its /system version. */
+  async hasSystemUpdates(serial: string, pkg: string): Promise<boolean> {
+    const out = await this.runner.exec('-s', serial, 'shell', 'pm', 'path', pkg)
+    return out.split('\n').some((l) => l.trim().startsWith('package:/data/app/'))
+  }
+
+  /**
+   * Roll a system app back to its /system version. `pm` exits 1 here even when it succeeds —
+   * measured on API 35, with and without an update to remove — so its output is what says it took.
+   */
+  async uninstallSystemUpdates(serial: string, pkg: string): Promise<void> {
+    let out: string
+    try {
+      out = await this.runner.exec('-s', serial, 'shell', 'pm', 'uninstall-system-updates', pkg)
+    } catch (e) {
+      out = (e as { stdout?: string }).stdout ?? ''
+      if (!out.includes('Success')) throw new PlatformError(`pm uninstall-system-updates ${pkg} failed: ${(e as Error).message}`, { cause: e })
+    }
+    if (!out.includes('Success')) throw new PlatformError(`pm uninstall-system-updates ${pkg} failed: ${out.trim() || 'no output'}`)
   }
 
   /** A file's contents, or `null` when it does not exist — told apart from an empty file. */

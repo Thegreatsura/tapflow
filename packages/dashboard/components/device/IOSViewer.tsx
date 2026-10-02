@@ -1,8 +1,8 @@
 'use client';
 
-import type { BrowserToRelay } from '@tapflowio/protocol'
+import type { BrowserToRelay, FormFactor } from '@tapflowio/protocol'
 import { newRequestId } from '@/lib/requestId';
-import { buttonHitRect, buttonTargets } from '@/lib/buttonHit';
+import { buttonHitRect, buttonTargets, buttonTitles } from '@/lib/buttonHit';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, Fragment } from 'react';
 import { useClientRecording } from '@/hooks/useClientRecording';
 import { Home, Keyboard, Loader2, Play } from 'lucide-react';
@@ -23,6 +23,7 @@ import type { MutableRefObject } from 'react';
 import type { PerfHook } from '@/components/perf/types';
 import { useClipboardBridge, isBridgedChord, type ClipboardMessageHandler } from '@/hooks/useClipboardBridge';
 import { toast } from 'sonner';
+import { roundedClipMask } from '@/lib/roundedClipMask';
 
 const CURSOR_RING_R = 13;
 const CURSOR_DOT_R = 8;
@@ -46,6 +47,9 @@ interface IOSViewerProps {
   bootError: string | null;
   launching: boolean;
   chrome: ChromeData;
+  /** What the agent reported the device to be. Decides whether a volume button's tooltip follows
+   *  the orientation (an iPad's does); absent reads as a phone. */
+  formFactor?: FormFactor;
   binaryFrameHandlerRef: React.MutableRefObject<BinaryFrameHandler | undefined>;
   clipboardHandlerRef: React.MutableRefObject<ClipboardMessageHandler | undefined>;
   clipboardSupported: boolean;
@@ -66,7 +70,7 @@ interface IOSViewerProps {
 export function IOSViewer({
   sessionId, buildId, send, openUrl, launchApp, connected, joined,
   deviceReady, installing, installed, installError, bootError,
-  launching, chrome,
+  launching, chrome, formFactor,
   binaryFrameHandlerRef, clipboardHandlerRef, clipboardSupported, networkHandlerRef, networkSupported, onRecordingUploaded,
   swKeyboardVisible, swKeyboardPending, onKbdToggle,
   rebootPending, onReboot, restartButtonRef,
@@ -99,6 +103,10 @@ export function IOSViewer({
   // the screenshot chord. A press refused that way is remembered so its release does nothing either.
   const pressedButton = useRef<{ name: string; pointerId: number } | null>(null);
   const refusedButtonPointers = useRef(new Set<number>());
+  // A release keeps the pressed image up for 100 ms. The timer is held so a press that starts inside
+  // that window keeps its own image, and so it does not outlive the viewer.
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current) }, [])
   const touchStartPos = useRef<{ x: number; y: number } | null>(null);
   const isPinchMode = useRef(false);
   const isOptionHeld = useRef(false);
@@ -152,6 +160,7 @@ export function IOSViewer({
         surface.style.width = c.style.width
         surface.style.height = c.style.height
         surface.style.borderRadius = c.style.borderRadius
+        surface.style.maskImage = c.style.maskImage
       }
       surface.style.objectFit = 'fill'
       surface.style.zIndex = '3'
@@ -312,8 +321,16 @@ export function IOSViewer({
     }
   }, [recordState, startClientRecording, stopClientRecording, recordCanvasRef])
 
+  // **The orientation last sent, kept beside the state rather than read from it** (#910). The agent is
+  // sent a target, not "turn", and two presses before a re-render must still send landscape then
+  // portrait — the state is a render behind. Updated here and not in a `setState` updater, which
+  // StrictMode calls twice: that would flip it twice and send twice.
+  const landscapeRef = useRef(false)
   const handleRotate = useCallback(() => {
-    send({ type: 'input:rotate', sessionId }); setIsLandscape(prev => !prev)
+    const next = !landscapeRef.current
+    landscapeRef.current = next
+    setIsLandscape(next)
+    send({ type: 'input:rotate', sessionId, payload: { orientation: next ? 'landscape' : 'portrait' } })
   }, [send, sessionId])
 
   // Reset device orientation to portrait on unmount if we left it in landscape.
@@ -322,10 +339,15 @@ export function IOSViewer({
   // and on nothing else, so the dependency list is empty — and an empty list closing over props is
   // exactly what `react-hooks/exhaustive-deps` was suppressed for here. A suppression is not local
   // any more: the React Compiler skips the entire file that carries one, whichever rule it names.
+  //
+  // **Only when landscape**, read from the same ref the button's target comes from. An agent older
+  // than the target toggles, so a portrait sent to an upright device would turn it.
   const undoRotateRef = useRef<(() => void) | null>(null)
   useEffect(() => {
-    undoRotateRef.current = isLandscape ? () => send({ type: 'input:rotate', sessionId }) : null
-  }, [isLandscape, send, sessionId])
+    undoRotateRef.current = () => {
+      if (landscapeRef.current) send({ type: 'input:rotate', sessionId, payload: { orientation: 'portrait' } })
+    }
+  }, [send, sessionId])
   useEffect(() => () => { undoRotateRef.current?.() }, [])
 
   const sendChord = useCallback((code: 'KeyC' | 'KeyV' | 'KeyX', modifiers: number) => {
@@ -352,7 +374,8 @@ export function IOSViewer({
           if (!e.shiftKey && e.code === 'KeyK') { e.preventDefault(); setDeepLinkOpen(true); return }
           if (!e.shiftKey && e.code === 'KeyS') { e.preventDefault(); handleScreenshot(); return }
           if (e.shiftKey && e.code === 'KeyY') { e.preventDefault(); handleRecordToggle(); return }
-          if (e.shiftKey && e.code === 'KeyO') { e.preventDefault(); handleRotate(); return }
+          // A held chord repeats, and each repeat would be another turn.
+          if (e.shiftKey && e.code === 'KeyO') { e.preventDefault(); if (!e.repeat) handleRotate(); return }
           if (e.shiftKey && e.code === 'KeyU') { e.preventDefault(); send({ type: 'input:button', sessionId, requestId: newRequestId(), payload: { name: 'home' } }); return }
           if (e.shiftKey && e.code === 'KeyK') { e.preventDefault(); if (!swKeyboardPending) onKbdToggle(); return }
         }
@@ -456,6 +479,7 @@ export function IOSViewer({
     e.stopPropagation()
     if (pressedButton.current) { refusedButtonPointers.current.add(e.pointerId); return }
     setKeyboardActive(true)
+    if (flashTimer.current) { clearTimeout(flashTimer.current); flashTimer.current = null }
     pressedButton.current = { name, pointerId: e.pointerId }; setFlashedButton(name)
     ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
     send({ type: 'input:button', sessionId, requestId: newRequestId(), payload: { name, phase: 'down' } })
@@ -516,7 +540,8 @@ export function IOSViewer({
     touchStartPos.current = null
     if (pressedButton.current?.pointerId === e.pointerId) {
       send({ type: 'input:button', sessionId, requestId: newRequestId(), payload: { name: pressedButton.current.name, phase: 'up' } })
-      pressedButton.current = null; setTimeout(() => setFlashedButton(null), 100); return
+      pressedButton.current = null
+      flashTimer.current = setTimeout(() => { flashTimer.current = null; setFlashedButton(null) }, 100); return
     }
     cursorStateRef.current = 'release'; releaseAnimRef.current = { startTime: performance.now() }
     const _lc = liveCursorRef.current
@@ -560,7 +585,10 @@ export function IOSViewer({
   const screenPctW = (chrome.screenRect.width / chrome.compositeWidth) * 100;
   const screenPctH = (chrome.screenRect.height / chrome.compositeHeight) * 100;
   const cssCornerRadius = Math.round((chrome.screenCornerRadius / 2) * displayScale);
-  const targets = buttonTargets(chrome.buttons, { width: chrome.compositeWidth, height: chrome.compositeHeight });
+  const clipMask = cssCornerRadius > 0 ? roundedClipMask(navigator.userAgent) : undefined;
+  const box = { width: chrome.compositeWidth, height: chrome.compositeHeight };
+  const targets = buttonTargets(chrome.buttons, box);
+  const titles = buttonTitles(chrome.buttons, box, isLandscape, formFactor);
 
   // Home moves around the OS; the software keyboard leaves the device in a condition that stays up
   // until somebody puts it away. Two groups, per `packages/dashboard/AGENTS.md` → "Where a new device
@@ -707,6 +735,7 @@ export function IOSViewer({
                 left: `${screenPctLeft}%`, top: `${screenPctTop}%`,
                 width: `${screenPctW}%`, height: `${screenPctH}%`,
                 borderRadius: cssCornerRadius > 0 ? `${cssCornerRadius}px` : undefined,
+                maskImage: clipMask,
                 backgroundColor: '#010101', cursor: 'none',
                 visibility: canvasReady ? 'visible' : 'hidden',
               }}
@@ -819,7 +848,7 @@ export function IOSViewer({
                         transform: 'translate(-50%, calc(-100% - 8px))',
                       }}
                     >
-                      {btn.accessibilityTitle}
+                      {titles[i]}
                     </div>
                   )}
                 </Fragment>

@@ -137,6 +137,36 @@ describe('an agent older than a field still registers', () => {
     expect(fail(raw).reason).toBe('bad-shape')
   })
 
+  // `formFactor` (PR B of #785's follow-up) is how a viewer tells an iPad from an iPhone. A value this
+  // relay does not know yet — an agent newer than it, reporting a form factor added later — must cost
+  // that one field, not the registration: the rejection here is the most expensive one in the
+  // protocol (see above).
+  describe('a device form factor', () => {
+    const register = (formFactor: unknown) =>
+      ({ type: 'agent:register', devices: [{ id: 'd', name: 'iPad', platform: 'ios', status: 'booted', formFactor }] })
+    const device = (r: ReturnType<typeof ok>) => (r.msg as { devices: Array<{ formFactor?: string }> }).devices[0]
+
+    it.each(['phone', 'tablet', 'foldable'])('keeps %s', (v) => {
+      expect(device(ok(register(v))).formFactor).toBe(v)
+    })
+
+    // Mutation: a plain `z.enum`. The whole register is refused and the Mac drops out of the list.
+    it('drops a form factor it does not know, and still registers', () => {
+      expect(device(ok(register('watch'))).formFactor).toBeUndefined()
+    })
+
+    it('registers a device that reports none', () => {
+      const r = ok({ type: 'agent:register', devices: [{ id: 'd', name: 'iPhone', platform: 'ios', status: 'booted' }] })
+      expect(device(r).formFactor).toBeUndefined()
+    })
+
+    // Unknown is upward compatibility; not a string is a broken agent — the same line `capabilities`
+    // draws above. Mutation: `.catch(undefined)` over the whole field, which swallows this too.
+    it('still refuses a form factor that is not a string', () => {
+      expect(fail(register(5)).reason).toBe('bad-shape')
+    })
+  })
+
   it('defaults a screenshot format the way the relay used to', () => {
     const raw = { type: 'screenshot:done', sessionId: 's', requestId: 'r', data: 'AAA' }
     expect(ok(raw).msg).toMatchObject({ format: 'png' })
@@ -231,6 +261,24 @@ describe('directionOf replaces the hand-written agent list', () => {
   it('answers for a type parsed before any role exists', () => {
     const r = ok({ type: 'agent:register', platform: 'ios', agentName: 'm', capabilities: [], devices: [] })
     expect(directionOf(r.msg.type)).toBe('agent')
+  })
+})
+
+// #910. The relay forwards the parsed message, not the raw one, so a field this schema does not declare
+// is stripped at the door and never reaches an agent — declaring it is what delivers it.
+describe('input:rotate carries a target', () => {
+  // Mutation: leave `payload` out of the schema. The parse succeeds and the target is gone.
+  it('keeps the target', () => {
+    const r = ok({ type: 'input:rotate', sessionId: 's', payload: { orientation: 'landscape' } })
+    expect(r.msg).toMatchObject({ payload: { orientation: 'landscape' } })
+  })
+
+  it('still takes one with no target, from a dashboard that sends none', () => {
+    ok({ type: 'input:rotate', sessionId: 's' })
+  })
+
+  it('refuses a target it does not name', () => {
+    expect(fail({ type: 'input:rotate', sessionId: 's', payload: { orientation: 'landscapeLeft' } }).reason).toBe('bad-shape')
   })
 })
 

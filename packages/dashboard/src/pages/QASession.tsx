@@ -76,7 +76,7 @@ export function QASession() {
 
   const os = build?.platform ?? 'ios';
   const {
-    sessions, selectedAgent, setSelectedAgent,
+    sessions, activeFormFactor, selectedAgent, setSelectedAgent,
     activeSessionId, deviceId, booting, status,
     connected, agentGroups,
     startDevice, resetDevice, handleBack, handleBackToMacs, handleSessionEnded,
@@ -187,6 +187,8 @@ export function QASession() {
               <DeviceViewer
                 sessionId={activeSessionId}
                 deviceId={deviceId}
+                formFactor={selectedDevice?.formFactor ?? activeFormFactor}
+                platform={os}
                 buildId={build?.id}
                 resetMode={appliedResetMode}
                 onRecordingUploaded={handleRecordingUploaded}

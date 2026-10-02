@@ -118,6 +118,32 @@ describe('useAgentSession', () => {
     expect(result.current.sessions).toEqual(sessions)
   })
 
+  // The list a device was picked from is rebuilt every few seconds and drops a device whose agent is
+  // reconnecting, so the viewer cannot read the form factor off it live — it would blank, and an
+  // iPad's volume tooltips would flip back, for as long as the agent is away. The pick is kept.
+  //
+  // Mutation: stop recording it in `startDevice`.
+  it('keeps the form factor of the device a session was started on', () => {
+    const { result } = renderHook(() => useAgentSession('ios'))
+    act(() => result.current.startDevice({ ...makeDevice(), formFactor: 'tablet' }))
+    act(() => capturedOnMessage({ type: 'agents:listed', sessions: [] }))
+    expect(result.current.activeFormFactor).toBe('tablet')
+  })
+
+  // The pick can carry none — the agent's first lookup failed — and a later listing learn it once a
+  // reconnect's lookup succeeds. That has to be kept too, or the next time the agent drops out the
+  // tooltips fall back to the physical names. Found by CodeRabbit on #911.
+  //
+  // Mutation: only record the form factor in `startDevice`.
+  it('keeps a form factor learned after the pick, through the device leaving the list again', () => {
+    const { result } = renderHook(() => useAgentSession('ios'))
+    const d = makeDevice()
+    act(() => result.current.startDevice(d))
+    act(() => capturedOnMessage({ type: 'agents:listed', sessions: [{ agentName: 'm', platform: 'ios', capabilities: [], devices: [{ ...d, formFactor: 'tablet' }] }] }))
+    act(() => capturedOnMessage({ type: 'agents:listed', sessions: [] }))
+    expect(result.current.activeFormFactor).toBe('tablet')
+  })
+
   it('clears booting flag and sets status on session:joined', async () => {
     const { result } = renderHook(() => useAgentSession('android'))
 

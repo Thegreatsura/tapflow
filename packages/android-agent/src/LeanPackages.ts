@@ -18,6 +18,9 @@
  * returns when it is re-enabled). Photos was measured and left out: it is the only handler of
  * `ACTION_VIEW image/*`, so an app's "open photo" would fail. Messages, Gmail and Maps are left
  * out for the same reason — SMS, `mailto:` and `geo:` intents.
+ *
+ * **The same judgement scopes `StorageReclaim`**, which rolls back these apps' updates when an
+ * install runs out of space. Adding a package here makes it a rollback target too.
  */
 export const LEAN_PACKAGES = [
   'com.google.android.googlequicksearchbox',

@@ -37,6 +37,10 @@ function langToKeyboard(lang: string): string {
 // device until it finishes, so "never returns" would leave the device clipboard destroyed.
 const CLIPBOARD_CMD_TIMEOUT_MS = 5_000
 
+// The rotation helper's `mach_msg` waits with no timeout, and rotations are queued one behind another
+// (#910), so one that never returns would hold every later rotation — and the boot that waits on one.
+const ROTATE_TIMEOUT_MS = 5_000
+
 // simctl failures reach a user-facing toast. Node's first line is "Command failed: <argv>",
 // which says nothing and echoes the device UDID, so prefer any other line. When there is none
 // (e.g. the timeout path, where stderr is empty) fall back to a plain description rather than
@@ -47,6 +51,7 @@ export function firstLine(e: unknown): string {
   return lines.find((l) => !l.startsWith('Command failed:')) ?? 'the simulator did not respond'
 }
 import type { Device, DeviceStatus } from '@tapflowio/agent-core'
+import type { FormFactor } from '@tapflowio/protocol'
 import { defaultRunner, OutputTooLargeError, type SimctlRunner } from './simctl.js'
 import { KeyboardHelperDaemon } from './KeyboardHelperDaemon.js'
 
@@ -89,6 +94,9 @@ export function isDeviceMissingError(err: unknown): boolean {
  *  carry it — so a caller mid-handshake must NOT restore over it. */
 export class ClipboardTooLargeError extends PlatformError {}
 
+/** Bounds the device-type lookup in `formFactorsByType`. Generous: it runs once per connect. */
+const DEVICE_TYPES_TIMEOUT_MS = 10_000
+
 export class SimctlWrapper {
   private readonly kbd = new KeyboardHelperDaemon()
 
@@ -122,6 +130,27 @@ export class SimctlWrapper {
     }
 
     return devices
+  }
+
+  /**
+   * Device type identifier → form factor, from `simctl list devicetypes`' `productFamily` — the one
+   * listing that carries it; `list devices` does not.
+   *
+   * Read once per `connect()`, the only place it is used, and **never from `listDevices`**: that runs
+   * inside the boot poll, whose per-call timeout is what keeps a wedged CoreSimulatorService from
+   * holding the loop, and an unbounded lookup there would undo it. Bounded here for the same reason.
+   * Rejects on failure; the caller falls back to its last answer, or to none.
+   */
+  async formFactorsByType(): Promise<Map<string, FormFactor>> {
+    const out = await this.runner.execWithOpts({ timeoutMs: DEVICE_TYPES_TIMEOUT_MS }, 'list', 'devicetypes', '-j')
+    const parsed = JSON.parse(out) as { devicetypes?: Array<{ identifier?: string; productFamily?: string }> }
+    const byFamily: Record<string, FormFactor> = { iPhone: 'phone', iPad: 'tablet' }
+    const map = new Map<string, FormFactor>()
+    for (const t of parsed.devicetypes ?? []) {
+      const f = t.productFamily && Object.hasOwn(byFamily, t.productFamily) ? byFamily[t.productFamily] : undefined
+      if (t.identifier && f) map.set(t.identifier, f)
+    }
+    return map
   }
 
   async boot(deviceId: string): Promise<void> {
@@ -355,7 +384,7 @@ export class SimctlWrapper {
   }
 
   async rotate(udid: string, orientation: 'portrait' | 'landscapeLeft' | 'landscapeRight' | 'portraitUpsideDown'): Promise<void> {
-    await execFileAsync(ROTATION_HELPER, [orientation, udid])
+    await execFileAsync(ROTATION_HELPER, [orientation, udid], { timeout: ROTATE_TIMEOUT_MS })
   }
 
   /**

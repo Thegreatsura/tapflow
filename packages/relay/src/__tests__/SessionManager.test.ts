@@ -490,6 +490,30 @@ describe('SessionManager', () => {
     const DEV = { id: 'devA', name: 'iPhone A', platform: 'ios', status: 'booted' }
     const AGENT = { agentId: 'mac-1', agentName: 'the-mac', agentPlatform: 'ios', agentCapabilities: ['clipboard'] }
 
+    // A form factor travels the same road as `osVersion`: one function computes every device field, for
+    // `create` and `rebind` both. The viewer reads it off `agents:listed` to tell an iPad from an iPhone.
+    //
+    // Mutations: leave it out of `agentFields` (both cases fail), or out of `list()` (the first fails).
+    it('carries a device\'s form factor to the list, and takes the new one on rebind', () => {
+      const sm = new SessionManager()
+      const [id] = sm.create(mockSocket(), [{ ...DEV, formFactor: 'tablet' }])
+      expect(sm.list('asker', () => true)[0].devices[0].formFactor).toBe('tablet')
+
+      const ws = mockSocket()
+      sm.rebind(id!, ws, { ...DEV, formFactor: 'phone' }, AGENT)
+      expect(sm.get(id!)?.deviceFormFactor).toBe('phone')
+      expect(sm.list('asker', () => true).flatMap((g) => g.devices)[0].formFactor).toBe('phone')
+    })
+
+    // An agent that cannot tell, or predates the field, rebinding over one that could: absent wins,
+    // because the new register is the truth about the device now.
+    it('clears the form factor when a rebind reports none', () => {
+      const sm = new SessionManager()
+      const [id] = sm.create(mockSocket(), [{ ...DEV, formFactor: 'tablet' }])
+      sm.rebind(id!, mockSocket(), DEV, AGENT)
+      expect(sm.get(id!)?.deviceFormFactor).toBeUndefined()
+    })
+
     it('moves the session off the old socket entirely', () => {
       // The end-to-end tests observe the session surviving; this observes the index itself, which is
       // what the survival rests on. An id left in the old socket's set is reachable by the eviction

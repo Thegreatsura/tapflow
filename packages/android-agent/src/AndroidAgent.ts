@@ -5,9 +5,10 @@ import type {
   AndroidButton, BootAbandonReason, ClipboardErrorPayload, Device, DeviceAgent,
   NetworkControlCapability, NetworkStatePayload, UIElement,
 } from '@tapflowio/agent-core'
+import { formFactorOf } from './avdConfig.js'
 import type {
   AgentControlOutbound, ClipboardReplyBody, OpenUrlReplyBody,
-  AppInstallReplyBody, AppLaunchReplyBody, AppClearStateReplyBody, DevicePosture,
+  AppInstallReplyBody, AppLaunchReplyBody, AppClearStateReplyBody, DevicePosture, FormFactor,
 } from '@tapflowio/protocol'
 import fs from 'fs'
 import path from 'path'
@@ -55,6 +56,7 @@ import type { DisplayMetrics } from './displayMetrics.js'
 import { bootPostureId, parseCurrentPosture, parsePostures } from './postures.js'
 import { EmulatorVideo } from './emulator/EmulatorVideo.js'
 import { LEAN_MARKER_PATH, reconcileLean, type LeanDevice } from './LeanPackages.js'
+import { BootSupersededError, installReclaimingStorage, type ReclaimDevice } from './StorageReclaim.js'
 
 const logger = createLogger('android-agent')
 
@@ -358,6 +360,8 @@ export interface AndroidAgentOptions {
   handshakeTimeoutMs?: number
   /** Lean mode (`agent.lean`): keep bundled Google apps nobody testing needs disabled. See `LeanPackages`. */
   lean?: boolean
+  /** An AVD's form factor by name, for `agent:register`. Defaults to reading its config.ini (`avdConfig`). */
+  avdFormFactor?: (avdName: string) => FormFactor | undefined
 }
 
 // Everything inside the per-device clipboard section must be bounded, or one stuck call wedges
@@ -441,6 +445,14 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     ws.send(JSON.stringify(msg))
   }
   private deviceStates = new Map<string, DeviceState>()
+  /**
+   * One queue of rotation commands per device (#910). Each `setRotation` is its own `adb` process, so
+   * two sent back to back can land in either order, and a held ⌘⇧O or a boot reset racing the first
+   * press would leave the device on the earlier target. Keyed here rather than on `DeviceState`
+   * because a re-register replaces the states while a command already in flight keeps running — the
+   * boot reset that follows has to queue behind it, not start fresh beside it.
+   */
+  private readonly rotations = new Map<string, Promise<void>>()
   // Holds a macOS power assertion while connected so the host doesn't idle-throttle the
   // emulator (its software H.264 encoder starves badly when the Mac idles). No-op off macOS.
   private readonly sleepBlocker: SleepBlocker
@@ -456,6 +468,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
   private readonly token?: string
   private readonly handshakeTimeoutMs: number
   private readonly lean: boolean
+  private readonly avdFormFactor: (avdName: string) => FormFactor | undefined
   /** How long a shutdown whose kill failed watches for the emulator to finish exiting. A field so tests can
    *  shorten it — see `handleDeviceShutdown` for why it waits at all. */
   private shutdownSettleMs = 3_000
@@ -467,6 +480,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     this.token = options.token
     this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? 10_000
     this.lean = options.lean ?? false
+    this.avdFormFactor = options.avdFormFactor ?? ((name) => formFactorOf(name))
     this.reconnectDelays = options.reconnectDelays ?? [1000, 2000, 4000, 8000, 16000, 30000]
     // No-op under vitest so the suite never spawns real `caffeinate` processes.
     this.sleepBlocker = options.sleepBlocker ?? (process.env.VITEST ? { acquire() {}, release() {} } : createSleepBlocker())
@@ -524,6 +538,9 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
             platform: d.platform,
             status: d.status,
             osVersion: d.osVersion,
+            // Read here and nowhere else — `listDevices` runs in the boot and refresh paths too, and
+            // the config does not change while the agent is connected.
+            formFactor: this.avdFormFactor(d.name),
           })),
         })
       })
@@ -1342,6 +1359,10 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     // Was a silent return, and the boot went on to answer `device:ready` for a stream that never
     // started (#611). The boot checks this before describing the device or declaring it ready; this is the backstop.
     if (!serial) throw new PlatformError(EMULATOR_GONE)
+    // Ahead of the backend split, so scrcpy stands the device up too: `normaliseOnBoot` runs on the
+    // gRPC path only. Queued with the rotations, so an undo from the viewer this boot replaced lands
+    // first and is then overridden, rather than racing the read.
+    if (!opts.restart) await this.enqueueRotation(state.deviceId, () => this.uprightOnBoot(serial))
 
     // Emulator: capture via gRPC streamScreenshot + Mac VideoToolbox (bypasses the guest SW H.264
     // encoder). On any failure (e.g. an externally-booted emulator without `-grpc`), fall back to
@@ -1375,7 +1396,8 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
       const info = await session.start(serial)
       if (!owns()) throw new StreamSuperseded()
       state.scrcpySession = session
-      state.landscape = false
+      // A restart is not a boot: the viewer stays mounted and keeps the orientation it shows.
+      if (!opts.restart) state.landscape = false
 
       state.displayWidth = info.width
       state.displayHeight = info.height
@@ -1575,7 +1597,8 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     state.emulatorVideo = video
     const info = await video.start()
     if (!owns()) throw new StreamSuperseded()
-    state.landscape = false
+    // A restart is not a boot: the viewer stays mounted and keeps the orientation it shows.
+    if (!opts.restart) state.landscape = false
     // Orientation from the frame, magnitude from `wm size` — see `reconcileScreen` for why neither
     // alone is right. The first frame has already fired `onSizeChange`, but that ran before
     // `state.booted`, so nothing was sent; this settles the values the boot `session:chrome` carries.
@@ -2415,6 +2438,36 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     } catch { return false }
   }
 
+  /** Run `step` after every rotation already queued for this device. A failing step is logged and does
+   *  not stop the ones behind it.
+   *
+   *  **No timeout, unlike iOS.** A hung `adb` would hold this device's queue and the boot waiting on it.
+   *  The boot already awaits other `adb` calls with none (`normaliseOnBoot`), and bounding them means a
+   *  timeout on `AdbRunner.exec` for every caller — a change to make once a hang has been seen. */
+  private enqueueRotation(deviceId: string, step: () => Promise<void>): Promise<void> {
+    const next = (this.rotations.get(deviceId) ?? Promise.resolve())
+      .then(step)
+      .catch((e: unknown) => { logger.warn(`rotate failed: ${(e as Error).message}`) })
+    this.rotations.set(deviceId, next)
+    void next.then(() => { if (this.rotations.get(deviceId) === next) this.rotations.delete(deviceId) })
+    return next
+  }
+
+  /**
+   * Stand a device up for a new session (#910): a fresh viewer always starts portrait, so a device
+   * left turned by an earlier session — or by one whose undo never arrived, as on a reload — would
+   * otherwise stream sideways under an upright frame. Only a device that is already **locked** to a
+   * turn is touched: `wm user-rotation lock` is persistent device state, and writing one onto an
+   * auto-rotating AVD would take auto-rotate away from it outside tapflow too (see `normaliseOnBoot`).
+   * Replacing one lock with another takes nothing away. An unreadable lock is left alone.
+   */
+  private async uprightOnBoot(serial: string): Promise<void> {
+    const lock = await this.adb.getUserRotation(serial)
+    if (lock.mode !== 'lock' || lock.rotation === 0) return
+    logger.info(`rotation: standing the device up from lock ${lock.rotation}`)
+    await this.adb.setRotation(serial, 0)
+  }
+
   private handleRelayMessage(msg: { type: string; sessionId: string; requestId?: string; payload?: unknown }): void {
     switch (msg.type) {
       case 'device:boot': {
@@ -2444,7 +2497,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
         const respond = (body: AppInstallReplyBody) => this.sendMsg({ ...body, sessionId, requestId })
         const state = this.deviceStates.get(sessionId!)
         const serial = state ? this.adb.getSerial(state.deviceId) : undefined
-        if (!serial) {
+        if (!state || !serial) {
           respond({ type: 'app:install-error', message: 'No booted device' })
           break
         }
@@ -2466,7 +2519,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
           // old behaviour is all there is.
           if (!buildTicket || !this.relayUrl) {
             if (bundleId) await this.adb.clearAppData(serial, bundleId).catch(() => {})
-            await this.adb.installApp(serial, filePath)
+            await this.installReclaimingStorage(state, serial, filePath)
             return
           }
           // **This `finally` is new.** Android had no temp directory and so no cleanup; iOS has had
@@ -2481,7 +2534,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
               expectedBytes: buildBytes ?? 0,
             })
             if (bundleId) await this.adb.clearAppData(serial, bundleId).catch(() => {})
-            await this.adb.installApp(serial, dest)
+            await this.installReclaimingStorage(state, serial, dest)
           } finally {
             fs.rmSync(tmpDir, { recursive: true, force: true })
           }
@@ -2617,34 +2670,42 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
         // rotate so rotation-capable apps re-layout. user_rotation=3 = canonical landscape
         // (home-left/punch-right). Portrait-locked apps ignore it — the viewer's CSS handles
         // their cosmetic rotation.
-        const next = !state.landscape
-        state.landscape = next
-        void this.adb.setRotation(serial, next ? 3 : 0)
-          .then(async () => {
-            // **Report it, rather than leaving it to the watcher's next tick.** A rotation changes
-            // the correction the viewer applies but *not* the frame's dimensions — the capture is
-            // the skin, which does not move — so the viewer cannot tell from the stream that
-            // anything happened, and an idle screen sends no new frame to reveal it either. Until
-            // this lands the viewer is holding the picture back; up to two seconds of that reads as
-            // the rotate button doing nothing.
-            // **gRPC only, and the guard is the point.** scrcpy captures with
-            // `capture_orientation=@0`, so its frame never changes shape and the viewer's CSS
-            // quarter is the only thing that rotates it. Reconciling here would report the
-            // rotated `cur=` as the screen: the viewer would then see landscape content, switch
-            // that CSS quarter *off*, and find the frame no longer matches the screen it was told
-            // about — a blank bezel with no way back but pressing rotate again. It would also set
-            // `state.rotation` on a backend whose frames are already natural, which `toDevicePx`
-            // says must never happen.
-            if (!state.grpcClient) return
-            const client = state.grpcClient
-            const changed = await this.reconcileSerial(
-              state, serial, state.videoWidth, state.videoHeight, state.skin, () => state.grpcClient === client)
-            if (changed && state.booted) this.sendChrome(state)
-          })
-          .catch((e: unknown) => {
-            state.landscape = !next
-            logger.warn(`rotate failed: ${(e as Error).message}`)
-          })
+        //
+        // **A target when the viewer sends one, a toggle when it does not** (#910) — an older
+        // dashboard's. `landscape` is read when the step runs, not when it was queued, and written
+        // only once the device took it: a step queued behind another toggles from what that one
+        // applied, and a failed one leaves the memory where the device still is.
+        const sessionId = msg.sessionId
+        const target = (msg.payload as { orientation?: 'portrait' | 'landscape' } | undefined)?.orientation
+        void this.enqueueRotation(state.deviceId, async () => {
+          const live = this.deviceStates.get(sessionId) ?? state
+          const next = target ? target === 'landscape' : !live.landscape
+          await this.adb.setRotation(serial, next ? 3 : 0)
+          live.landscape = next
+          // **Report it, rather than leaving it to the watcher's next tick.** A rotation changes
+          // the correction the viewer applies but *not* the frame's dimensions — the capture is
+          // the skin, which does not move — so the viewer cannot tell from the stream that
+          // anything happened, and an idle screen sends no new frame to reveal it either. Until
+          // this lands the viewer is holding the picture back; up to two seconds of that reads as
+          // the rotate button doing nothing.
+          // **gRPC only, and the guard is the point.** scrcpy captures with
+          // `capture_orientation=@0`, so its frame never changes shape and the viewer's CSS
+          // quarter is the only thing that rotates it. Reconciling here would report the
+          // rotated `cur=` as the screen: the viewer would then see landscape content, switch
+          // that CSS quarter *off*, and find the frame no longer matches the screen it was told
+          // about — a blank bezel with no way back but pressing rotate again. It would also set
+          // `state.rotation` on a backend whose frames are already natural, which `toDevicePx`
+          // says must never happen.
+          if (!live.grpcClient) return
+          const client = live.grpcClient
+          // **Outside the queue.** Settling samples the display until it holds still — 0.6s at best,
+          // 3.6s at worst — and the next rotation, or a boot waiting to stand the device up, must not
+          // wait on that. `reconcileSerial` coalesces per device, so a later pass still runs.
+          void this.reconcileSerial(
+            live, serial, live.videoWidth, live.videoHeight, live.skin, () => live.grpcClient === client)
+            .then((changed) => { if (changed && live.booted) this.sendChrome(live) })
+            .catch((e: unknown) => { logger.warn(`rotate: could not re-read the screen: ${(e as Error).message}`) })
+        })
         break
       }
       case 'input:posture': {
@@ -3224,7 +3285,34 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
   }
 
   async installApp(apkPath: string): Promise<void> {
-    await this.adb.installApp(this.soleLive().serial, apkPath)
+    const { state, serial } = this.soleLive()
+    await this.installReclaimingStorage(state, serial, apkPath)
+  }
+
+  /**
+   * `adb install`, reclaiming space and retrying when the device is full — see `StorageReclaim`.
+   * Only on an emulator this agent launched, and each rollback rechecks the boot, so a shutdown or a
+   * newer boot arriving mid-way stops it the way it stops Lean mode.
+   */
+  private async installReclaimingStorage(state: DeviceState, serial: string, apkPath: string): Promise<void> {
+    const adb = this.adb
+    const seq = state.bootSeq
+    const device: ReclaimDevice = {
+      installedPackages: async () => {
+        const { enabled, disabled } = await adb.packageStates(serial)
+        return new Set([...enabled, ...disabled])
+      },
+      hasUpdates: (pkg) => adb.hasSystemUpdates(serial, pkg),
+      uninstallUpdates: async (pkg) => {
+        if (seq !== state.bootSeq) throw new BootSupersededError()
+        await adb.uninstallSystemUpdates(serial, pkg)
+      },
+    }
+    await installReclaimingStorage({
+      install: () => adb.installApp(serial, apkPath),
+      device,
+      owned: this.ownedDevices.has(state.deviceId),
+    })
   }
 
   async launchApp(packageName: string): Promise<void> {

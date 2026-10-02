@@ -209,6 +209,14 @@ type Unacked = Inbound<
 
 /** Just past `mcp-server`'s 30s shutdown deadline, so an entry outlives every caller still waiting on it. */
 const SHUTDOWN_REQUESTER_TTL_MS = 35_000
+/**
+ * How long a tracked boot lives without an answer. The same horizon as both clients'
+ * `BOOT_DEADLINE_MS`: past it the caller has already timed out, so the entry is pure
+ * bookkeeping. Expiry forgets silently — it sends no failure, because the client timeout
+ * owns that case. This bounds the map, not the boot: it changes nothing about how long a
+ * boot may take, which is #588's question, not this one's.
+ */
+const PENDING_BOOT_TTL_MS = 180_000
 /** Said when a session ends with a shutdown unanswered — which is not the same as the shutdown failing. */
 const SHUTDOWN_OUTCOME_LOST =
   'The session ended before its agent confirmed the shutdown, so whether the device shut down is unknown.'
@@ -320,6 +328,9 @@ export class RelayServer {
   private readonly backpressureBytes: number
   private readonly screenshotTimeoutMs: number
   private readonly agentGraceMs: number
+  /** How long a tracked boot lives without an answer. An option so tests can shrink the
+   *  180s horizon; production always takes the default. */
+  private readonly pendingBootTtlMs: number
   private readonly corsAllowed: Set<string>
   // One-shot warning when XFF arrives on a loopback socket but TAPFLOW_TRUSTED_PROXIES is unset.
   private warnedProxyMisconfig = false
@@ -359,7 +370,32 @@ export class RelayServer {
     timer: ReturnType<typeof setTimeout>
   }>()
 
-  constructor(private readonly options: { port: number; publicDir?: string; uploadsDir?: string; idleTimeoutMs?: number; wsBackpressureBytes?: number; screenshotTimeoutMs?: number; uiTreeTimeoutMs?: number; trustedProxies?: string[]; corsOrigins?: string[]; tls?: { cert: string; key: string }; agentGraceMs?: number; tunnel?: TunnelRuntime; tunnelPort?: number }) {
+  /**
+   * In-flight `device:boot` requests, keyed by session and correlator (#885).
+   *
+   * The relay is the only layer that knows which agent socket each boot was actually dispatched
+   * to, so it owns settling the ones a rebind strands. The client cannot tell "issued before the
+   * rebound" from "delivered to the old agent", which is why the previous client-side settle on
+   * `session:rebound` answered boots the new agent was already handling. Entries record the
+   * concrete agent socket from the `device:boot` dispatch, so a rebind invalidates only the boots
+   * tied to the replaced socket and leaves a boot dispatched to the new socket alone.
+   *
+   * Cleared when a correlated `device:ready` or `device:boot-error` arrives, when the boot is
+   * invalidated at rebind, when its session is forgotten or evicted — and by its own expiry
+   * (`PENDING_BOOT_TTL_MS`) when none of those happen first, so a live agent that never answers
+   * cannot pin the entry past every caller that could have waited on it. An absent `requestId`
+   * answers no request (protocol/AGENTS.md 「Lifecycle correlation」), so id-less replies clear
+   * nothing. A leftover entry is harmless: its id names no waiter, so both clients and the
+   * dashboard drop the synthetic error it would produce.
+   */
+  private readonly pendingBoots = new Map<string, {
+    sessionId: string
+    requestId: string
+    agentSocket: WebSocket
+    timer: ReturnType<typeof setTimeout>
+  }>()
+
+  constructor(private readonly options: { port: number; publicDir?: string; uploadsDir?: string; idleTimeoutMs?: number; wsBackpressureBytes?: number; screenshotTimeoutMs?: number; uiTreeTimeoutMs?: number; trustedProxies?: string[]; corsOrigins?: string[]; tls?: { cert: string; key: string }; agentGraceMs?: number; pendingBootTtlMs?: number; tunnel?: TunnelRuntime; tunnelPort?: number }) {
     // 0 on both sides is two ephemeral ports, which is what the tests ask for.
     if (options.tunnelPort !== undefined && options.tunnelPort !== 0 && options.tunnelPort === options.port) {
       throw new Error(`The tunnel port (${options.tunnelPort}) must differ from the relay port. Set TAPFLOW_TUNNEL_PORT to another port.`)
@@ -382,6 +418,7 @@ export class RelayServer {
     const graceEnv = graceRaw ? Number(graceRaw) : NaN
     const graceUsable = Number.isFinite(graceEnv) && graceEnv >= 0
     this.agentGraceMs = options.agentGraceMs ?? (graceUsable ? graceEnv : DEFAULT_AGENT_GRACE_MS)
+    this.pendingBootTtlMs = options.pendingBootTtlMs ?? PENDING_BOOT_TTL_MS
     // Say so rather than only documenting it. Both times this parsing was wrong the symptom was
     // the same — the hold switched off and nothing mentioned it — and somebody who types `15s` is
     // reading their terminal, not the configuration table.
@@ -631,6 +668,9 @@ export class RelayServer {
     this.networkStateRequesters.clear()
     for (const entry of this.shutdownRequesters.values()) clearTimeout(entry.timer)
     this.shutdownRequesters.clear()
+    // Same argument as the holds above: an expiry firing after `stop()` would run against a dead
+    // server, and an unref'd 180s timer still outlives the test runner's process.
+    for (const key of this.pendingBoots.keys()) this.forgetBoot(key)
     const closeTunnel = new Promise<void>((resolve, reject) => {
       // Not listening means `start()` never reached it, or its listen failed; `close()` would reject.
       if (!this.tunnelServer?.listening) return resolve()
@@ -838,6 +878,13 @@ export class RelayServer {
     this.idrRequesters.delete(sessionId)
     this.networkStateRequesters.get(sessionId)?.dispose()
     this.networkStateRequesters.delete(sessionId)
+    // Tracked boots die with the session too (#885 review). These paths — `session:end`,
+    // `session:leave`, the cross-identity removal — bypass `evictAgentSocket`, so without this
+    // the entry outlives the session it names. Harmless but unbounded: a late correlated reply
+    // still clears via `settleBoot`, and `invalidateBootsFor` sends nothing for a gone session,
+    // so this only bounds the map. Scoped by session, never by socket, so a rebound session's
+    // entry — which lives on under the same id — is untouched.
+    this.forgetEvictedBoots(new Set([sessionId]))
   }
 
   /**
@@ -1380,6 +1427,10 @@ export class RelayServer {
         break
       }
       case 'device:boot-error': {
+        // A correlated reply answers a tracked boot, whatever else it does — so the entry goes
+        // even when nobody is left to forward to. An id-less frame answers no request, so it
+        // clears nothing.
+        this.settleBoot(msg.sessionId, msg.requestId)
         const session = this.sessions.get(msg.sessionId)
         if (session?.browserSocket?.readyState === WebSocket.OPEN) {
           session.browserSocket.send(JSON.stringify(raw))
@@ -1413,6 +1464,8 @@ export class RelayServer {
         // rather than an oversight — see `DeviceReady`. So this is a real guard, not a dropped `!`:
         // an agent that omits it resolves no session here, exactly as before.
         if (msg.sessionId === undefined) break
+        // Correlated only: a replay or an old agent's id-less ready answers no tracked boot.
+        this.settleBoot(msg.sessionId, msg.requestId)
         const session = this.sessions.get(msg.sessionId)
         if (!session) break
         this.sessions.updateDeviceStatus(session.id, 'booted')
@@ -1504,6 +1557,9 @@ export class RelayServer {
         // presence check the old line carried is gone because the schema requires the payload — and
         // `external` is deliberately not declared on `DeviceBoot`, since the browser never sends it.
         (msg.payload as Record<string, unknown>)['external'] = this.wsExternal.get(ws) ?? false
+        // Tracked by the socket it actually goes to (#885): a rebind invalidates only the boots
+        // tied to the replaced socket, so a boot dispatched after the rebind stays answerable.
+        this.rememberBoot(msg.sessionId, msg.requestId, boot.session.agentSocket)
         // The parse product, so a key a viewer appended from devtools is gone before the agent sees it.
         boot.session.agentSocket.send(JSON.stringify(msg))
         break
@@ -1775,6 +1831,77 @@ export class RelayServer {
     }
   }
 
+  private bootKey(sessionId: string, requestId: string): string {
+    return `${sessionId} ${requestId}`
+  }
+
+  /** Record a boot against the agent socket it was dispatched to. The door guarantees both ids. */
+  private rememberBoot(sessionId: string, requestId: string, agentSocket: WebSocket): void {
+    const key = this.bootKey(sessionId, requestId)
+    // Replacing, not doubling: a client never reuses a correlator, but forgetting the old timer
+    // here is what keeps a replaced entry from firing after its successor was settled.
+    this.forgetBoot(key)
+    const timer = setTimeout(() => this.forgetBoot(key), this.pendingBootTtlMs)
+    this.pendingBoots.set(key, { sessionId, requestId, agentSocket, timer })
+  }
+
+  /** The one way an entry leaves: every removal path funnels through here so no timer survives it. */
+  private forgetBoot(key: string): void {
+    const pending = this.pendingBoots.get(key)
+    if (!pending) return
+    clearTimeout(pending.timer)
+    this.pendingBoots.delete(key)
+  }
+
+  /**
+   * Drop the tracked boot a correlated reply answers. The key needs no live session: an agent
+   * answering after its session was removed still answers that request. An absent `requestId`
+   * is not the answer to anything, so it drops nothing.
+   */
+  private settleBoot(sessionId: string | undefined, requestId: string | undefined): void {
+    if (typeof sessionId !== 'string' || typeof requestId !== 'string') return
+    this.forgetBoot(this.bootKey(sessionId, requestId))
+  }
+
+  /**
+   * Answer the tracked boots tied to a replaced agent socket (#885). Called after the
+   * `session:rebound` frames are sent, so the client records `needsReboot` first and the error
+   * below is classified with the cause attached. Boots dispatched to any other socket — in
+   * particular to the new agent after the rebind — are left pending.
+   */
+  private invalidateBootsFor(oldSockets: Set<WebSocket>): void {
+    if (oldSockets.size === 0) return
+    for (const [key, pending] of this.pendingBoots.entries()) {
+      if (!oldSockets.has(pending.agentSocket)) continue
+      this.forgetBoot(key)
+      const session = this.sessions.get(pending.sessionId)
+      // `sendTo` skips a socket that is not OPEN, and a session nobody has joined has no
+      // `browserSocket` at all — either way the entry is still gone, so nothing later answers
+      // a request nobody holds.
+      if (!session?.browserSocket) continue
+      this.sendTo(session.browserSocket, {
+        type: 'device:boot-error',
+        sessionId: pending.sessionId,
+        requestId: pending.requestId,
+        message: `session ${pending.sessionId} rebounded to a new agent while this boot was in flight, ` +
+          'and that agent never saw this request',
+      })
+    }
+  }
+
+  /**
+   * Silently drop the tracked boots of sessions that no longer exist. Their callers were already
+   * settled with the better diagnosis (`session:terminated`), so answering as well would send a
+   * second failure for the same request. Scoped to the evicted sessions rather than the socket:
+   * rebound sessions have already moved off it, and their entries are `invalidateBootsFor`'s to
+   * answer, not this one's to drop.
+   */
+  private forgetEvictedBoots(sessionIds: Set<string>): void {
+    for (const [key, pending] of this.pendingBoots.entries()) {
+      if (sessionIds.has(pending.sessionId)) this.forgetBoot(key)
+    }
+  }
+
   /**
    * The agent's socket went away. Keep its sessions and wait for that agent to come back, instead
    * of ending them here — a restarting agent registers about a second later, and until #426 stage 3
@@ -1846,6 +1973,10 @@ export class RelayServer {
     const agentSessions = this.sessions.getAllByAgentSocket(ws)
     if (agentSessions.length === 0) return false
     this.rejectPending(new Set(agentSessions.map((s) => s.id)), 'Agent disconnected')
+    // Their tracked boots go with them, silently: the `session:terminated` below settles those
+    // callers with the better diagnosis. Rebound sessions are not in this set — they moved off
+    // this socket — so their boots survive for `invalidateBootsFor` to answer.
+    this.forgetEvictedBoots(new Set(agentSessions.map((s) => s.id)))
     // Tell whoever is attached before the session stops existing — after `remove()` the socket
     // reference is gone. Without this the browser keeps a live socket addressed to a sessionId the
     // relay no longer knows, so everything it sends is dropped as unknown and nothing streams back:
@@ -1899,6 +2030,10 @@ export class RelayServer {
     // deduplicate — the second card would name a session the agent has never heard of, which is the
     // symptom this whole change is fixing.
     const rebound = new Map<string, string>()
+    // Sockets a rebind actually moved a session off of. Only boots tied to one of these are
+    // stranded: a boot dispatched after the rebind below rides the new socket, and the eviction
+    // further down must not sweep the entries this set protects (see `forgetEvictedBoots`).
+    const reboundOldSockets = new Set<WebSocket>()
     if (identity) {
       for (const old of this.sessions.getAgentSocketsByIdentity(identity, msg.platform)) {
         if (old === ws) continue
@@ -1915,6 +2050,7 @@ export class RelayServer {
           if (!device) continue
           this.sessions.rebind(s.id, ws, device, agent)
           rebound.set(s.deviceId, s.id)
+          reboundOldSockets.add(old)
         }
         // Evict before terminate: the old socket's close fires async, by which point its sessions are
         // gone and its in-flight screenshots would be undiscoverable — reject them here instead.
@@ -1965,6 +2101,11 @@ export class RelayServer {
         this.sendTo(s.browserSocket, { type: 'session:rebound', sessionId, capabilities: msg.capabilities ?? [] })
       }
     }
+    // After the rebound frames, so the client records `needsReboot` before the error below
+    // arrives and classifies it with the cause attached. Only boots tied to the replaced
+    // sockets: a boot sent after the rebind above was dispatched to the new agent, which boots
+    // the device and answers — settling it here would fail a boot that succeeds (#885).
+    this.invalidateBootsFor(reboundOldSockets)
     if (rebound.size > 0) logger.info(`agent restarted — ${rebound.size} session(s) kept across the restart`)
     // The startup banner prints "Waiting for agents..." once and then the relay says nothing either
     // way, so a terminal gives no signal about whether an agent is attached. One line per

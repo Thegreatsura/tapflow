@@ -57,7 +57,7 @@
   },
   "dependencies": {
     "@tapflowio/protocol": "workspace:*",
-    "ws": "^8.21.3"
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@types/node": "^22.20.4",

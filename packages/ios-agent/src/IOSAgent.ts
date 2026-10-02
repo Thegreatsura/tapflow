@@ -9,7 +9,7 @@ import type { BootAbandonReason, ClipboardErrorPayload, Device, DeviceAgent, Net
 import { createLogger, PlatformError, ValidationError, bootAbandonMessage, BOOT_NO_SESSION_STATE, SHUTDOWN_NO_SESSION_STATE, downloadBuild } from '@tapflowio/agent-core'
 import type {
   AgentControlOutbound, InputErrorReason, ClipboardReplyBody, OpenUrlReplyBody,
-  AppInstallReplyBody, AppLaunchReplyBody, AppClearStateReplyBody,
+  AppInstallReplyBody, AppLaunchReplyBody, AppClearStateReplyBody, FormFactor,
 } from '@tapflowio/protocol'
 
 const logger = createLogger('ios-agent')
@@ -219,6 +219,14 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
   }
   private deviceStates = new Map<string, DeviceState>()
   /**
+   * One queue of rotations per device (#910). Each is its own helper process, so two sent back to back
+   * can land in either order, and a held ⌘⇧O or the boot reset racing the first press would leave the
+   * simulator on the earlier target. Keyed here rather than on `DeviceState` because a re-register
+   * replaces the states while a rotation already in flight keeps running — the boot reset that follows
+   * has to queue behind it, not start fresh beside it.
+   */
+  private readonly rotations = new Map<string, Promise<void>>()
+  /**
    * Devices **this agent booted**, by device id.
    *
    * Separate from `DeviceState.booted` because the two answer different questions and have different
@@ -248,6 +256,10 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
   // simulator capture/encode when the Mac is unattended. No-op off macOS.
   private readonly sleepBlocker: SleepBlocker
   private relayUrl: string | null = null
+  /** The last device-type lookup that answered. A udid's type never changes, so on a reconnect whose
+   *  lookup fails this is still right — and the relay overwrites device fields on every register, so
+   *  falling back to nothing would blank a form factor it already had until the next reconnect. */
+  private formFactors = new Map<string, FormFactor>()
   private resourcesTimer: ReturnType<typeof setInterval> | null = null
   private readonly resources = createResourceSampler()
   private _stopping = false
@@ -314,6 +326,19 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     const devices = this.deviceFilter
       ? allDevices.filter((d) => d.name === this.deviceFilter || d.id === this.deviceFilter)
       : allDevices
+    // A `disconnect()` during this await or the one above does not cancel the connect. Every caller
+    // today exits the process on the next line (the CLI's SIGINT handlers); one that keeps running
+    // needs a generation check here before the socket is built.
+    // An answer the lookup cannot give costs the field, not the register: a viewer draws a device with
+    // no form factor as a phone, which is what it did before there was one. A reconnect falls back to
+    // the last answer rather than to none (see `formFactors`).
+    const formFactors = await this.simctl.formFactorsByType().then(
+      (map) => (this.formFactors = map),
+      (e: unknown) => {
+        logger.warn(`device types unavailable, registering with the last known form factors: ${e instanceof Error ? e.message : String(e)}`)
+        return this.formFactors
+      },
+    )
 
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(relayUrl, this.wsClientOptions())
@@ -341,6 +366,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
             platform: d.platform,
             status: d.status,
             osVersion: d.osVersion,
+            formFactor: d.typeId ? formFactors.get(d.typeId) : undefined,
           })),
         })
       })
@@ -813,6 +839,15 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
       await this.network.arm(deviceId).catch((e: unknown) => {
         logger.warn('could not arm the network injection:', (e as Error).message)
       })
+      // **Stand it up (#910).** A fresh viewer always starts portrait, and a simulator left turned —
+      // by a session whose undo never arrived, or one an agent restart reset the memory of — would
+      // otherwise stream sideways under an upright frame, with every later press inverted. Queued with
+      // the rotations, so one still in flight from before a re-register lands first and is overridden.
+      // Best-effort: a failure leaves the simulator where it was, and the boot goes on.
+      await this.enqueueRotation(deviceId, async () => {
+        await this.simctl.rotate(deviceId, 'portrait')
+        state.orientation = 'portrait'
+      })
       // Another await — a multi-second one — and `sendChromeData` below starts a helper process. A
       // shutdown or a newer boot arriving in this gap would otherwise get a helper installed for the
       // device it is taking down — and one that revives itself, so the stale reference outlives the
@@ -1112,6 +1147,17 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     } catch { return false }
   }
 
+  /** Run `step` after every rotation already queued for this device. A failing step is logged and does
+   *  not stop the ones behind it. */
+  private enqueueRotation(deviceId: string, step: () => Promise<void>): Promise<void> {
+    const next = (this.rotations.get(deviceId) ?? Promise.resolve())
+      .then(step)
+      .catch((e: unknown) => { logger.error('rotate failed:', e) })
+    this.rotations.set(deviceId, next)
+    void next.then(() => { if (this.rotations.get(deviceId) === next) this.rotations.delete(deviceId) })
+    return next
+  }
+
   private handleRelayMessage(msg: { type: string; sessionId: string; requestId?: string; payload?: unknown }): void {
     switch (msg.type) {
       case 'device:boot': {
@@ -1249,9 +1295,19 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
       case 'input:rotate': {
         const state = this.deviceStates.get(msg.sessionId)
         if (!state) break
-        state.orientation = state.orientation === 'portrait' ? 'landscapeRight' : 'portrait'
-        this.simctl.rotate(state.deviceId, state.orientation)
-          .catch((e) => logger.error('rotate failed:', e))
+        // **A target when the viewer sends one, a toggle when it does not** (#910) — an older
+        // dashboard's. The memory is read when the step runs, not when it was queued, and written only
+        // once the simulator took it: a step queued behind another toggles from what that one applied.
+        const sessionId = msg.sessionId
+        const target = (msg.payload as { orientation?: 'portrait' | 'landscape' } | undefined)?.orientation
+        void this.enqueueRotation(state.deviceId, async () => {
+          const live = this.deviceStates.get(sessionId) ?? state
+          const next = target
+            ? (target === 'landscape' ? 'landscapeRight' : 'portrait')
+            : (live.orientation === 'portrait' ? 'landscapeRight' : 'portrait')
+          await this.simctl.rotate(live.deviceId, next)
+          live.orientation = next
+        })
         break
       }
       case 'stream:request-idr': {

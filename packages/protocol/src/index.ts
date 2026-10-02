@@ -21,6 +21,11 @@ export interface AgentResources {
   reportedAt: number
 }
 
+/** What kind of device it is, for what the viewer draws around it. A string literal union, not a
+ *  runtime list, so it erases under `import type`; the one runtime copy is the register schema in
+ *  `./validate`, held to this by its tier assertion. */
+export type FormFactor = 'phone' | 'tablet' | 'foldable'
+
 /** What an agent reports about a device in `agent:register`. No `sessionId`/`busy` — the relay
  *  owns those. */
 export interface DeviceReport {
@@ -29,6 +34,10 @@ export interface DeviceReport {
   platform: string
   status: string
   osVersion?: string
+  /** Absent from an agent that predates it, and from one that cannot tell. A relay drops a value it
+   *  does not know rather than refusing the register, so a newer agent's new form factor reaches an
+   *  older viewer as absent — which every consumer reads as "draw it as a phone". */
+  formFactor?: FormFactor
 }
 
 /** A device as the relay lists it, after adding what only the relay knows. Named `DeviceSummary`
@@ -1557,6 +1566,15 @@ export interface InputButton {
 export interface InputRotate {
   type: 'input:rotate'
   sessionId: string
+  /**
+   * Where to turn the device, rather than "turn it" (#910). A toggle has a memory on each side, and the
+   * agent's resets on every re-register while the device stays put — after which an undo meant
+   * "go portrait" turned it landscape and every later press stayed inverted. A target is safe to repeat.
+   *
+   * Optional for skew: an agent that predates it ignores the field and toggles, as before. Without it,
+   * an agent toggles.
+   */
+  payload?: { orientation: 'portrait' | 'landscape' }
 }
 
 /**

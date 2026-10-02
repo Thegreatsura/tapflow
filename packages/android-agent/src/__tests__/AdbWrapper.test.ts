@@ -125,7 +125,105 @@ describe('AdbWrapper', () => {
         stderr: 'Failure [INSTALL_FAILED_VERSION_DOWNGRADE]',
       })
       const wrapper = new AdbWrapper(runner)
-      await expect(wrapper.installApp('emulator-5554', '/tmp/app.apk')).rejects.toBeInstanceOf(ValidationError)
+      await expect(wrapper.installApp('emulator-5554', '/tmp/app.apk')).rejects.toThrow(
+        new ValidationError('INSTALL_FAILED_VERSION_DOWNGRADE'),
+      )
+    })
+
+    // The message measured on a Play Store AVD whose /data had filled with Google app updates,
+    // set in adb's stderr shape (prefix and a stack frame) so the stripping is exercised too.
+    const STREAMED_FULL =
+      "adb: failed to install /tmp/app.apk: Exception occurred while executing 'install':\n" +
+      'android.os.ParcelableException: java.io.IOException: Requested internal only, but not enough space\n' +
+      '\tat android.util.ExceptionUtils.wrap(ExceptionUtils.java:34)\n'
+
+    it.each([
+      ['a streamed install', STREAMED_FULL],
+      ['a Failure code', 'Failure [INSTALL_FAILED_INSUFFICIENT_STORAGE]'],
+      // Not observed: the expected shape of a write that runs out after the size pre-check passed.
+      ['a write that ran out mid-install', 'adb: failed to install /tmp/app.apk: java.io.IOException: write failed: ENOSPC (No space left on device)'],
+    ])('explains a full device for %s instead of passing the raw error through', async (_, stderr) => {
+      const runner = mockRunner()
+      ;(runner.exec as ReturnType<typeof vi.fn>).mockRejectedValueOnce({ stderr })
+      const wrapper = new AdbWrapper(runner)
+      const err = await wrapper.installApp('emulator-5554', '/tmp/app.apk').catch((e: unknown) => e)
+      expect(err).toBeInstanceOf(ValidationError)
+      expect((err as Error).message).toMatch(/^Device storage is full/)
+      expect((err as Error).message).toContain('Full reset')
+      expect((err as Error).message).toContain('disk.dataPartition.size')
+    })
+
+    it('does not read a full device into a build whose name has a colon before the mention', async () => {
+      const runner = mockRunner()
+      const apk = '/tmp/x/1-ab_fix:ENOSPC.apk'
+      ;(runner.exec as ReturnType<typeof vi.fn>).mockRejectedValueOnce({
+        stderr: `adb: failed to install ${apk}: Failure [INSTALL_FAILED_VERSION_DOWNGRADE]`,
+      })
+      const wrapper = new AdbWrapper(runner)
+      await expect(wrapper.installApp('emulator-5554', apk)).rejects.toThrow(
+        new ValidationError('INSTALL_FAILED_VERSION_DOWNGRADE'),
+      )
+    })
+
+    it('does not read a full device into a build whose name mentions one', async () => {
+      const runner = mockRunner()
+      ;(runner.exec as ReturnType<typeof vi.fn>).mockRejectedValueOnce({
+        stderr: 'adb: failed to install /tmp/fix-ENOSPC-not-enough-space.apk: Failure [INSTALL_FAILED_VERSION_DOWNGRADE]',
+      })
+      const wrapper = new AdbWrapper(runner)
+      await expect(wrapper.installApp('emulator-5554', '/tmp/app.apk')).rejects.toThrow(
+        new ValidationError('INSTALL_FAILED_VERSION_DOWNGRADE'),
+      )
+    })
+  })
+
+  describe('system app updates', () => {
+    it('reads an update from a /data/app code path', async () => {
+      const runner = mockRunner()
+      ;(runner.exec as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+        'package:/data/app/~~F4n8==/com.google.android.apps.wellbeing-Na84==/base.apk\n' +
+        'package:/data/app/~~F4n8==/com.google.android.apps.wellbeing-Na84==/split_config.xxhdpi.apk\n',
+      )
+      const wrapper = new AdbWrapper(runner)
+      await expect(wrapper.hasSystemUpdates('emulator-5554', 'com.google.android.apps.wellbeing')).resolves.toBe(true)
+      expect(runner.exec).toHaveBeenCalledWith('-s', 'emulator-5554', 'shell', 'pm', 'path', 'com.google.android.apps.wellbeing')
+    })
+
+    it('reads no update from a /product code path', async () => {
+      const runner = mockRunner()
+      ;(runner.exec as ReturnType<typeof vi.fn>).mockResolvedValueOnce('package:/product/app/YouTube/YouTube.apk\n')
+      const wrapper = new AdbWrapper(runner)
+      await expect(wrapper.hasSystemUpdates('emulator-5554', 'com.google.android.youtube')).resolves.toBe(false)
+    })
+
+    // Measured: `pm` prints Success and exits 1, so adb's exit status rejects the call.
+    it('treats Success on a non-zero exit as success', async () => {
+      const runner = mockRunner()
+      ;(runner.exec as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        Object.assign(new Error('Command failed: adb shell pm uninstall-system-updates'), {
+          code: 1,
+          stdout: 'Uninstalling updates to com.google.android.youtube...\nSuccess\n',
+        }),
+      )
+      const wrapper = new AdbWrapper(runner)
+      await expect(wrapper.uninstallSystemUpdates('emulator-5554', 'com.google.android.youtube')).resolves.toBeUndefined()
+      expect(runner.exec).toHaveBeenCalledWith('-s', 'emulator-5554', 'shell', 'pm', 'uninstall-system-updates', 'com.google.android.youtube')
+    })
+
+    it('fails when pm does not say Success', async () => {
+      const runner = mockRunner()
+      ;(runner.exec as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        Object.assign(new Error('Command failed'), { code: 255, stdout: "\nException occurred while executing 'uninstall-system-updates':\n" }),
+      )
+      const wrapper = new AdbWrapper(runner)
+      await expect(wrapper.uninstallSystemUpdates('emulator-5554', 'com.example.nope')).rejects.toBeInstanceOf(PlatformError)
+    })
+
+    it('fails on a zero exit without Success', async () => {
+      const runner = mockRunner()
+      ;(runner.exec as ReturnType<typeof vi.fn>).mockResolvedValueOnce('Failure\n')
+      const wrapper = new AdbWrapper(runner)
+      await expect(wrapper.uninstallSystemUpdates('emulator-5554', 'com.google.android.youtube')).rejects.toBeInstanceOf(PlatformError)
     })
   })
 
@@ -205,6 +303,28 @@ describe('AdbWrapper', () => {
       await wrapper.setRotation('emulator-5554', 3)
       const calls = (runner.exec as ReturnType<typeof vi.fn>).mock.calls
       expect(calls.every((c) => !c.includes('user_rotation') && !c.includes('accelerometer_rotation'))).toBe(true)
+    })
+  })
+
+  // Outputs measured on API 34 (`Pixel_9_tapflow`, 2026-10-02).
+  //
+  // Mutation: read anything unrecognised as `free`. The boot would then leave a landscape lock alone.
+  describe('getUserRotation', () => {
+    const reading = (out: string) => {
+      const runner = mockRunner()
+      ;(runner.exec as ReturnType<typeof vi.fn>).mockResolvedValue(out)
+      return new AdbWrapper(runner).getUserRotation('emulator-5554')
+    }
+
+    it('reads free and each lock', async () => {
+      await expect(reading('free\n')).resolves.toEqual({ mode: 'free' })
+      await expect(reading('lock 3\n')).resolves.toEqual({ mode: 'lock', rotation: 3 })
+      await expect(reading('lock 0')).resolves.toEqual({ mode: 'lock', rotation: 0 })
+    })
+
+    it('refuses an answer it cannot read', async () => {
+      await expect(reading('Error: argument needs to be either -d, free or lock.')).rejects.toThrow(/rotation lock/)
+      await expect(reading('')).rejects.toThrow(/rotation lock/)
     })
   })
 

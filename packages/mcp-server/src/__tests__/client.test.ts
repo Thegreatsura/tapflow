@@ -1071,8 +1071,8 @@ describe('TapflowClient', () => {
     })
 
     // **The mutation guard for the non-boot half of the design.** Rejecting a non-boot request here is
-    // the obvious-looking change and it is a regression. Boots are the exception, not the rule — see
-    // the #583 block below.
+    // the obvious-looking change and it is a regression. Boots are answered by the relay rather than
+    // settled here — see the #885 block below.
     it('does NOT settle an in-flight request on rebound — the reply can still arrive', async () => {
       echoReply(relay, 'app:install', { type: 'app:install-done', sessionId: 'sess-1' })
       const install = client.installApp('sess-1', 42)
@@ -1267,19 +1267,36 @@ describe('TapflowClient', () => {
       expect(err.message).toMatch(/went away/i)
     }, 15_000)
 
-    // #583. A boot in flight when the rebound arrives can never be answered: the binding a boot
-    // creates is exactly what the rebind loses. Every other request type keeps waiting for its reply
-    // on the new socket — boots are the one exception, settled here by waiter metadata (`isBoot`),
-    // never by prose matching.
-    it('settles a pending boot the moment the session rebounds', async () => {
+    // #885. A rebound settles nothing client-side: the relay answers the boots the rebind
+    // stranded with a correlated `device:boot-error`, because it is the only layer that knows which
+    // agent socket each boot went to. Settling here as well would fail a boot the new agent was
+    // already handling. What the rebound still does is record `needsReboot`, so the relay's error
+    // is classified with the cause attached.
+    //
+    // `true` when the promise is still pending after the window — long enough for a socket round
+    // trip, orders shorter than any deadline under test.
+    const stillPending = (p: Promise<unknown>, ms = 150): Promise<boolean> =>
+      Promise.race([
+        p.then(() => false, () => false),
+        new Promise<boolean>((r) => setTimeout(() => r(true), ms)),
+      ])
+
+    it('leaves a pending boot alone on rebound — the relay answers it', async () => {
       const boot = client.bootDevice('sess-1', 'dev-1')
-      await waitForMessage(relay, 'device:boot')
+      const req = await waitForMessage(relay, 'device:boot')
       relay.send({ type: 'session:rebound', sessionId: 'sess-1', capabilities: [] })
+      expect(await stillPending(boot)).toBe(true)
+      // The relay's answer to the stranded boot, correlated to this request:
+      relay.send({
+        type: 'device:boot-error', sessionId: 'sess-1', requestId: req['requestId'],
+        message: 'session sess-1 rebounded to a new agent while this boot was in flight',
+      })
       const err = await boot.catch((e: unknown) => e) as Error
       expect(err).toBeInstanceOf(Error)
       // The session is alive, only its device binding is gone — never the terminated shape.
       expect(err).not.toBeInstanceOf(SessionEndedError)
-      expect(err.message).toMatch(/Boot failed/)
+      // The relay's prose, not the old client-side "Boot failed" prefix: this failure is built
+      // from the correlated `device:boot-error` the relay sent, via `failed()`.
       expect(err.message).toContain('sess-1')
       expect(err.message).toMatch(/rebounded/)
       expect(err.message).toContain('the agent reconnected and cleared its device binding')
@@ -1288,10 +1305,14 @@ describe('TapflowClient', () => {
     // The rejection above would be worthless if the tools layer read it as product. This feeds the
     // exact rejection through `makeFlowDriver`'s guard — the classifier every `run_flow` step failure
     // travels through — and holds the environmental retype there instead of trusting the prose.
-    it('classifies the invalidated boot as environmental through the tools guard', async () => {
+    it('classifies a relay-settled stranded boot as environmental through the tools guard', async () => {
       const boot = client.bootDevice('sess-1', 'dev-1')
-      await waitForMessage(relay, 'device:boot')
+      const req = await waitForMessage(relay, 'device:boot')
       relay.send({ type: 'session:rebound', sessionId: 'sess-1', capabilities: [] })
+      relay.send({
+        type: 'device:boot-error', sessionId: 'sess-1', requestId: req['requestId'],
+        message: 'session sess-1 rebounded to a new agent while this boot was in flight',
+      })
       const bootErr = await boot.catch((e: unknown) => e)
       const fake = { tap: async (): Promise<never> => { throw bootErr } } as unknown as TapflowClient
       const err = await makeFlowDriver(fake, 'sess-1').tap(0.5, 0.5).catch((e: unknown) => e)
@@ -1300,13 +1321,18 @@ describe('TapflowClient', () => {
       expect((err as Error).cause).toBe(bootErr)
     })
 
-    // A boot issued *after* the rebound is the recovery boot that restores the binding. Settling is
-    // synchronous at dispatch, so only waiters already registered are touched — this one must survive
-    // the rebound and still be answerable.
-    it('leaves a boot issued after the rebound pending — it is the recovery boot', async () => {
+    // A boot issued *after* the rebound is the recovery boot that restores the binding. The rebound
+    // settles nothing here, so this one must survive it and still be answerable — and the stranded
+    // boot it replaces is answered by the relay, not by this dispatch.
+    it('answers a boot issued after the rebound normally — it is the recovery boot', async () => {
       const stale = client.bootDevice('sess-1', 'dev-1')
-      await waitForMessage(relay, 'device:boot')
+      const staleReq = await waitForMessage(relay, 'device:boot')
       relay.send({ type: 'session:rebound', sessionId: 'sess-1', capabilities: [] })
+      expect(await stillPending(stale)).toBe(true)
+      relay.send({
+        type: 'device:boot-error', sessionId: 'sess-1', requestId: staleReq['requestId'],
+        message: 'session sess-1 rebounded to a new agent while this boot was in flight',
+      })
       await expect(stale).rejects.toBeInstanceOf(Error)
       echoReply(relay, 'device:boot', { type: 'device:ready', sessionId: 'sess-1' })
       const recovery = client.bootDevice('sess-1', 'dev-1')
@@ -1324,10 +1350,10 @@ describe('TapflowClient', () => {
 
     it("leaves another session's boot waiter alone on rebound", async () => {
       const mine = client.bootDevice('sess-1', 'dev-1')
-      await waitForMessage(relay, 'device:boot')
+      const mineReq = await waitForMessage(relay, 'device:boot')
       const other = client.bootDevice('sess-2', 'dev-2')
-      // `waitForMessage` returns the first match, which is the other session's request — wait for
-      // this session's own request instead, or the ready below would carry the wrong correlator.
+      // `waitForMessage` returns the first match, which is this session's request — wait for the
+      // other session's own request instead, or the ready below would carry the wrong correlator.
       const otherReq = await new Promise<Record<string, unknown>>((resolve, reject) => {
         const check = setInterval(() => {
           const found = relay.sentMessages().find((m) => m['type'] === 'device:boot' && m['sessionId'] === 'sess-2')
@@ -1336,11 +1362,17 @@ describe('TapflowClient', () => {
         const timer = setTimeout(() => { clearInterval(check); reject(new Error('no sess-2 boot arrived')) }, 2000)
       })
       relay.send({ type: 'session:rebound', sessionId: 'sess-1', capabilities: [] })
-      await expect(mine).rejects.toBeInstanceOf(Error)
-      // Only the other session's boot is still waiting: answering it resolves, proving the rebound
-      // settled nothing outside its session.
+      // Neither settles on the rebound itself; the other session's boot answers normally.
+      expect(await stillPending(mine)).toBe(true)
       relay.send({ type: 'device:ready', sessionId: 'sess-2', requestId: otherReq['requestId'] })
       await expect(other).resolves.toBeUndefined()
+      // And this session's stranded boot is answered by the relay, with the cause attached.
+      relay.send({
+        type: 'device:boot-error', sessionId: 'sess-1', requestId: mineReq['requestId'],
+        message: 'session sess-1 rebounded to a new agent while this boot was in flight',
+      })
+      const err = await mine.catch((e: unknown) => e) as Error
+      expect(err.message).toContain('the agent reconnected and cleared its device binding')
     })
   })
 

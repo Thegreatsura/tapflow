@@ -145,7 +145,7 @@ import { hasEnvelope, readEnvelopeFlags, CODEC_H264, CODEC_JPEG } from '@tapflow
 import { AndroidAgent, pickAndroidBackend, parseSpsFromNal, toNaturalPoint } from '../AndroidAgent'
 import { isPosturable, SHUTDOWN_NO_SESSION_STATE } from '@tapflowio/agent-core'
 import type { SkinRotation } from '../emulator/EmulatorGrpcClient'
-import { AdbWrapper } from '../AdbWrapper'
+import { AdbWrapper, StorageFullError } from '../AdbWrapper'
 import { ScrcpySession } from '../scrcpy/ScrcpySession'
 import { EmulatorVideo } from '../emulator/EmulatorVideo'
 import { EmulatorGrpcClient } from '../emulator/EmulatorGrpcClient'
@@ -211,6 +211,7 @@ interface AndroidAgentInternals {
   reconcileScreen(state: TestState, serial: string, frameW: number, frameH: number, skin: SkinRotation | null): Promise<boolean>
   toDevicePx(state: TestState, x: number, y: number): { px: number; py: number }
   normaliseOnBoot(state: TestState, serial: string): Promise<void>
+  uprightOnBoot(serial: string): Promise<void>
   watchScreen(state: TestState, serial: string, skin: SkinRotation): void
 }
 const internals = (agent: AndroidAgent): AndroidAgentInternals =>
@@ -228,6 +229,8 @@ function mockAdb(booted = false): AdbWrapper {
   // `unsupported-device` path — a default device that is a device tapflow cannot steer. The
   // network tests spy over this; everyone else just gets a device that is on the network.
   vi.spyOn(adb, 'airplaneMode').mockResolvedValue(false)
+  // Every boot reads the rotation lock (#910); an auto-rotating device is the one it leaves alone.
+  vi.spyOn(adb, 'getUserRotation').mockResolvedValue({ mode: 'free' })
   if (booted) adb.setSerial('avd:Pixel_8_API_34', 'emulator-5554')
   vi.spyOn(adb, 'listDevices').mockResolvedValue([{
     id: 'avd:Pixel_8_API_34',
@@ -295,6 +298,25 @@ describe('AndroidAgent', () => {
       agent.disconnect()
       relayWs.close()
       void registerPromise
+    })
+
+    // The dashboard draws the boot skeleton from this before the device is up. Read from each AVD's
+    // config.ini by name, at register only. Mutations: leave it out of the register literal (the
+    // explicit field list there is what drops anything not named); look it up by the device id
+    // (`avd:<name>`) rather than the AVD name.
+    it('registers each AVD with the form factor its config gives', async () => {
+      const avdFormFactor = vi.fn((name: string) => (name === 'Pixel_8_API_34' ? 'tablet' as const : undefined))
+      const agent = new AndroidAgent({ avdFormFactor }, mockAdb())
+      const relayWs = new WebSocket(`ws://localhost:${port}`)
+      await waitForOpen(relayWs)
+      await agent.connect(`ws://localhost:${port}`)
+      relayWs.send(JSON.stringify({ type: 'agents:list' }))
+      const listed = await waitForType(relayWs, 'agents:listed')
+      const sessions = listed['sessions'] as Array<{ devices: Array<{ formFactor?: string }> }>
+      expect(sessions[0].devices[0].formFactor).toBe('tablet')
+      expect(avdFormFactor).toHaveBeenCalledWith('Pixel_8_API_34')
+      agent.disconnect()
+      relayWs.close()
     })
 
     it('registers one session per device', async () => {
@@ -1923,6 +1945,86 @@ describe('AndroidAgent', () => {
     })
   })
 
+  // #918: a full device is reclaimed and the install retried — but only on an emulator tapflow
+  // launched. Mutation: drop the `owned` gate, and the second test rolls back a developer's own apps.
+  describe('app:install on a full device', () => {
+    async function bootAndInstall(owned: boolean) {
+      const adb = mockAdb(true)
+      const install = vi.spyOn(adb, 'installApp')
+        .mockRejectedValueOnce(new StorageFullError())
+        .mockResolvedValue(undefined)
+      vi.spyOn(adb, 'packageStates').mockResolvedValue({ enabled: new Set(['android', LEAN_PACKAGES[0]]), disabled: new Set() })
+      vi.spyOn(adb, 'hasSystemUpdates').mockResolvedValue(true)
+      const rollback = vi.spyOn(adb, 'uninstallSystemUpdates').mockResolvedValue(undefined)
+      const agent = new AndroidAgent({}, adb)
+      await agent.connect(`ws://localhost:${port}`)
+      const browser = new WebSocket(`ws://localhost:${port}`)
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'session:start', sessionId: agent.sessionId }))
+      await waitForType(browser, 'session:joined')
+      browser.send(JSON.stringify({
+        type: 'device:boot', requestId: 'rq-full-boot', sessionId: agent.sessionId,
+        payload: { deviceId: 'avd:Pixel_8_API_34' },
+      }))
+      await waitForType(browser, 'device:ready')
+      if (owned) (agent as unknown as { ownedDevices: Set<string> }).ownedDevices.add('avd:Pixel_8_API_34')
+      ;(agent as unknown as { relayUrl: string | null }).relayUrl = null
+      agent['handleRelayMessage']({
+        type: 'app:install', sessionId: agent.sessionId!, requestId: 'rq-full',
+        payload: { filePath: '/tmp/App.apk' },
+      })
+      return { agent, browser, install, rollback }
+    }
+
+    it('rolls back a Lean package and installs on an emulator tapflow launched', async () => {
+      const { agent, browser, install, rollback } = await bootAndInstall(true)
+      const done = await waitForType(browser, 'app:install-done')
+      expect(done['requestId']).toBe('rq-full')
+      expect(rollback).toHaveBeenCalledWith('emulator-5554', LEAN_PACKAGES[0])
+      expect(install).toHaveBeenCalledTimes(2)
+      agent.disconnect(); browser.close()
+    })
+
+    // Mutation: drop the bootSeq recheck in `uninstallUpdates`, and a boot superseded while the
+    // install ran still has its apps rolled back.
+    it('does not roll back once the boot it started on has been superseded', async () => {
+      const adb = mockAdb(true)
+      vi.spyOn(adb, 'installApp').mockRejectedValue(new StorageFullError())
+      vi.spyOn(adb, 'hasSystemUpdates').mockResolvedValue(true)
+      const rollback = vi.spyOn(adb, 'uninstallSystemUpdates').mockResolvedValue(undefined)
+      const agent = new AndroidAgent({}, adb)
+      await agent.connect(`ws://localhost:${port}`)
+      const browser = new WebSocket(`ws://localhost:${port}`)
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'session:start', sessionId: agent.sessionId }))
+      await waitForType(browser, 'session:joined')
+      browser.send(JSON.stringify({
+        type: 'device:boot', requestId: 'rq-super-boot', sessionId: agent.sessionId,
+        payload: { deviceId: 'avd:Pixel_8_API_34' },
+      }))
+      await waitForType(browser, 'device:ready')
+      ;(agent as unknown as { ownedDevices: Set<string> }).ownedDevices.add('avd:Pixel_8_API_34')
+      const state = (agent as unknown as { deviceStates: Map<string, { bootSeq: number }> }).deviceStates.get(agent.sessionId!)
+      // A newer boot lands while the package list is read.
+      vi.spyOn(adb, 'packageStates').mockImplementation(async () => {
+        state!.bootSeq++
+        return { enabled: new Set(['android', LEAN_PACKAGES[0]]), disabled: new Set() }
+      })
+      await expect(agent.installApp('/tmp/App.apk')).rejects.toBeInstanceOf(StorageFullError)
+      expect(rollback).not.toHaveBeenCalled()
+      agent.disconnect(); browser.close()
+    })
+
+    it('leaves an emulator it only attached to alone and says the device is full', async () => {
+      const { agent, browser, install, rollback } = await bootAndInstall(false)
+      const err = await waitForType(browser, 'app:install-error')
+      expect(err['message']).toMatch(/^Device storage is full/)
+      expect(rollback).not.toHaveBeenCalled()
+      expect(install).toHaveBeenCalledTimes(1)
+      agent.disconnect(); browser.close()
+    })
+  })
+
   describe('busy session', () => {
     it('rejects second browser joining the same session', async () => {
       const adb = mockAdb()
@@ -2369,21 +2471,95 @@ describe('AndroidAgent', () => {
     })
 
     describe('input — rotate', () => {
-      it('toggles landscape and asks the device to rotate to canonical landscape (3)', () => {
+      // An older dashboard sends no target, and toggles.
+      it('toggles landscape and asks the device to rotate to canonical landscape (3)', async () => {
         const rotateSpy = vi.spyOn(adb, 'setRotation')
         expect(getState().landscape).toBe(false)
 
         inject({ type: 'input:rotate' })
+        await vi.waitFor(() => expect(getState().landscape).toBe(true))
         expect(rotateSpy).toHaveBeenCalledWith('emulator-5554', 3)
-        expect(getState().landscape).toBe(true)
       })
 
-      it('rotates back to portrait (0) on the second toggle', () => {
+      it('rotates back to portrait (0) on the second toggle', async () => {
         const rotateSpy = vi.spyOn(adb, 'setRotation')
         inject({ type: 'input:rotate' })
         inject({ type: 'input:rotate' })
+        await vi.waitFor(() => expect(rotateSpy).toHaveBeenCalledTimes(2))
         expect(rotateSpy).toHaveBeenNthCalledWith(2, 'emulator-5554', 0)
         expect(getState().landscape).toBe(false)
+      })
+
+      // #910: a target is safe to repeat, which is what makes the viewer's unmount undo correct
+      // against an agent whose memory was reset by a re-register.
+      //
+      // Mutation: ignore the payload. The second `landscape` toggles back to portrait.
+      it('goes to the target it is given, however often', async () => {
+        const rotateSpy = vi.spyOn(adb, 'setRotation')
+        inject({ type: 'input:rotate', payload: { orientation: 'landscape' } })
+        inject({ type: 'input:rotate', payload: { orientation: 'landscape' } })
+        inject({ type: 'input:rotate', payload: { orientation: 'portrait' } })
+        await vi.waitFor(() => expect(rotateSpy).toHaveBeenCalledTimes(3))
+        expect(rotateSpy.mock.calls.map((c) => c[1])).toEqual([3, 3, 0])
+        expect(getState().landscape).toBe(false)
+      })
+
+      // Each `setRotation` is its own adb process. Without the queue, the second starts before the
+      // first lands, and the device ends on whichever finishes last.
+      //
+      // Mutation: call `step` directly instead of chaining it. The portrait call starts while the
+      // landscape one is still pending.
+      it('sends one rotation at a time, in the order they came', async () => {
+        let release!: () => void
+        const rotateSpy = vi.spyOn(adb, 'setRotation')
+          .mockImplementationOnce(() => new Promise<void>((r) => { release = r }))
+        inject({ type: 'input:rotate', payload: { orientation: 'landscape' } })
+        inject({ type: 'input:rotate', payload: { orientation: 'portrait' } })
+        await vi.waitFor(() => expect(rotateSpy).toHaveBeenCalledTimes(1))
+        await new Promise((r) => setTimeout(r, 20))
+        expect(rotateSpy).toHaveBeenCalledTimes(1)
+        release()
+        await vi.waitFor(() => expect(rotateSpy).toHaveBeenCalledTimes(2))
+        expect(rotateSpy.mock.calls.map((c) => c[1])).toEqual([3, 0])
+      })
+
+      // The memory is what an older dashboard's next toggle reads, so it has to say where the device
+      // is. A failed rotation left the device where it was.
+      //
+      // Mutation: write the memory before the device answers. The failed `landscape` then leaves the
+      // memory landscape over a portrait device, and the next toggle goes nowhere.
+      it('keeps the memory where the device is when a rotation fails, and goes on with the next', async () => {
+        const rotateSpy = vi.spyOn(adb, 'setRotation').mockRejectedValueOnce(new Error('adb went away'))
+        inject({ type: 'input:rotate', payload: { orientation: 'landscape' } })
+        await vi.waitFor(() => expect(rotateSpy).toHaveBeenCalledTimes(1))
+        await new Promise((r) => setTimeout(r, 10))
+        expect(getState().landscape).toBe(false)
+        inject({ type: 'input:rotate' })
+        await vi.waitFor(() => expect(rotateSpy).toHaveBeenCalledTimes(2))
+        expect(rotateSpy).toHaveBeenLastCalledWith('emulator-5554', 3)
+      })
+
+      // A restart keeps the viewer mounted, and it keeps showing landscape — so neither the device
+      // nor an older dashboard's next toggle may be put back to portrait.
+      //
+      // Mutations: reset `landscape` on a restart too; stand the device up on a restart too.
+      it('keeps the memory, and the device, across a stream restart', async () => {
+        inject({ type: 'input:rotate', payload: { orientation: 'landscape' } })
+        await vi.waitFor(() => expect(getState().landscape).toBe(true))
+        vi.mocked(adb.getUserRotation).mockResolvedValue({ mode: 'lock', rotation: 3 })
+        const rotateSpy = vi.spyOn(adb, 'setRotation')
+        rotateSpy.mockClear()
+        await internals(agent).restartVideoStream(getState())
+        expect(getState().landscape).toBe(true)
+        expect(rotateSpy).not.toHaveBeenCalled()
+      })
+
+      // scrcpy does not go through `normaliseOnBoot`, so a reset placed there would miss it. This
+      // suite boots on scrcpy.
+      //
+      // Mutation: move the reset into `normaliseOnBoot`.
+      it('reads the rotation lock on a scrcpy boot', () => {
+        expect(adb.getUserRotation).toHaveBeenCalledWith('emulator-5554')
       })
     })
 
@@ -4230,6 +4406,45 @@ describe('reconcileScreen (the wiring, not the arithmetic)', () => {
   })
 })
 
+// #910: a session starts upright on both platforms, because a fresh viewer does.
+describe('standing a device up on boot', () => {
+  const upright = async (lock: Awaited<ReturnType<AdbWrapper['getUserRotation']>> | Error) => {
+    const adb = mockAdb(true)
+    if (lock instanceof Error) vi.spyOn(adb, 'getUserRotation').mockRejectedValue(lock)
+    else vi.spyOn(adb, 'getUserRotation').mockResolvedValue(lock)
+    const set = vi.spyOn(adb, 'setRotation').mockResolvedValue(undefined)
+    const agent = new AndroidAgent({}, adb)
+    const outcome = internals(agent).uprightOnBoot('emulator-5554')
+    return { outcome, set }
+  }
+
+  // Mutation: reset only 1 and 3. Upside down (2) is left by a fold carried across at 180, and on
+  // scrcpy it shows the picture inverted.
+  it.each([3, 2, 1] as const)('stands a device locked at %i back at 0', async (rotation) => {
+    const { outcome, set } = await upright({ mode: 'lock', rotation })
+    await outcome
+    expect(set).toHaveBeenCalledWith('emulator-5554', 0)
+  })
+
+  // The recorded decision in `normaliseOnBoot`: a lock written onto an auto-rotating AVD takes
+  // auto-rotate away from it outside tapflow too.
+  //
+  // Mutation: lock 0 whatever the reading.
+  it('leaves an auto-rotating device, and one already upright, alone', async () => {
+    for (const lock of [{ mode: 'free' } as const, { mode: 'lock', rotation: 0 } as const]) {
+      const { outcome, set } = await upright(lock)
+      await outcome
+      expect(set).not.toHaveBeenCalled()
+    }
+  })
+
+  it('writes nothing when the lock cannot be read', async () => {
+    const { outcome, set } = await upright(new Error('Cannot read the rotation lock'))
+    await expect(outcome).rejects.toThrow(/rotation lock/)
+    expect(set).not.toHaveBeenCalled()
+  })
+})
+
 describe('what a rotation does on each backend', () => {
   const stateOn = (backend: 'grpc' | 'scrcpy') => ({
     deviceId: 'avd:Pixel_8_API_34', sessionId: 's1', landscape: false, booted: true,
@@ -4256,6 +4471,24 @@ describe('what a rotation does on each backend', () => {
     await new Promise((r) => setTimeout(r, 60))
     return { metrics, state }
   }
+
+  // Settling the display after a rotation samples it until it holds still — up to 3.6s. That ran in
+  // the background before rotations were queued (#910), and has to stay there: inside the queue it
+  // held every later rotation, and the boot waiting to stand the device up, for that long.
+  //
+  // Mutation: await the re-read inside the queued step.
+  it('does not hold the next rotation while the screen is re-read', async () => {
+    const adb = mockAdb(true)
+    const set = vi.spyOn(adb, 'setRotation').mockResolvedValue(undefined)
+    const agent = new AndroidAgent({}, adb)
+    vi.spyOn(agent as unknown as { reconcileSerial(): Promise<boolean> }, 'reconcileSerial')
+      .mockReturnValue(new Promise<boolean>(() => {}))
+    internals(agent).deviceStates.set('s1', stateOn('grpc'))
+    internals(agent).handleRelayMessage({ type: 'input:rotate', sessionId: 's1', payload: { orientation: 'landscape' } })
+    internals(agent).handleRelayMessage({ type: 'input:rotate', sessionId: 's1', payload: { orientation: 'portrait' } })
+    await vi.waitFor(() => expect(set).toHaveBeenCalledTimes(2))
+    expect(set.mock.calls.map((c) => c[1])).toEqual([3, 0])
+  })
 
   it('does not re-describe the screen on scrcpy, which would blank the viewer', async () => {
     // **The regression this guard exists for.** scrcpy captures with `capture_orientation=@0`, so
