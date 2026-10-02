@@ -12,6 +12,12 @@ export function encodeAdbInputText(text: string): string {
 
 const NO_FILE = '__TAPFLOW_NO_FILE__'
 
+// Play Store images fill /data on their own as Google apps update in the background, so this is
+// usually not the build's fault.
+const STORAGE_FULL_MESSAGE =
+  "Device storage is full — Play Store updates to Google apps fill it over time. Run Full reset to clear it; " +
+  "for a larger partition, raise disk.dataPartition.size in the AVD's config.ini before resetting."
+
 export class AdbWrapper {
   // avdId ("avd:<name>") → ADB serial ("emulator-5554")
   private readonly serialMap = new Map<string, string>()
@@ -233,6 +239,11 @@ export class AdbWrapper {
     } catch (e) {
       const stderr = (e as { stderr?: string }).stderr?.trim()
       if (stderr) {
+        // Before the Failure match, which would reduce INSUFFICIENT_STORAGE to a bare code. ENOSPC is
+        // the same condition hit mid-write, after the size pre-check had passed. No
+        // wipe-free remedy exists: on a metadata-encrypted user build the partition cannot be
+        // grown in place (tried both config.ini and `qemu-img resize`), so the advice is a reset.
+        if (/not enough space|INSUFFICIENT_STORAGE|No space left on device|ENOSPC/i.test(stderr)) throw new ValidationError(STORAGE_FULL_MESSAGE)
         // "Failure [INSTALL_FAILED_...]" → show just the code
         const failureMatch = stderr.match(/Failure\s*\[(.+?)\]/)
         if (failureMatch) throw new ValidationError(failureMatch[1])

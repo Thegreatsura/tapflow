@@ -125,7 +125,30 @@ describe('AdbWrapper', () => {
         stderr: 'Failure [INSTALL_FAILED_VERSION_DOWNGRADE]',
       })
       const wrapper = new AdbWrapper(runner)
-      await expect(wrapper.installApp('emulator-5554', '/tmp/app.apk')).rejects.toBeInstanceOf(ValidationError)
+      await expect(wrapper.installApp('emulator-5554', '/tmp/app.apk')).rejects.toThrow(
+        new ValidationError('INSTALL_FAILED_VERSION_DOWNGRADE'),
+      )
+    })
+
+    // Verbatim from a Play Store AVD whose /data had filled with Google app updates.
+    const STREAMED_FULL =
+      "adb: failed to install /tmp/app.apk: Exception occurred while executing 'install':\n" +
+      'android.os.ParcelableException: java.io.IOException: Requested internal only, but not enough space\n' +
+      '\tat android.util.ExceptionUtils.wrap(ExceptionUtils.java:34)\n'
+
+    it.each([
+      ['a streamed install', STREAMED_FULL],
+      ['a Failure code', 'Failure [INSTALL_FAILED_INSUFFICIENT_STORAGE]'],
+      ['a write that ran out mid-install', 'adb: failed to install /tmp/app.apk: java.io.IOException: write failed: ENOSPC (No space left on device)'],
+    ])('explains a full device for %s instead of passing the raw error through', async (_, stderr) => {
+      const runner = mockRunner()
+      ;(runner.exec as ReturnType<typeof vi.fn>).mockRejectedValueOnce({ stderr })
+      const wrapper = new AdbWrapper(runner)
+      const err = await wrapper.installApp('emulator-5554', '/tmp/app.apk').catch((e: unknown) => e)
+      expect(err).toBeInstanceOf(ValidationError)
+      expect((err as Error).message).toMatch(/^Device storage is full/)
+      expect((err as Error).message).toContain('Full reset')
+      expect((err as Error).message).toContain('disk.dataPartition.size')
     })
   })
 
