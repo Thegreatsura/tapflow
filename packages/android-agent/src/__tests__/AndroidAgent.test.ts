@@ -145,7 +145,7 @@ import { hasEnvelope, readEnvelopeFlags, CODEC_H264, CODEC_JPEG } from '@tapflow
 import { AndroidAgent, pickAndroidBackend, parseSpsFromNal, toNaturalPoint } from '../AndroidAgent'
 import { isPosturable, SHUTDOWN_NO_SESSION_STATE } from '@tapflowio/agent-core'
 import type { SkinRotation } from '../emulator/EmulatorGrpcClient'
-import { AdbWrapper } from '../AdbWrapper'
+import { AdbWrapper, StorageFullError } from '../AdbWrapper'
 import { ScrcpySession } from '../scrcpy/ScrcpySession'
 import { EmulatorVideo } from '../emulator/EmulatorVideo'
 import { EmulatorGrpcClient } from '../emulator/EmulatorGrpcClient'
@@ -1941,6 +1941,86 @@ describe('AndroidAgent', () => {
       const done = await waitForType(browser, 'app:install-done')
       expect(done['requestId']).toBe('rq-nourl2')
 
+      agent.disconnect(); browser.close()
+    })
+  })
+
+  // #918: a full device is reclaimed and the install retried — but only on an emulator tapflow
+  // launched. Mutation: drop the `owned` gate, and the second test rolls back a developer's own apps.
+  describe('app:install on a full device', () => {
+    async function bootAndInstall(owned: boolean) {
+      const adb = mockAdb(true)
+      const install = vi.spyOn(adb, 'installApp')
+        .mockRejectedValueOnce(new StorageFullError())
+        .mockResolvedValue(undefined)
+      vi.spyOn(adb, 'packageStates').mockResolvedValue({ enabled: new Set(['android', LEAN_PACKAGES[0]]), disabled: new Set() })
+      vi.spyOn(adb, 'hasSystemUpdates').mockResolvedValue(true)
+      const rollback = vi.spyOn(adb, 'uninstallSystemUpdates').mockResolvedValue(undefined)
+      const agent = new AndroidAgent({}, adb)
+      await agent.connect(`ws://localhost:${port}`)
+      const browser = new WebSocket(`ws://localhost:${port}`)
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'session:start', sessionId: agent.sessionId }))
+      await waitForType(browser, 'session:joined')
+      browser.send(JSON.stringify({
+        type: 'device:boot', requestId: 'rq-full-boot', sessionId: agent.sessionId,
+        payload: { deviceId: 'avd:Pixel_8_API_34' },
+      }))
+      await waitForType(browser, 'device:ready')
+      if (owned) (agent as unknown as { ownedDevices: Set<string> }).ownedDevices.add('avd:Pixel_8_API_34')
+      ;(agent as unknown as { relayUrl: string | null }).relayUrl = null
+      agent['handleRelayMessage']({
+        type: 'app:install', sessionId: agent.sessionId!, requestId: 'rq-full',
+        payload: { filePath: '/tmp/App.apk' },
+      })
+      return { agent, browser, install, rollback }
+    }
+
+    it('rolls back a Lean package and installs on an emulator tapflow launched', async () => {
+      const { agent, browser, install, rollback } = await bootAndInstall(true)
+      const done = await waitForType(browser, 'app:install-done')
+      expect(done['requestId']).toBe('rq-full')
+      expect(rollback).toHaveBeenCalledWith('emulator-5554', LEAN_PACKAGES[0])
+      expect(install).toHaveBeenCalledTimes(2)
+      agent.disconnect(); browser.close()
+    })
+
+    // Mutation: drop the bootSeq recheck in `uninstallUpdates`, and a boot superseded while the
+    // install ran still has its apps rolled back.
+    it('does not roll back once the boot it started on has been superseded', async () => {
+      const adb = mockAdb(true)
+      vi.spyOn(adb, 'installApp').mockRejectedValue(new StorageFullError())
+      vi.spyOn(adb, 'hasSystemUpdates').mockResolvedValue(true)
+      const rollback = vi.spyOn(adb, 'uninstallSystemUpdates').mockResolvedValue(undefined)
+      const agent = new AndroidAgent({}, adb)
+      await agent.connect(`ws://localhost:${port}`)
+      const browser = new WebSocket(`ws://localhost:${port}`)
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'session:start', sessionId: agent.sessionId }))
+      await waitForType(browser, 'session:joined')
+      browser.send(JSON.stringify({
+        type: 'device:boot', requestId: 'rq-super-boot', sessionId: agent.sessionId,
+        payload: { deviceId: 'avd:Pixel_8_API_34' },
+      }))
+      await waitForType(browser, 'device:ready')
+      ;(agent as unknown as { ownedDevices: Set<string> }).ownedDevices.add('avd:Pixel_8_API_34')
+      const state = (agent as unknown as { deviceStates: Map<string, { bootSeq: number }> }).deviceStates.get(agent.sessionId!)
+      // A newer boot lands while the package list is read.
+      vi.spyOn(adb, 'packageStates').mockImplementation(async () => {
+        state!.bootSeq++
+        return { enabled: new Set(['android', LEAN_PACKAGES[0]]), disabled: new Set() }
+      })
+      await expect(agent.installApp('/tmp/App.apk')).rejects.toBeInstanceOf(StorageFullError)
+      expect(rollback).not.toHaveBeenCalled()
+      agent.disconnect(); browser.close()
+    })
+
+    it('leaves an emulator it only attached to alone and says the device is full', async () => {
+      const { agent, browser, install, rollback } = await bootAndInstall(false)
+      const err = await waitForType(browser, 'app:install-error')
+      expect(err['message']).toMatch(/^Device storage is full/)
+      expect(rollback).not.toHaveBeenCalled()
+      expect(install).toHaveBeenCalledTimes(1)
       agent.disconnect(); browser.close()
     })
   })

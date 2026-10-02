@@ -56,6 +56,7 @@ import type { DisplayMetrics } from './displayMetrics.js'
 import { bootPostureId, parseCurrentPosture, parsePostures } from './postures.js'
 import { EmulatorVideo } from './emulator/EmulatorVideo.js'
 import { LEAN_MARKER_PATH, reconcileLean, type LeanDevice } from './LeanPackages.js'
+import { installReclaimingStorage, type ReclaimDevice } from './StorageReclaim.js'
 
 const logger = createLogger('android-agent')
 
@@ -2496,7 +2497,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
         const respond = (body: AppInstallReplyBody) => this.sendMsg({ ...body, sessionId, requestId })
         const state = this.deviceStates.get(sessionId!)
         const serial = state ? this.adb.getSerial(state.deviceId) : undefined
-        if (!serial) {
+        if (!state || !serial) {
           respond({ type: 'app:install-error', message: 'No booted device' })
           break
         }
@@ -2518,7 +2519,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
           // old behaviour is all there is.
           if (!buildTicket || !this.relayUrl) {
             if (bundleId) await this.adb.clearAppData(serial, bundleId).catch(() => {})
-            await this.adb.installApp(serial, filePath)
+            await this.installReclaimingStorage(state, serial, filePath)
             return
           }
           // **This `finally` is new.** Android had no temp directory and so no cleanup; iOS has had
@@ -2533,7 +2534,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
               expectedBytes: buildBytes ?? 0,
             })
             if (bundleId) await this.adb.clearAppData(serial, bundleId).catch(() => {})
-            await this.adb.installApp(serial, dest)
+            await this.installReclaimingStorage(state, serial, dest)
           } finally {
             fs.rmSync(tmpDir, { recursive: true, force: true })
           }
@@ -3284,7 +3285,34 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
   }
 
   async installApp(apkPath: string): Promise<void> {
-    await this.adb.installApp(this.soleLive().serial, apkPath)
+    const { state, serial } = this.soleLive()
+    await this.installReclaimingStorage(state, serial, apkPath)
+  }
+
+  /**
+   * `adb install`, reclaiming space and retrying when the device is full — see `StorageReclaim`.
+   * Only on an emulator this agent launched, and each rollback rechecks the boot, so a shutdown or a
+   * newer boot arriving mid-way stops it the way it stops Lean mode.
+   */
+  private async installReclaimingStorage(state: DeviceState, serial: string, apkPath: string): Promise<void> {
+    const adb = this.adb
+    const seq = state.bootSeq
+    const device: ReclaimDevice = {
+      installedPackages: async () => {
+        const { enabled, disabled } = await adb.packageStates(serial)
+        return new Set([...enabled, ...disabled])
+      },
+      hasUpdates: (pkg) => adb.hasSystemUpdates(serial, pkg),
+      uninstallUpdates: async (pkg) => {
+        if (seq !== state.bootSeq) throw new Error('the boot was superseded')
+        await adb.uninstallSystemUpdates(serial, pkg)
+      },
+    }
+    await installReclaimingStorage({
+      install: () => adb.installApp(serial, apkPath),
+      device,
+      owned: this.ownedDevices.has(state.deviceId),
+    })
   }
 
   async launchApp(packageName: string): Promise<void> {
