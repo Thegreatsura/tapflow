@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The MCP server can drive a relay on another machine.** It sent its token on REST calls but not on the WebSocket that carries every device command, so a connection to the relay from outside localhost was refused. The API-type token the MCP docs ask for (`view`, `builds:write`) now reaches the socket, where `view` is the scope the relay checks. When the relay refuses the socket anyway, the error names its close code and reason.
+
 - **The iOS network toggle keeps working when you launch the same app again while it is running.** Launching it again from the dashboard started no new process, but tapflow threw away the app's report that its network hooks were in place, so the toggle said to launch the app for the rest of the session. That report is now kept. If you launched a different app in between, the toggle says tapflow cannot tell the first app it is off the network until you close that app and launch it again.
 
 - **The iOS status bar comes back after you turn the network back on.** If the simulator refused to clear the status bar, it went on showing No Service while the app's requests succeeded, until you turned the network off and on again. tapflow now tries again, and if that fails too, resets the bar the next time you use the toggle on that device, even when the toggle itself cannot go through.

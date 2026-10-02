@@ -153,7 +153,11 @@ export class SessionEndedError extends Error {
  * prose for whoever reads it; the kind is what the code is allowed to branch on.
  */
 class RequestTimeoutError extends Error {}
-class RelayClosedError extends Error {}
+class RelayClosedError extends Error {
+  constructor(message: string, readonly closeDetail: string) {
+    super(message)
+  }
+}
 
 /**
  * What the relay has told us about a session, for the three messages this client used to drop.
@@ -296,6 +300,7 @@ export function reasonAdvice(reason: string | undefined): string {
 
 export class TapflowClient {
   private ws: WebSocket | null = null
+  private lastClose: { code: number; reason: string } | null = null
   /** One identity per process, so a reconnect re-joins its own sessions instead of contending with the
    *  socket it replaces. Minted here rather than supplied: nothing outside this process shares it. */
   private readonly clientId = randomUUID()
@@ -369,19 +374,20 @@ export class TapflowClient {
 
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
+      // No token needed on localhost; from anywhere else the relay closes the socket (1008) unless the token has `view`.
+      const headers = this.token ? { Authorization: `Bearer ${this.token}` } : undefined
       // One identity for the process, so a reconnect re-joins its own sessions rather than contending
       // with the socket it is replacing. The relay mints one per connection when this is absent, which is
       // the same behaviour a socket had before ownership moved off it.
       //
-      // **This socket carries no `Authorization`** — the token is REST-only here — so the relay pairs the
-      // claim with no user and the owner key is `anon:<clientId>`. The user half of its forgery protection
-      // does not apply to this client; what protects the id is that it never leaves this process except in
-      // its own handshake.
+      // On loopback the relay ignores the token, so the owner key stays `anon:<clientId>`;
+      // remotely it is paired with the token's user (see `ownerKeyFor` in the relay).
       const url = new URL(this.relayUrl)
       url.searchParams.set('client', this.clientId)
-      const ws = new WebSocket(url.toString())
+      const ws = new WebSocket(url.toString(), { headers })
       ws.once('open', () => {
         this.ws = ws
+        this.lastClose = null
         resolve()
       })
       ws.once('error', reject)
@@ -392,8 +398,12 @@ export class TapflowClient {
           this.dispatch(msg)
         } catch { /* ignore malformed */ }
       })
-      ws.on('close', () => {
+      ws.on('close', (code: number, reason: Buffer) => {
+        // `disconnect()` lets go of the socket first, so a close this client asked for is not recorded.
+        if (this.ws === ws) this.lastClose = { code, reason: reason.toString() }
         this.ws = null
+        const detail = this.closeDetail()
+        const closed = `WebSocket closed${detail}`
         const pending = this.waiters.splice(0)
         for (const w of pending) {
           clearTimeout(w.timer)
@@ -401,7 +411,7 @@ export class TapflowClient {
           // relay that dropped while its agent was already away has two things to say and only one of them
           // is about the relay.
           const note = w.sessionId ? this.sessionNote(w.sessionId) : undefined
-          w.reject(new RelayClosedError(note ? `WebSocket closed — ${note}` : 'WebSocket closed'))
+          w.reject(new RelayClosedError(note ? `${closed} — ${note}` : closed, detail))
         }
       })
     })
@@ -608,9 +618,15 @@ export class TapflowClient {
 
   private send(msg: BrowserToRelay): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      throw new Error('Not connected to relay')
+      throw new Error(`Not connected to relay${this.closeDetail()}`)
     }
     this.ws.send(JSON.stringify(msg))
+  }
+
+  private closeDetail(): string {
+    const c = this.lastClose
+    if (!c) return ''
+    return c.reason ? ` (relay closed ${c.code}: ${c.reason})` : ` (relay closed ${c.code})`
   }
 
   private waitFor(
@@ -866,9 +882,9 @@ export class TapflowClient {
       // did not reach the caller — a model whose input timed out on a rebound session was told the ack
       // went unanswered and not that the session needs booting again.
       const note = this.sessionNote(sessionId)
-      const cause = note ?? (timedOut
-        ? 'this session has acknowledged input before, and this one went unanswered'
-        : 'the relay connection dropped before the acknowledgement arrived')
+      const cause = disconnected
+        ? (note ? `${note}; ` : '') + `the relay connection dropped before the acknowledgement arrived${e.closeDetail}`
+        : (note ?? 'this session has acknowledged input before, and this one went unanswered')
       throw new Error(
         `Could not confirm the input reached the device: ${cause}. Do not repeat the input — it may ` +
         'have landed. Check the device state (screenshot or ui_tree) before deciding what to do next.',
