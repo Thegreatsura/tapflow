@@ -177,6 +177,56 @@ describe('AdbWrapper', () => {
     })
   })
 
+  describe('system app updates', () => {
+    it('reads an update from a /data/app code path', async () => {
+      const runner = mockRunner()
+      ;(runner.exec as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+        'package:/data/app/~~F4n8==/com.google.android.apps.wellbeing-Na84==/base.apk\n' +
+        'package:/data/app/~~F4n8==/com.google.android.apps.wellbeing-Na84==/split_config.xxhdpi.apk\n',
+      )
+      const wrapper = new AdbWrapper(runner)
+      await expect(wrapper.hasSystemUpdates('emulator-5554', 'com.google.android.apps.wellbeing')).resolves.toBe(true)
+      expect(runner.exec).toHaveBeenCalledWith('-s', 'emulator-5554', 'shell', 'pm', 'path', 'com.google.android.apps.wellbeing')
+    })
+
+    it('reads no update from a /product code path', async () => {
+      const runner = mockRunner()
+      ;(runner.exec as ReturnType<typeof vi.fn>).mockResolvedValueOnce('package:/product/app/YouTube/YouTube.apk\n')
+      const wrapper = new AdbWrapper(runner)
+      await expect(wrapper.hasSystemUpdates('emulator-5554', 'com.google.android.youtube')).resolves.toBe(false)
+    })
+
+    // Measured: `pm` prints Success and exits 1, so adb's exit status rejects the call.
+    it('treats Success on a non-zero exit as success', async () => {
+      const runner = mockRunner()
+      ;(runner.exec as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        Object.assign(new Error('Command failed: adb shell pm uninstall-system-updates'), {
+          code: 1,
+          stdout: 'Uninstalling updates to com.google.android.youtube...\nSuccess\n',
+        }),
+      )
+      const wrapper = new AdbWrapper(runner)
+      await expect(wrapper.uninstallSystemUpdates('emulator-5554', 'com.google.android.youtube')).resolves.toBeUndefined()
+      expect(runner.exec).toHaveBeenCalledWith('-s', 'emulator-5554', 'shell', 'pm', 'uninstall-system-updates', 'com.google.android.youtube')
+    })
+
+    it('fails when pm does not say Success', async () => {
+      const runner = mockRunner()
+      ;(runner.exec as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        Object.assign(new Error('Command failed'), { code: 255, stdout: "\nException occurred while executing 'uninstall-system-updates':\n" }),
+      )
+      const wrapper = new AdbWrapper(runner)
+      await expect(wrapper.uninstallSystemUpdates('emulator-5554', 'com.example.nope')).rejects.toBeInstanceOf(PlatformError)
+    })
+
+    it('fails on a zero exit without Success', async () => {
+      const runner = mockRunner()
+      ;(runner.exec as ReturnType<typeof vi.fn>).mockResolvedValueOnce('Failure\n')
+      const wrapper = new AdbWrapper(runner)
+      await expect(wrapper.uninstallSystemUpdates('emulator-5554', 'com.google.android.youtube')).rejects.toBeInstanceOf(PlatformError)
+    })
+  })
+
   describe('launchApp', () => {
     it('calls adb shell monkey with LAUNCHER intent', async () => {
       const runner = mockRunner()
