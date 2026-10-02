@@ -169,6 +169,13 @@ const LIVENESS_INTERVAL_MS = 1_000
  */
 export const LAUNCH_VERDICT_DEADLINE_MS = 10_000
 
+/**
+ * Pauses before each further try at the status bar (#668). Why `status_bar` fails has never been
+ * measured, so this is a cheap bet on a transient cause rather than a remedy; what does not recover
+ * here is remembered in `statusBarStale` and written again on the device's next toggle.
+ */
+const STATUS_BAR_RETRY_DELAYS_MS = [100, 300]
+
 /** What the provider pulses at **while it is enforcing something** (`Provider.swift`, `pulseSeconds`).
  *  Held here as well because a file written before the rule changed declares the *idle* rate, so the
  *  rate to expect next cannot always be read out of the file. Change one and change the other. */
@@ -289,6 +296,18 @@ export class SimulatorNetwork {
   private readonly launchedAt = new Map<string, number>()
   /** The pid of the last launch that actually started a process, per device. See `markLaunched`. */
   private readonly launchedPid = new Map<string, number>()
+  /**
+   * Whose verdict counts, per device (#692). `target()` used to delete the file before every launch,
+   * and a launch that started nothing then had nothing to rewrite it. These let `readVerdict` decide
+   * whether the file on disk is the running process's report instead.
+   */
+  private readonly targetBundle = new Map<string, string>()
+  /** When the last launch was issued. Becomes `verdictFreshAfter` once a new pid shows it started a process. */
+  private readonly launchIssuedAt = new Map<string, number>()
+  /** A verdict written before this (ms) was written by a process that has since been replaced. */
+  private readonly verdictFreshAfter = new Map<string, number>()
+  /** Devices whose status bar could not be written and may be showing the other state (#668). */
+  private readonly statusBarStale = new Set<string>()
   /** Runs only while something is offline. See `updateLiveness`. */
   private liveness: ReturnType<typeof setInterval> | undefined
   /** Set by `dispose`. Without it, work that was already in flight puts the interval back: both
@@ -372,6 +391,7 @@ export class SimulatorNetwork {
     // that ran in the previous session.
     this.launchedAt.delete(udid)
     this.launchedPid.delete(udid)
+    this.forgetTarget(udid)
     this.setCondition(udid, false)
     rmSync(this.verdictPath(udid), { force: true })
 
@@ -403,15 +423,20 @@ export class SimulatorNetwork {
    * so naming the target afterwards arms the *next* launch and leaves the running one unhooked —
    * reporting `available: true` for an app that would never see a path update.
    *
-   * **The previous app's verdict goes with it.** A verdict is one process's report that its own hooks
-   * took, and that process has exited by the time a second app is launched. Leaving the file behind
-   * answered for the new app on the old one's evidence: `available: true` before the new process had
-   * written anything, and — if its hooks fail — for as long as it runs. The gap where `state()`
-   * answers `awaiting-app` for a launch already in flight is the correct reading of that moment;
-   * inheriting a stale `ok` is not.
+   * **The previous app's verdict stops counting, and the file is left where it is (#692).** A verdict
+   * is one process's report that its own hooks took, so another app must not answer on it — but
+   * deleting it here also deleted the report of an app launched while it was already running, where
+   * `simctl launch` hands back the same pid and starts nothing, and the dyld constructor that writes
+   * the verdict never runs again. So the app and the moment are recorded instead, and `readVerdict`
+   * refuses a file that names another bundle, or that predates a launch which did start a process.
+   *
+   * Recorded before the environment is written, so a failed write still retires the old app's
+   * verdict: the new app then runs unhooked, and `awaiting-app` running into the deadline is the
+   * right reading of that.
    */
   async target(udid: string, bundleId: string): Promise<void> {
-    rmSync(this.verdictPath(udid), { force: true })
+    this.targetBundle.set(udid, bundleId)
+    this.launchIssuedAt.set(udid, Date.now())
     await this.simctl.setSimulatorEnv(udid, 'TAPFLOW_TARGET_BUNDLE', bundleId)
   }
 
@@ -425,16 +450,32 @@ export class SimulatorNetwork {
    * later.
    *
    * **Only for a pid that is new.** `simctl launch` is issued without `--terminate-running-process`,
-   * so launching a bundle that is already running returns the existing pid and starts nothing. The
-   * verdict is written from a dyld constructor — once per process — so nothing will rewrite the file
-   * `target()` just deleted, and starting a deadline there would report a permanently dead control
-   * over an app whose hooks are live and watching. That case stays what it was before this change,
-   * which is wrong but harmless; #692 has the decision it needs.
+   * so launching a bundle that is already running returns the existing pid and starts nothing. That
+   * process has already written its verdict, once, from a dyld constructor; it stays the answer, and a
+   * new deadline would only re-run a window the same process has used.
+   *
+   * **A new pid is what makes older verdicts stale.** The cut-off is when the launch was *issued*, not
+   * now: the constructor can finish before `simctl launch` returns, and a verdict that fresh is the new
+   * process's. A null pid moves nothing — it is evidence of neither a new process nor a reused one,
+   * and treating it as new answered `hooks-not-installed` at once from the previous launch's expired
+   * window, since a null opens none of its own.
+   *
+   * Not covered: a process the tester started from the home screen and tapflow then "launches" again
+   * looks new here, so its verdict is refused and the deadline runs out over live hooks. Telling the
+   * two apart needs the pid in the verdict, which is a change to the library.
    */
   markLaunched(udid: string, pid: number | null): void {
     if (pid === null || this.launchedPid.get(udid) === pid) return
+    const issued = this.launchIssuedAt.get(udid)
+    if (issued !== undefined) this.verdictFreshAfter.set(udid, issued)
     this.launchedPid.set(udid, pid)
     this.launchedAt.set(udid, Date.now())
+  }
+
+  private forgetTarget(udid: string): void {
+    this.targetBundle.delete(udid)
+    this.launchIssuedAt.delete(udid)
+    this.verdictFreshAfter.delete(udid)
   }
 
   /**
@@ -500,6 +541,11 @@ export class SimulatorNetwork {
       // strictly better than not trying, because the alternative is a divergence nothing revisits
       // until the device is rebooted.
       await this.runFilterHost(was ? { add: [udid] } : { remove: [udid] })
+      // **A bar left wrong by an earlier call is put right here too (#668)**, because this branch never
+      // reaches layer 3: with layer 1 gone for the rest of the boot, a bar stuck on no service would
+      // otherwise stay that way until the device retires. Only when it is known to be stale — a bar
+      // that is right needs nothing, and every extra write is one more call that can fail here.
+      if (this.statusBarStale.has(udid)) await this.writeStatusBar(udid, was)
       this.filterVerdict.set(udid, 'unavailable')
       this.updateLiveness()
       return { offline: was, available: false, reason: 'filter-unavailable' }
@@ -534,18 +580,33 @@ export class SimulatorNetwork {
     // Swallowed in both directions, and they fail differently. Going offline it errs *quietly* — the
     // device is offline and the status bar has not caught up. Coming back it errs the other way: every
     // layer is restored and the bar still shows no service, on a device whose requests now succeed.
-    // Neither is worth failing the call for. What puts the second one right is a later toggle writing
-    // the bar again — **a full cycle, not one press**, since the first press writes the value the bar
-    // is already stuck on. And it is not guaranteed: if layer 1 becomes unavailable in between, every
-    // later call returns above this line and the bar stays wrong until the device is retired. That
-    // gap, and the fact that swallowing also removes the `network:error` this used to raise, are
-    // recorded rather than solved here.
-    await this.simctl.setStatusBarOffline(udid, offline).catch((e: unknown) => {
-      console.warn(`[network] status bar for ${udid} could not be set: ${(e as Error).message}`)
-    })
+    // Neither is worth failing the call for, so `writeStatusBar` retries and, failing that, remembers
+    // the bar as stale for the device's next toggle — including a refused one, which returns above
+    // this line (#668). What is still not done is telling the dashboard: the `network:error` this used
+    // to raise is gone, and saying "the bar is stale" needs a field in the payload.
+    await this.writeStatusBar(udid, offline)
     this.updateLiveness()
 
     return this.state(udid)
+  }
+
+  /** Layer 3, retried and never thrown. See `STATUS_BAR_RETRY_DELAYS_MS` and `statusBarStale`. */
+  private async writeStatusBar(udid: string, offline: boolean): Promise<void> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await this.simctl.setStatusBarOffline(udid, offline)
+        this.statusBarStale.delete(udid)
+        return
+      } catch (e) {
+        const delay = STATUS_BAR_RETRY_DELAYS_MS[attempt]
+        if (delay === undefined) {
+          this.statusBarStale.add(udid)
+          console.warn(`[network] status bar for ${udid} could not be set: ${(e as Error).message}`)
+          return
+        }
+        await new Promise((resolve) => setTimeout(resolve, delay))
+      }
+    }
   }
 
   /**
@@ -812,6 +873,8 @@ export class SimulatorNetwork {
     this.dropsReported.delete(udid)
     this.launchedAt.delete(udid)
     this.launchedPid.delete(udid)
+    this.forgetTarget(udid)
+    this.statusBarStale.delete(udid)
     // Unconditional, for the reason `arm()` gives at length: the set is this process's memory and the
     // rule is the host's. An agent that restarted knows of no offline device, so `delete` answers
     // false and the write was skipped — leaving the udid named in the rule for the rest of the Mac's
@@ -1224,7 +1287,19 @@ export class SimulatorNetwork {
     const path = this.verdictPath(udid)
     if (!existsSync(path)) return 'missing'
     try {
-      const raw = JSON.parse(readFileSync(path, 'utf8')) as { installed?: unknown }
+      const raw = JSON.parse(readFileSync(path, 'utf8')) as { installed?: unknown; bundleId?: unknown; at?: unknown }
+      // **Whose report it is comes before what it says (#692).** A file left by another app, or by an
+      // earlier process of this one, is not evidence either way — which is what `missing` means. The
+      // library writes `bundleId` and `at` (whole seconds) into every verdict, so a file without them
+      // cannot be shown to be this process's. `at` is compared at its own resolution: a verdict
+      // written in the same second as the launch is taken as the new process's, and the cost is a
+      // stale one from that same second being believed until the new process overwrites it.
+      const bundle = this.targetBundle.get(udid)
+      if (bundle !== undefined && raw.bundleId !== bundle) return 'missing'
+      const freshAfter = this.verdictFreshAfter.get(udid)
+      if (freshAfter !== undefined && !(typeof raw.at === 'number' && raw.at >= Math.floor(freshAfter / 1000))) {
+        return 'missing'
+      }
       if (raw.installed === true) return 'ok'
       // **`failed` is the library's own signal and nothing else.** Testing for `!== true` swept up
       // every shape that is not it — `{}`, `[]`, a bare number, a bare string — and answered

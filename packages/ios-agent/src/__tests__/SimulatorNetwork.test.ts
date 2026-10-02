@@ -499,10 +499,9 @@ describe('SimulatorNetwork', () => {
 
   it('starts no clock when the launch produced no new process', async () => {
     // `simctl launch` is issued without `--terminate-running-process`, so launching a bundle that is
-    // already running returns the existing pid and starts nothing — and the verdict is written from a
-    // dyld constructor, once per process. Nothing will rewrite the file `target()` just deleted, so a
-    // deadline here would report a permanently dead control over an app whose hooks are live. That
-    // case stays as wrong as it was before this change and no worse; #692 carries the decision.
+    // already running returns the existing pid and starts nothing. The process that failed to report
+    // is the same one, so its deadline has already been spent; a second window would hand it a fresh
+    // `awaiting-app` it has not earned.
     vi.useFakeTimers()
     const net = make()
     await net.arm(UDID)
@@ -516,6 +515,108 @@ describe('SimulatorNetwork', () => {
     net.markLaunched(UDID, 4242)
     expect(net.state(UDID), 'a relaunch that started nothing opened a new window')
       .toMatchObject({ reason: 'hooks-not-installed' })
+  })
+
+  // ── a relaunch that starts nothing keeps its verdict (#692) ─────────────────────────────────
+  //
+  // The verdict is written from a dyld constructor, once per process. `target()` used to delete it
+  // before every launch, so launching an app that was already running — the same pid back, no new
+  // process — left nothing to rewrite it, and the control said "launch an app" for the rest of the
+  // session over hooks that were live.
+  describe('relaunch', () => {
+    const APP = 'com.example.app'
+    const verdict = (bundleId: string, atMs = Date.now(), installed = true) =>
+      writeFileSync(verdictPath(UDID), JSON.stringify({ installed, bundleId, at: Math.round(atMs / 1000) }))
+
+    it('keeps the verdict of an app that is still running when it is launched again', async () => {
+      // Mutation: putting the unconditional `rmSync` back at the top of `target` fails here.
+      vi.useFakeTimers()
+      const net = make()
+      await net.arm(UDID)
+      await net.target(UDID, APP)
+      net.markLaunched(UDID, 4242)
+      vi.advanceTimersByTime(3_000)
+      verdict(APP)
+      expect(net.state(UDID)).toEqual({ offline: false, available: true })
+
+      vi.advanceTimersByTime(60_000)
+      await net.target(UDID, APP)
+      net.markLaunched(UDID, 4242)
+      vi.advanceTimersByTime(LAUNCH_VERDICT_DEADLINE_MS + 1)
+      expect(net.state(UDID), 'a relaunch that started nothing lost the running app\'s verdict')
+        .toEqual({ offline: false, available: true })
+    })
+
+    it('does not take an earlier process\'s verdict for a new process of the same app', async () => {
+      // The app exited and a launch started a new process. The file on disk is the old process's
+      // report, and until the new one writes its own it vouches for nothing.
+      //
+      // Mutation: dropping the `at` comparison from `readVerdict` fails here.
+      vi.useFakeTimers()
+      const net = make()
+      await net.arm(UDID)
+      await net.target(UDID, APP)
+      net.markLaunched(UDID, 4242)
+      vi.advanceTimersByTime(3_000)
+      verdict(APP)
+
+      vi.advanceTimersByTime(60_000)
+      await net.target(UDID, APP)
+      net.markLaunched(UDID, 4343)
+      expect(net.state(UDID), 'the new process answered on the old one\'s evidence')
+        .toEqual({ offline: false, available: false, reason: 'awaiting-app' })
+
+      vi.advanceTimersByTime(3_000)
+      verdict(APP)
+      expect(net.state(UDID)).toEqual({ offline: false, available: true })
+    })
+
+    it('takes the new process\'s verdict even when it is written before the launch returns', async () => {
+      // The constructor can finish before `simctl launch` hands back the pid. That ordering is why the
+      // old delete sat before the launch, and a verdict this fresh must not be mistaken for a stale one.
+      vi.useFakeTimers()
+      const net = make()
+      await net.arm(UDID)
+      await net.target(UDID, APP)
+      verdict(APP)
+      net.markLaunched(UDID, 4242)
+      expect(net.state(UDID)).toEqual({ offline: false, available: true })
+    })
+
+    it('changes nothing for a launch whose pid could not be read', async () => {
+      // `launchApp` returns null when it cannot parse `simctl launch`'s output, which is evidence of
+      // neither a new process nor a reused one. Treating it as new looked conservative and was not:
+      // a null opens no deadline window (see 'starts no clock for a launch that never happened'), so
+      // the expired window of the previous launch answered instead — `hooks-not-installed` at once,
+      // over hooks nobody had shown to be broken. Another app's verdict is still refused by name, and
+      // a new process whose hooks fail overwrites this file within its self-check.
+      //
+      // Mutation: letting a null pid move `verdictFreshAfter` fails here.
+      vi.useFakeTimers()
+      const net = make()
+      await net.arm(UDID)
+      await net.target(UDID, APP)
+      net.markLaunched(UDID, 4242)
+      vi.advanceTimersByTime(3_000)
+      verdict(APP)
+
+      vi.advanceTimersByTime(60_000)
+      await net.target(UDID, APP)
+      net.markLaunched(UDID, null)
+      expect(net.state(UDID)).toEqual({ offline: false, available: true })
+    })
+
+    it('forgets the target at a boot, so a new session answers on whatever it launches', async () => {
+      vi.useFakeTimers()
+      const net = make()
+      await net.arm(UDID)
+      await net.target(UDID, APP)
+      net.markLaunched(UDID, 4242)
+
+      await net.arm(UDID)
+      verdict('com.example.other')
+      expect(net.state(UDID), 'a boot kept the previous session\'s target').toEqual({ offline: false, available: true })
+    })
   })
 
   it('does not claim the injection is in place when the environment could not be set', async () => {
@@ -635,23 +736,54 @@ describe('SimulatorNetwork', () => {
     expect(existsSync(conditionPath(UDID)), 'the layer that does the work was rolled back').toBe(true)
   })
 
-  it('swallows it on the way back too, and the next toggle writes the bar again', async () => {
-    // The mirror, and it fails the other way. Going offline the bar errs quietly — the device is
-    // offline and the bar has not caught up. Coming back, every layer is restored and the bar still
-    // shows no service on a device whose requests now succeed. Neither is worth failing the call for;
-    // what puts the second one right is the next successful toggle writing the bar again.
+  it('tries the bar again on the way back before giving up on it (#668)', async () => {
+    // Coming back is the direction that errs loudly: every layer is restored and the bar still shows
+    // no service on a device whose requests now succeed — and the dashboard, told the toggle worked,
+    // shows it online. One failed `status_bar clear` used to leave it that way until a full cycle.
+    //
+    // Mutation: removing the retry from `writeStatusBar` fails here.
     armed()
     const net = make()
     await net.setOffline(UDID, true)
-    expect(statusBar).toEqual([`${UDID}:true`])
 
-    vi.mocked(simctl.setStatusBarOffline).mockRejectedValueOnce(new Error('device is gone'))
+    vi.mocked(simctl.setStatusBarOffline).mockRejectedValueOnce(new Error('transient'))
     await expect(net.setOffline(UDID, false)).resolves.toEqual({ offline: false, available: true })
-    expect(statusBar, 'the bar is stale here, and that is the accepted cost').toEqual([`${UDID}:true`])
+    expect(statusBar.at(-1), 'one failure left the bar showing no service').toBe(`${UDID}:false`)
+  })
 
+  it('puts a bar it could not write right on the next call, even one the filter refuses (#668)', async () => {
+    // A bar still failing after the retries is remembered. The next toggle of that device writes it
+    // again whatever happens to the toggle — and the refusal path matters most, because it returns
+    // before layer 3: with layer 1 gone, the bar would otherwise stay wrong until the device retires.
+    //
+    // Mutation: dropping the stale-bar write from the refusal branch fails here.
+    armed()
+    const net = make()
     await net.setOffline(UDID, true)
-    await net.setOffline(UDID, false)
-    expect(statusBar.at(-1), 'no later toggle caught the bar up').toBe(`${UDID}:false`)
+
+    vi.mocked(simctl.setStatusBarOffline).mockRejectedValue(new Error('still failing'))
+    await expect(net.setOffline(UDID, false), 'a reporting layer failed the call')
+      .resolves.toEqual({ offline: false, available: true })
+    expect(statusBar.at(-1)).toBe(`${UDID}:true`)
+
+    vi.mocked(simctl.setStatusBarOffline).mockReset()
+    vi.mocked(simctl.setStatusBarOffline).mockImplementation(async (udid: string, offline: boolean) => {
+      statusBar.push(`${udid}:${offline}`)
+    })
+    writeFileSync(join(dir, 'BREAK'), '')
+    await expect(net.setOffline(UDID, true)).resolves.toMatchObject({ offline: false, reason: 'filter-unavailable' })
+    expect(statusBar.at(-1), 'the refused toggle left the stale bar as it was').toBe(`${UDID}:false`)
+  })
+
+  it('leaves the bar alone on a refusal when nothing says it is stale', async () => {
+    // The refusal path has always skipped layer 3, and must go on doing so for a bar that is right:
+    // writing the device's current state there is harmless, but writing it on every refusal would
+    // turn a layer that only reports into one more call that can fail on the error path.
+    armed()
+    const net = make()
+    writeFileSync(join(dir, 'BREAK'), '')
+    await net.setOffline(UDID, true)
+    expect(statusBar).toEqual([])
   })
 
   it('still reports a device offline after it stops being steerable', async () => {
@@ -792,12 +924,23 @@ describe('SimulatorNetwork', () => {
       // second app is launched. Left behind it said `available: true` before the new app had written
       // anything — and kept saying it for the whole session if the new app's hooks failed.
       //
-      // Mutation: dropping the `rmSync` from `target` fails here.
+      // Mutation: dropping the `bundleId` comparison from `readVerdict` fails here.
+      const net = make()
+      await net.arm(UDID)
+      writeFileSync(verdictPath(UDID), JSON.stringify({ installed: true, bundleId: 'com.example.first', at: 1 }))
+      expect(net.state(UDID)).toEqual({ offline: false, available: true })
+
+      await net.target(UDID, 'com.example.second')
+      expect(net.state(UDID)).toEqual({ offline: false, available: false, reason: 'awaiting-app' })
+    })
+
+    it('does not vouch for a named app with a verdict that names no app', async () => {
+      // The library always writes `bundleId`, so a file without one is not this app's report — the
+      // same reasoning that makes an unrecognised shape `unreadable` rather than `failed`, applied to
+      // whose report it is.
       const net = make()
       await net.arm(UDID)
       armed()
-      expect(net.state(UDID)).toEqual({ offline: false, available: true })
-
       await net.target(UDID, 'com.example.second')
       expect(net.state(UDID)).toEqual({ offline: false, available: false, reason: 'awaiting-app' })
     })

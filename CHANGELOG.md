@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The iOS network toggle keeps working when you launch an app that is already running.** Launching it again from the dashboard started no new process, but tapflow threw away the app's report that its network hooks were in place, so the toggle said to launch the app for the rest of the session. That report is now kept for as long as the same process runs.
+
+- **The iOS status bar comes back after you turn the network back on.** If the simulator refused to clear the status bar, it went on showing No Service while the app's requests succeeded, until you turned the network off and on again. tapflow now tries again, and if that fails too, resets the bar the next time you use the toggle on that device, even when the toggle itself cannot go through.
+
 - **The iOS screen has rounded corners in Firefox on macOS.** While the stream was running, Firefox showed the simulator screen with square corners that stuck out over the device frame, because of a Firefox bug in how it draws large, constantly updating canvases. The dashboard now works around it in Firefox on macOS; other browsers were not affected and are unchanged.
 
 - **An Android install that fails for lack of space says so.** On an emulator whose storage had filled up, installing a build showed `Install failed: Exception occurred while executing 'install': android.os.ParcelableException: java.io.IOException: Requested internal only, but not enough space`. It now says the device's storage is full and to turn on **Full reset** and pick the device again, which erases everything on it, raising `disk.dataPartition.size` in the AVD's `config.ini` first if you want a larger partition. Emulators with the Play Store fill up on their own as Google apps update in the background, so this can happen with a build that installed fine a month earlier.
