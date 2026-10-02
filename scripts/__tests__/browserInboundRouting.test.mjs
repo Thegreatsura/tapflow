@@ -120,7 +120,10 @@ function unionBody(src, name) {
   const start = src.indexOf(`export type ${name} =`)
   expect(start, `${name} not found in protocol`).toBeGreaterThan(-1)
   const rest = src.slice(start)
-  const end = rest.search(/\n\s*\n/)
+  // Through the declaration boundary, not the first blank line: TypeScript
+  // permits blank lines inside a union, and stopping at one would let a
+  // member added after it escape the completeness check while green.
+  const end = rest.search(/\n(?=export (?:type|interface)\b)/)
   return rest.slice(0, end === -1 ? undefined : end).replace(/^\s*\/\/.*$/gm, '')
 }
 
@@ -206,6 +209,25 @@ describe('browser-inbound routing matches the protocol union', () => {
     expect(forwarded.size).toBe(26)
     const sends = (relaySrc.match(/browserSocket\.send\(JSON\.stringify\(raw\)\)/g) ?? []).length
     expect(sends).toBe(10) // 8 single-label blocks + the 13-label block + the owner-gated block
+  })
+
+  // Same anti-vacuity for the union parser: it must read through the
+  // declaration boundary, not stop at the first blank line. A member added
+  // after an internal blank line and omitted from SIGNATURES would otherwise
+  // escape both the coverage and the field checks while green.
+  it('union bodies span internal blank lines', () => {
+    const src = [
+      'export type FakeUnion =',
+      '  | Alpha',
+      '',
+      '  | Beta',
+      '',
+      'export interface Alpha {',
+      "  type: 'alpha';",
+      '}',
+      '',
+    ].join('\n')
+    expect(unionBody(src, 'FakeUnion')).toContain('| Beta')
   })
 
   // The other half of the rule above, and the one a count cannot see: a forward that switched back to
