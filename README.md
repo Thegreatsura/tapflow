@@ -21,6 +21,7 @@
     <a href="https://hub.docker.com/r/tapflow/tapflow"><img src="https://img.shields.io/docker/pulls/tapflow/tapflow" alt="Docker pulls" /></a>
     <a href="https://github.com/jo-duchan/tapflow/releases"><img src="https://img.shields.io/github/v/release/jo-duchan/tapflow?include_prereleases&sort=semver" alt="Latest release" /></a>
     <a href="https://github.com/jo-duchan/tapflow/commits/main"><img src="https://img.shields.io/github/last-commit/jo-duchan/tapflow" alt="Last commit" /></a>
+    <a href="https://www.bestpractices.dev/projects/15158"><img src="https://www.bestpractices.dev/projects/15158/badge" alt="OpenSSF Best Practices" /></a>
     <img src="https://img.shields.io/badge/platform-macOS%20agent-lightgrey" alt="macOS Agent" />
   </p>
 
