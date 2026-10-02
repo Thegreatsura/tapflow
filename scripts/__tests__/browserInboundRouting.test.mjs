@@ -155,6 +155,18 @@ function unionOwnRefs(src, name) {
   return out
 }
 
+/** Union refs a union lists directly that are not interfaces (embedded unions).
+ *  Pinned to exactly `['RelayOrAgentToBrowser']` for the two `OWN_ONLY` unions
+ *  below, so a future embedded union cannot escape coverage while the suite
+ *  stays green. */
+function unionSkippedRefs(src, name) {
+  const out = []
+  for (const m of unionBody(src, name).matchAll(/^\s*\|\s*(\w+)\s*$/gm)) {
+    if (!IFACES.has(m[1])) out.push(m[1])
+  }
+  return out
+}
+
 /** Message `type` literals from directly-listed interfaces only (shared unions excluded). */
 function unionOwnMembers(src, name) {
   const types = new Set()
@@ -359,6 +371,9 @@ describe('browser-inbound routing matches the protocol union', () => {
     // coverage contract itself: the map keys must equal the union's members
     // (own members only for the two unions embedding the shared one).
     it(`${union} signatures cover every union member`, () => {
+      if (OWN_ONLY.has(union)) {
+        expect(unionSkippedRefs(protocolSrc, union).sort()).toEqual(['RelayOrAgentToBrowser'])
+      }
       const expected = OWN_ONLY.has(union)
         ? unionOwnMembers(protocolSrc, union)
         : unionMembers(protocolSrc, union)
