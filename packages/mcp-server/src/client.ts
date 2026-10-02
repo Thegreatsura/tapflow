@@ -379,6 +379,9 @@ export class TapflowClient {
       // One identity for the process, so a reconnect re-joins its own sessions rather than contending
       // with the socket it is replacing. The relay mints one per connection when this is absent, which is
       // the same behaviour a socket had before ownership moved off it.
+      //
+      // On loopback the relay ignores the token, so the owner key stays `anon:<clientId>`;
+      // remotely it is paired with the token's user (see `ownerKeyFor` in the relay).
       const url = new URL(this.relayUrl)
       url.searchParams.set('client', this.clientId)
       const ws = new WebSocket(url.toString(), { headers })
