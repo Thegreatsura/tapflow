@@ -120,7 +120,10 @@ function unionBody(src, name) {
   const start = src.indexOf(`export type ${name} =`)
   expect(start, `${name} not found in protocol`).toBeGreaterThan(-1)
   const rest = src.slice(start)
-  const end = rest.search(/\n\s*\n/)
+  // Through the declaration boundary, not the first blank line: TypeScript
+  // permits blank lines inside a union, and stopping at one would let a
+  // member added after it escape the completeness check while green.
+  const end = rest.search(/\n(?=export (?:type|interface)\b)/)
   return rest.slice(0, end === -1 ? undefined : end).replace(/^\s*\/\/.*$/gm, '')
 }
 
@@ -138,6 +141,39 @@ function unionRefs(src, name) {
 function unionMembers(src, name) {
   const types = new Set()
   for (const ref of unionRefs(src, name)) {
+    const lit = literalOf(ref)
+    expect(lit, `${ref} declares no type literal`).not.toBeNull()
+    types.add(lit)
+  }
+  return types
+}
+
+/** Interface names a union lists directly, without following nested union refs
+ *  (so `RelayOrAgentToBrowser` inside `AgentToBrowser` stays one entry). */
+function unionOwnRefs(src, name) {
+  const out = []
+  for (const m of unionBody(src, name).matchAll(/^\s*\|\s*(\w+)\s*$/gm)) {
+    if (IFACES.has(m[1])) out.push(m[1])
+  }
+  return out
+}
+
+/** Union refs a union lists directly that are not interfaces (embedded unions).
+ *  Pinned to exactly `['RelayOrAgentToBrowser']` for the two `OWN_ONLY` unions
+ *  below, so a future embedded union cannot escape coverage while the suite
+ *  stays green. */
+function unionSkippedRefs(src, name) {
+  const out = []
+  for (const m of unionBody(src, name).matchAll(/^\s*\|\s*(\w+)\s*$/gm)) {
+    if (!IFACES.has(m[1])) out.push(m[1])
+  }
+  return out
+}
+
+/** Message `type` literals from directly-listed interfaces only (shared unions excluded). */
+function unionOwnMembers(src, name) {
+  const types = new Set()
+  for (const ref of unionOwnRefs(src, name)) {
     const lit = literalOf(ref)
     expect(lit, `${ref} declares no type literal`).not.toBeNull()
     types.add(lit)
@@ -173,6 +209,25 @@ describe('browser-inbound routing matches the protocol union', () => {
     expect(forwarded.size).toBe(26)
     const sends = (relaySrc.match(/browserSocket\.send\(JSON\.stringify\(raw\)\)/g) ?? []).length
     expect(sends).toBe(10) // 8 single-label blocks + the 13-label block + the owner-gated block
+  })
+
+  // Same anti-vacuity for the union parser: it must read through the
+  // declaration boundary, not stop at the first blank line. A member added
+  // after an internal blank line and omitted from SIGNATURES would otherwise
+  // escape both the coverage and the field checks while green.
+  it('union bodies span internal blank lines', () => {
+    const src = [
+      'export type FakeUnion =',
+      '  | Alpha',
+      '',
+      '  | Beta',
+      '',
+      'export interface Alpha {',
+      "  type: 'alpha';",
+      '}',
+      '',
+    ].join('\n')
+    expect(unionBody(src, 'FakeUnion')).toContain('| Beta')
   })
 
   // The other half of the rule above, and the one a count cannot see: a forward that switched back to
@@ -248,10 +303,12 @@ describe('browser-inbound routing matches the protocol union', () => {
       'keyboard:toggled': 'payload sessionId',
       'clipboard:data': 'payload requestId sessionId',
       'clipboard:write-done': 'requestId sessionId',
+      'network:state': 'payload requestId? sessionId',
     },
     RelayOrAgentToBrowser: {
       'session:chrome': 'payload sessionId',
       'session:deviceInfo': 'payload sessionId',
+      'device:postures': 'payload sessionId',
       'device:ready': 'payload requestId? sessionId?',
       'app:install-error': 'message requestId sessionId',
       'app:launch-error': 'message requestId sessionId',
@@ -269,6 +326,7 @@ describe('browser-inbound routing matches the protocol union', () => {
       'clipboard:error': 'message payload? requestId sessionId',
       // Moved here from RelayToBrowser (#455): both agents answer a shutdown they could not confirm.
       'device:shutdown-error': 'message requestId? sessionId',
+      'network:error': 'message requestId sessionId',
     },
     BrowserToRelay: {
       'agents:list': '',
@@ -292,8 +350,10 @@ describe('browser-inbound routing matches the protocol union', () => {
       'input:button': 'payload requestId sessionId',
       'input:rotate': 'payload? sessionId',
       'input:keyboard:toggle': 'sessionId',
+      'input:posture': 'payload sessionId',
       'clipboard:read': 'payload? requestId sessionId',
       'clipboard:write': 'payload requestId sessionId',
+      'network:set': 'payload requestId sessionId',
     },
     RelayToAgent: {
       'agent:registered': 'registeredSessions',
@@ -315,11 +375,31 @@ describe('browser-inbound routing matches the protocol union', () => {
     },
   }
 
+  // `AgentToBrowser` and `RelayToBrowser` embed the shared `RelayOrAgentToBrowser`
+  // union, whose members are pinned under that key — these two maps pin their own
+  // members only. Every other map must cover its union in full.
+  const OWN_ONLY = new Set(['AgentToBrowser', 'RelayToBrowser'])
+
   for (const [union, members] of Object.entries(SIGNATURES)) {
     it(`${union} member fields are unchanged`, () => {
       const actual = {}
       for (const type of Object.keys(members)) actual[type] = memberSignature(protocolSrc, union, type)
       expect(actual).toEqual(members)
+    })
+
+    // #569: the loop above iterates the map, not the union, so a message added to
+    // the protocol and not to SIGNATURES is field-checked by nothing and the suite
+    // stays green (`device:shutdown-error` shipped that way in #542). Pin the
+    // coverage contract itself: the map keys must equal the union's members
+    // (own members only for the two unions embedding the shared one).
+    it(`${union} signatures cover every union member`, () => {
+      if (OWN_ONLY.has(union)) {
+        expect(unionSkippedRefs(protocolSrc, union).sort()).toEqual(['RelayOrAgentToBrowser'])
+      }
+      const expected = OWN_ONLY.has(union)
+        ? unionOwnMembers(protocolSrc, union)
+        : unionMembers(protocolSrc, union)
+      expect(new Set(Object.keys(members))).toEqual(expected)
     })
   }
 
