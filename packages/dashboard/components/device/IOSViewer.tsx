@@ -23,6 +23,7 @@ import type { MutableRefObject } from 'react';
 import type { PerfHook } from '@/components/perf/types';
 import { useClipboardBridge, isBridgedChord, type ClipboardMessageHandler } from '@/hooks/useClipboardBridge';
 import { toast } from 'sonner';
+import { roundedClipMask } from '@/lib/roundedClipMask';
 
 const CURSOR_RING_R = 13;
 const CURSOR_DOT_R = 8;
@@ -159,6 +160,7 @@ export function IOSViewer({
         surface.style.width = c.style.width
         surface.style.height = c.style.height
         surface.style.borderRadius = c.style.borderRadius
+        surface.style.maskImage = c.style.maskImage
       }
       surface.style.objectFit = 'fill'
       surface.style.zIndex = '3'
@@ -583,6 +585,7 @@ export function IOSViewer({
   const screenPctW = (chrome.screenRect.width / chrome.compositeWidth) * 100;
   const screenPctH = (chrome.screenRect.height / chrome.compositeHeight) * 100;
   const cssCornerRadius = Math.round((chrome.screenCornerRadius / 2) * displayScale);
+  const clipMask = cssCornerRadius > 0 ? roundedClipMask(navigator.userAgent) : undefined;
   const box = { width: chrome.compositeWidth, height: chrome.compositeHeight };
   const targets = buttonTargets(chrome.buttons, box);
   const titles = buttonTitles(chrome.buttons, box, isLandscape, formFactor);
@@ -732,6 +735,7 @@ export function IOSViewer({
                 left: `${screenPctLeft}%`, top: `${screenPctTop}%`,
                 width: `${screenPctW}%`, height: `${screenPctH}%`,
                 borderRadius: cssCornerRadius > 0 ? `${cssCornerRadius}px` : undefined,
+                maskImage: clipMask,
                 backgroundColor: '#010101', cursor: 'none',
                 visibility: canvasReady ? 'visible' : 'hidden',
               }}
