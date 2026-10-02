@@ -1601,6 +1601,30 @@ describe('SimulatorNetwork', () => {
       await vi.waitFor(() => expect(lost).toEqual([UDID]))
     })
 
+    it('remembers a bar that enforcement-lost could not clear, for the next toggle (#668)', async () => {
+      // Lost enforcement takes the layers down, bar included, and it is the path most likely to be
+      // followed by refusals: the provider that stopped is the layer 1 the next toggle needs. A clear
+      // that failed there and was not remembered stayed on no service until the device retired.
+      //
+      // Mutation: calling `setStatusBarOffline` directly in `takeDownLayers` fails here.
+      armed()
+      const net = make()
+      await net.setOffline(UDID, true)
+
+      vi.mocked(simctl.setStatusBarOffline).mockRejectedValue(new Error('still failing'))
+      staleState([UDID], -60)
+      await vi.waitFor(() => expect(lost).toEqual([UDID]))
+      await net.idle()
+
+      vi.mocked(simctl.setStatusBarOffline).mockReset()
+      vi.mocked(simctl.setStatusBarOffline).mockImplementation(async (udid: string, offline: boolean) => {
+        statusBar.push(`${udid}:${offline}`)
+      })
+      writeFileSync(join(dir, 'BREAK'), '')
+      await expect(net.setOffline(UDID, true)).resolves.toMatchObject({ reason: 'filter-unavailable' })
+      expect(statusBar.at(-1), 'the bar enforcement-lost left on no service was never put right').toBe(`${UDID}:false`)
+    })
+
     /**
      * The drop count's only consumer is the log line, so that is where it can be observed.
      *

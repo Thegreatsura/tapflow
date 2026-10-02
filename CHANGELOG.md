@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **The iOS network toggle keeps working when you launch an app that is already running.** Launching it again from the dashboard started no new process, but tapflow threw away the app's report that its network hooks were in place, so the toggle said to launch the app for the rest of the session. That report is now kept for as long as the same process runs.
+- **The iOS network toggle keeps working when you launch the same app again while it is running.** Launching it again from the dashboard started no new process, but tapflow threw away the app's report that its network hooks were in place, so the toggle said to launch the app for the rest of the session. That report is now kept. If you launched a different app in between, the toggle still asks you to relaunch the first one.
 
 - **The iOS status bar comes back after you turn the network back on.** If the simulator refused to clear the status bar, it went on showing No Service while the app's requests succeeded, until you turned the network off and on again. tapflow now tries again, and if that fails too, resets the bar the next time you use the toggle on that device, even when the toggle itself cannot go through.
 

@@ -460,9 +460,15 @@ export class SimulatorNetwork {
    * and treating it as new answered `hooks-not-installed` at once from the previous launch's expired
    * window, since a null opens none of its own.
    *
-   * Not covered: a process the tester started from the home screen and tapflow then "launches" again
-   * looks new here, so its verdict is refused and the deadline runs out over live hooks. Telling the
-   * two apart needs the pid in the verdict, which is a change to the library.
+   * Not covered, each ending in `hooks-not-installed` over live hooks, as it did before:
+   * - a process the tester started from the home screen, which tapflow then "launches" again — its
+   *   pid looks new here, so its verdict is refused;
+   * - an app launched again after another app was launched in between, while it kept running — only
+   *   the last pid is remembered, and the other app's verdict has replaced this one's on disk;
+   * - two launches pressed faster than the first returns, where the second launch's issue time
+   *   becomes the first's cut-off.
+   * Telling these apart needs the pid in the verdict, or one verdict per bundle — a change to the
+   * library.
    */
   markLaunched(udid: string, pid: number | null): void {
     if (pid === null || this.launchedPid.get(udid) === pid) return
@@ -545,8 +551,10 @@ export class SimulatorNetwork {
       // reaches layer 3: with layer 1 gone for the rest of the boot, a bar stuck on no service would
       // otherwise stay that way until the device retires. Only when it is known to be stale — a bar
       // that is right needs nothing, and every extra write is one more call that can fail here.
-      if (this.statusBarStale.has(udid)) await this.writeStatusBar(udid, was)
       this.filterVerdict.set(udid, 'unavailable')
+      // After the judgment is recorded: the retries can wait for most of half a second, and `state()`
+      // read in that time should already say the filter is unavailable.
+      if (this.statusBarStale.has(udid)) await this.writeStatusBar(udid, was)
       this.updateLiveness()
       return { offline: was, available: false, reason: 'filter-unavailable' }
     }
@@ -778,10 +786,12 @@ export class SimulatorNetwork {
   }
 
   /** Layers 2 and 3, taken down together. Layer 3 is swallowed for the reason `forget` gives: it only
-   *  reports, and failing it would abandon the cleanup that matters. */
+   *  reports, and failing it would abandon the cleanup that matters. Through `writeStatusBar`, unlike
+   *  `forget`, because this device stays: a bar that could not be cleared is remembered, and the
+   *  refusals likely to follow lost enforcement are where it gets written again (#668). */
   private async takeDownLayers(udid: string): Promise<void> {
     this.setCondition(udid, false)
-    await this.simctl.setStatusBarOffline(udid, false).catch(() => { /* device may already be gone */ })
+    await this.writeStatusBar(udid, false)
   }
 
   /**
@@ -1291,9 +1301,11 @@ export class SimulatorNetwork {
       // **Whose report it is comes before what it says (#692).** A file left by another app, or by an
       // earlier process of this one, is not evidence either way — which is what `missing` means. The
       // library writes `bundleId` and `at` (whole seconds) into every verdict, so a file without them
-      // cannot be shown to be this process's. `at` is compared at its own resolution: a verdict
-      // written in the same second as the launch is taken as the new process's, and the cost is a
-      // stale one from that same second being believed until the new process overwrites it.
+      // cannot be shown to be this process's. `at` is compared at its own resolution, and the library
+      // rounds (`%.0f`) rather than truncates: a verdict written up to about a second and a half
+      // before the launch can pass as the new process's — the price of never refusing the new
+      // process's own verdict, which may land before `simctl launch` returns. A stale one believed in
+      // that window stands until the new process overwrites it.
       const bundle = this.targetBundle.get(udid)
       if (bundle !== undefined && raw.bundleId !== bundle) return 'missing'
       const freshAfter = this.verdictFreshAfter.get(udid)
