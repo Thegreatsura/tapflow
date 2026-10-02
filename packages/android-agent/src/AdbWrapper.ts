@@ -242,7 +242,11 @@ export class AdbWrapper {
       if (stderr) {
         // Judged without adb's "failed to install <path>:" prefix: the path ends in the uploaded
         // build's name, so a build called `fix-ENOSPC.apk` would otherwise read as a full device.
-        const reported = stderr.replace(/^adb: failed to install [^:]+:\s*/, '')
+        // Cut by the path we passed rather than up to the first colon, which a build name may contain.
+        const prefix = `adb: failed to install ${apkPath}:`
+        const reported = stderr.startsWith(prefix)
+          ? stderr.slice(prefix.length).trimStart()
+          : stderr.replace(/^adb: failed to install [^:]+:\s*/, '')
         // Before the Failure match, which would reduce INSUFFICIENT_STORAGE to a bare code. ENOSPC
         // is not observed, only expected: a write that runs out after the size pre-check passed. No
         // wipe-free remedy exists: on a metadata-encrypted user build the partition cannot be

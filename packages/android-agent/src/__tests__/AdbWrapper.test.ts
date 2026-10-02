@@ -153,6 +153,18 @@ describe('AdbWrapper', () => {
       expect((err as Error).message).toContain('disk.dataPartition.size')
     })
 
+    it('does not read a full device into a build whose name has a colon before the mention', async () => {
+      const runner = mockRunner()
+      const apk = '/tmp/x/1-ab_fix:ENOSPC.apk'
+      ;(runner.exec as ReturnType<typeof vi.fn>).mockRejectedValueOnce({
+        stderr: `adb: failed to install ${apk}: Failure [INSTALL_FAILED_VERSION_DOWNGRADE]`,
+      })
+      const wrapper = new AdbWrapper(runner)
+      await expect(wrapper.installApp('emulator-5554', apk)).rejects.toThrow(
+        new ValidationError('INSTALL_FAILED_VERSION_DOWNGRADE'),
+      )
+    })
+
     it('does not read a full device into a build whose name mentions one', async () => {
       const runner = mockRunner()
       ;(runner.exec as ReturnType<typeof vi.fn>).mockRejectedValueOnce({
