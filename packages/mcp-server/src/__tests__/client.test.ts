@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import type { IncomingMessage } from 'node:http'
 import { WebSocketServer, WebSocket } from 'ws'
 import { TapflowClient, REASON_ADVICE, SessionEndedError, SessionLeftError, reasonAdvice } from '../client.js'
 import { makeFlowDriver } from '../tools.js'
@@ -1375,14 +1376,6 @@ describe('TapflowClient', () => {
       expect(err.message).toContain('the agent reconnected and cleared its device binding')
     })
   })
-
-  describe('WebSocket lifecycle', () => {
-    it('rejects pending waiters when WS closes', async () => {
-      const promise = client.listDevices()
-      relay.lastClient().close()
-      await expect(promise).rejects.toThrow('WebSocket closed')
-    })
-  })
 })
 
 // The advice is what a language model acts on, so an entry that is missing, blank, or shared with a
@@ -1460,6 +1453,105 @@ describe('the socket identifies its client to the relay (#527, #579)', () => {
     expect(seen).toHaveLength(2)
     expect(seen[0], 'no client id was sent').not.toBe('')
     expect(seen[1], 'a reconnect introduced itself as a different client').toBe(seen[0])
+  })
+})
+
+describe('the relay socket', () => {
+  let open: { relay: ReturnType<typeof createMockRelay>; client: TapflowClient } | undefined
+  afterEach(async () => {
+    open?.client.disconnect()
+    await open?.relay.close()
+  })
+
+  async function connected(onConnection?: (ws: WebSocket, req: IncomingMessage) => void, token = 'tflw_pat_x') {
+    const relay = createMockRelay()
+    if (onConnection) relay.wss.on('connection', onConnection)
+    const client = new TapflowClient(`ws://localhost:${relay.port}`, token)
+    open = { relay, client }
+    await client.connect()
+    return { relay, client }
+  }
+
+  function clientClosed(client: TapflowClient): Promise<unknown> {
+    const ws = (client as unknown as { ws?: WebSocket | null }).ws
+    if (ws === undefined) throw new Error('clientClosed: TapflowClient has no `ws` field to wait on')
+    // The client's own close listener was registered first, so it has run once this one fires.
+    return ws ? new Promise((resolve) => ws.once('close', resolve)) : Promise.resolve()
+  }
+
+  const failure = (request: Promise<unknown>) => request.catch((e: unknown) => e) as Promise<Error>
+
+  it.each([
+    ['tflw_pat_test', 'Bearer tflw_pat_test'],
+    ['', undefined],
+  ])('token %j → Authorization %j on the handshake', async (token, expected) => {
+    const seen: (string | undefined)[] = []
+    await connected((_ws, req) => seen.push(req.headers.authorization), token)
+    expect(seen).toEqual([expected])
+  })
+
+  // A relay refusing the token accepts the upgrade and closes 1008 right after, so `connect()` resolves and
+  // the first request is what fails.
+  describe('a relay close carries its code and reason', () => {
+    const away = "the agent's connection to the relay went away, so nothing is reaching the device right now"
+    const dropped = 'the relay connection dropped before the acknowledgement arrived (relay closed 1008: Unauthorized: X)'
+
+    it('closed right after open, then a request → the error names the code and reason', async () => {
+      const { client } = await connected((ws) => ws.close(1008, 'Unauthorized: X'))
+      await clientClosed(client)
+      expect((await failure(client.listDevices())).message).toBe('Not connected to relay (relay closed 1008: Unauthorized: X)')
+    })
+
+    it.each([
+      ['with a reason', 'Unauthorized: X', 'WebSocket closed (relay closed 1008: Unauthorized: X)'],
+      ['without a reason', undefined, 'WebSocket closed (relay closed 1008)'],
+    ])('closed %s while a request is pending → the error names it', async (_label, reason, expected) => {
+      const { client } = await connected((ws) => ws.on('message', () => ws.close(1008, reason)))
+      expect((await failure(client.listDevices())).message).toBe(expected)
+    })
+
+    it('a reconnect forgets the previous socket\'s close', async () => {
+      let connections = 0
+      const { client } = await connected((ws) => {
+        if (connections++ === 0) ws.close(1008, 'Unauthorized: X')
+      })
+      await clientClosed(client)
+      await client.connect()
+      client.disconnect()
+      expect((await failure(client.listDevices())).message).toBe('Not connected to relay')
+    })
+
+    it('a close this client asked for is not reported as the relay\'s', async () => {
+      const { client } = await connected()
+      const closed = clientClosed(client)
+      client.disconnect()
+      await closed
+      expect((await failure(client.listDevices())).message).toBe('Not connected to relay')
+    })
+
+    it('a close on a session with a note keeps both', async () => {
+      const { relay, client } = await connected()
+      relay.send({ type: 'session:agent-away', sessionId: 's1' })
+      await settle(relay, client)
+      const boot = failure(client.bootDevice('s1', 'd1'))
+      relay.lastClient().close(1008, 'Unauthorized: X')
+      expect((await boot).message).toBe(`WebSocket closed (relay closed 1008: Unauthorized: X) — ${away}`)
+    })
+
+    it.each([
+      ['without a session note', false, dropped],
+      ['with a session note', true, `${away}; ${dropped}`],
+    ])('an input the relay closes on before its ack, %s → the error names the close', async (_label, isAway, cause) => {
+      const { relay, client } = await connected()
+      relay.setInputAck('none')
+      if (isAway) {
+        relay.send({ type: 'session:agent-away', sessionId: 's1' })
+        await settle(relay, client)
+      }
+      const tap = failure(client.tap('s1', 1, 2))
+      relay.lastClient().close(1008, 'Unauthorized: X')
+      expect((await tap).message).toContain(`Could not confirm the input reached the device: ${cause}. Do not repeat`)
+    })
   })
 })
 

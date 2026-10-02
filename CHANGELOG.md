@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The MCP server can drive a relay on another machine.** It sent its token on REST calls but not on the WebSocket that carries every device command, so a connection to the relay from outside localhost was refused. The API-type token the MCP docs ask for (`view`, `builds:write`) now reaches the socket, where `view` is the scope the relay checks. When the relay refuses the socket anyway, the error names its close code and reason.
+
 - **The iOS screen has rounded corners in Firefox on macOS.** While the stream was running, Firefox showed the simulator screen with square corners that stuck out over the device frame, because of a Firefox bug in how it draws large, constantly updating canvases. The dashboard now works around it in Firefox on macOS; other browsers were not affected and are unchanged.
 
 - **An Android install that fails for lack of space says so.** On an emulator whose storage had filled up, installing a build showed `Install failed: Exception occurred while executing 'install': android.os.ParcelableException: java.io.IOException: Requested internal only, but not enough space`. It now says the device's storage is full and to turn on **Full reset** and pick the device again, which erases everything on it, raising `disk.dataPartition.size` in the AVD's `config.ini` first if you want a larger partition. Emulators with the Play Store fill up on their own as Google apps update in the background, so this can happen with a build that installed fine a month earlier.
