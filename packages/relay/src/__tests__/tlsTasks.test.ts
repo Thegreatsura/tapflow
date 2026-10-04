@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { WebSocket } from 'ws'
 import type { TapflowConfig } from '../lib/config.js'
 
 const { startCertRenewal, startAddressPublisher, stopRenewal, stopPublish } = vi.hoisted(() => {

@@ -39,13 +39,9 @@ describe.skipIf(!RUN)('ACME STAGING issuance (integration)', () => {
     expect(issued.key).toContain('PRIVATE KEY')
 
     const x = new X509Certificate(issued.cert)
-    // eslint-disable-next-line no-console
     console.log(`\n  provider: ${dns.name}`)
-    // eslint-disable-next-line no-console
     console.log('  issuer  :', x.issuer.replace(/\n/g, ' '))
-    // eslint-disable-next-line no-console
     console.log('  subject :', x.subject)
-    // eslint-disable-next-line no-console
     console.log('  notAfter:', x.validTo, '\n')
 
     expect(x.subject).toContain(domain)
