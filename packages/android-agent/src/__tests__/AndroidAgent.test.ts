@@ -1038,6 +1038,22 @@ describe('AndroidAgent', () => {
         expect(Object.keys(state).sort()).toEqual(['available', 'reason'])
       })
 
+      it('remembers what its own read saw, so a later failed read keeps that position', async () => {
+        // The capability read is an observation like any other. Without remembering it, a device this
+        // path had just read as offline answered `NetworkUnobserved` on the next failure — "nobody
+        // knows" about a position the agent had seen.
+        //
+        // Mutation: dropping the memory write in `networkState` answers with no position here.
+        adb = mockAdb(true)
+        vi.spyOn(adb, 'airplaneMode').mockResolvedValue(true)
+        await session(adb)
+        expect(await agent.networkState()).toEqual({ offline: true, available: true })
+
+        vi.mocked(adb.airplaneMode).mockRejectedValue(new Error('device offline'))
+        expect(await agent.networkState())
+          .toEqual({ offline: true, available: false, reason: 'state-unconfirmed' })
+      })
+
       it('answers a failed write on an unobserved device with no position, with no undefined key', async () => {
         // In-process the object is never serialised, so an `offline: undefined` key would survive and
         // disagree with the wire under `'offline' in p` — see `NetworkUnobserved`.

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`@tapflowio/protocol`: `network:state` can carry no `offline`.** `NetworkStatePayload` gains `NetworkUnobserved`, sent when an Android device has never been read, so `payload.offline` is `boolean | undefined`. Migrate: treat `payload.offline === undefined` as unknown position; do not read it with a truthy test, which draws it as online. Code built against the old types keeps compiling unless it assigns `offline` to a `boolean`, and agents still send a boolean whenever they know; the dashboard shipped in the relay already handles it (see Fixed). Android's in-process `networkState()` returns this payload instead of throwing for a device it has never read.
 
+### Added
+
+- **`@tapflowio/agent-core` exports the capability vocabulary.** `KNOWN_AGENT_CAPABILITIES` lists every capability an agent can announce, and `AgentCapability` is derived from it. `isAgentCapability()` tells whether a string is in that vocabulary, and `hasCapability()` checks an announced list, which stays `string[]`. A third-party agent still declares only the capabilities it implements.
+
 ### Changed
 
 - **An Android emulator that runs out of space makes room and installs anyway.** When a build fails to install because the emulator's storage is full, tapflow now rolls back the Play Store updates of the Google apps Lean mode turns off (the Google app, YouTube, YouTube Music and Digital Wellbeing), whether or not Lean mode is on, and tries again for about 9 seconds while the space comes back. Those apps return to the version the emulator shipped with and lose their data; Play services, WebView and the Play Store are never touched, and an app that was turned off stays off. This happens only on an emulator tapflow started. If there is nothing left to roll back, or it is still not enough, you see the storage-full message as before, which says to use Full reset.

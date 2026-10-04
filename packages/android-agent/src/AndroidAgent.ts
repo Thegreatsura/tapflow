@@ -2217,7 +2217,11 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     // A device never observed whose read now fails answers `NetworkUnobserved`, where this used to
     // throw because the payload had no way to say "not known" (#667). The capability promises an
     // answer for a device that is there; an absent device still throws, from `soleLive`.
-    return this.readNetworkState(live.serial, live.state.lastNetworkOffline)
+    const state = await this.readNetworkState(live.serial, live.state.lastNetworkOffline)
+    // An observation, so it is remembered like the other paths' reads — otherwise a position this
+    // read had just seen would come back as "nobody knows" on the next failure.
+    if (state.available) live.state.lastNetworkOffline = state.offline
+    return state
   }
 
   private async handleDeviceShutdown(sessionId: string, avdId: string, requestId?: string): Promise<void> {
