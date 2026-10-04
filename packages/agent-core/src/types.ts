@@ -49,7 +49,31 @@ export interface Device {
 // old for the command — and this string is sent once at `agent:register`, before any device is
 // booted. So it means "this agent has the code", and `network:state.available` carries the rest.
 // Reading it as a promise that the toggle will work is the mistake this comment exists to prevent.
-export type AgentCapability = 'clipboard' | 'full-reset' | 'network-control' | 'build-download'
+//
+// **The vocabulary, not a declaration (#700).** This is every capability any agent can name. What one
+// agent *implements* is its own list, typed against this — an agent that announced the whole set
+// would start claiming a feature the moment another platform gained it. Same split as
+// `NetworkControlCapability`: the shape lives here, and an agent opts in.
+//
+// A runtime value rather than only a union so the relay, which can import from here, checks its
+// gates through `hasCapability` and a rename fails to compile there. The dashboard still cannot, and
+// `scripts/__tests__/agentCapabilityConsumers.test.mjs` holds its literals against this array.
+export const KNOWN_AGENT_CAPABILITIES = ['clipboard', 'full-reset', 'network-control', 'build-download'] as const
+export type AgentCapability = (typeof KNOWN_AGENT_CAPABILITIES)[number]
+
+export function isAgentCapability(s: string): s is AgentCapability {
+  return (KNOWN_AGENT_CAPABILITIES as readonly string[]).includes(s)
+}
+
+/**
+ * Does this announced list include `cap`? Typed on the second argument only: the list stays
+ * `string[]` because a relay is a conduit, and a capability it does not know must still reach the
+ * viewer that does. Narrowing it at registration would make an older relay strip what a newer agent
+ * and dashboard both understand.
+ */
+export function hasCapability(caps: readonly string[] | undefined, cap: AgentCapability): boolean {
+  return caps?.includes(cap) ?? false
+}
 
 
 // ── Clipboard bridge shared contract ────────────────────────────────────────

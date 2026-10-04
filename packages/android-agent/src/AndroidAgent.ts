@@ -270,7 +270,8 @@ interface DeviceState {
    *  second as the first. Reachable — a boot whose own read failed writes nothing here, and a tester
    *  who then flips airplane mode in the emulator's own UI leaves a device that is offline, unreadable
    *  and never observed. Answering `offline: false` for it is the one direction that hides the
-   *  problem this feature exists to show, so `reportNetworkState` stays silent there instead. */
+   *  problem this feature exists to show, so every producer answers `NetworkUnobserved` there
+   *  instead, and the re-join report stays silent (#667). */
   lastNetworkOffline?: boolean
   streamWs: WebSocket | null
   scrcpySession: ScrcpySession | null
@@ -2017,13 +2018,15 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
    *
    * `lastKnownOffline` is the fallback for a read that fails, **not** `false`: a device that is
    * offline and can no longer be read is still offline, and reporting it as online renders the
-   * control in the position that hides the problem.
+   * control in the position that hides the problem. **With no fallback there is no position at all**
+   * — the device has never been read — and the answer says so rather than defaulting one (#667).
    */
-  private async readNetworkState(serial: string, lastKnownOffline = false): Promise<NetworkStatePayload> {
+  private async readNetworkState(serial: string, lastKnownOffline: boolean | undefined): Promise<NetworkStatePayload> {
     try {
       return { offline: await this.adb.airplaneMode(serial), available: true }
     } catch (e) {
       logger.warn('airplane mode read failed:', (e as Error).message)
+      if (lastKnownOffline === undefined) return { available: false, reason: 'state-unconfirmed' }
       return { offline: lastKnownOffline, available: false, reason: 'state-unconfirmed' }
     }
   }
@@ -2062,7 +2065,9 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
   private async resetNetworkForSession(sessionId: string, state: DeviceState, seq: number): Promise<void> {
     const serial = this.serialFor(sessionId)
     if (!serial) return
-    let known = false
+    // **`undefined` until read, not `false`.** This started at `false`, so a boot whose read failed
+    // reported "online" for a device nobody had read — on the first `network:state` any viewer gets.
+    let known: boolean | undefined
     try {
       // Conditional: an already-online device is left alone, so an ordinary boot issues no command
       // at all. Unconditional would work too and is worse — it makes every boot a write to a
@@ -2078,7 +2083,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
       logger.warn('could not clear airplane mode on boot:', (e as Error).message)
     }
     if (seq !== state.bootSeq) return
-    await this.reportNetworkState(sessionId, known)
+    await this.reportNetworkState(sessionId, 'device-ready', known)
   }
 
   /**
@@ -2092,18 +2097,19 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
    *
    * Silent with no device, deliberately: nobody asked, so there is no requester to answer and
    * `network:error` would be addressed to no one.
+   *
+   * **`trigger` decides what a device never read gets, and the two differ on purpose.** `device:ready`
+   * is a report the protocol promises, so it goes — as `NetworkUnobserved`. A re-join stays silent:
+   * the viewer reaches `unknown` through its own deadline, and on a released dashboard, which reads a
+   * missing `offline` as online, that silence is the honest path (see `NetworkUnobserved`).
    */
-  private async reportNetworkState(sessionId: string, lastKnownOffline?: boolean): Promise<void> {
+  private async reportNetworkState(sessionId: string, trigger: 'device-ready' | 're-join', lastKnownOffline?: boolean): Promise<void> {
     const serial = this.serialFor(sessionId)
     if (!serial) return
     const state = this.deviceStates.get(sessionId)
     const known = lastKnownOffline ?? state?.lastNetworkOffline
-    const payload = await this.readNetworkState(serial, known ?? false)
-    // Nothing observed and nothing readable: every value of `offline` here would be a claim, and
-    // `false` is the one that reads as "on the network". Silence is already this method's answer when
-    // there is no device — nobody asked, so nothing is owed — and it is the honest one here too. The
-    // boot path always passes a value, so the report the protocol names on `device:ready` still goes.
-    if (!payload.available && known === undefined) return
+    const payload = await this.readNetworkState(serial, known)
+    if (trigger === 're-join' && payload.offline === undefined) return
     // Only an observed value enters the memory — a failed read has nothing to record, since what it
     // returns *is* the memory (or a value the caller just read off the device).
     //
@@ -2155,10 +2161,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
       // is for a request that could not be dispatched at all, which is the no-device case above and a
       // different fix for the tester.
       logger.warn('airplane mode write failed:', (e as Error).message)
-      this.sendMsg({
-        type: 'network:state', sessionId, requestId,
-        payload: { offline: before.offline, available: false, reason: 'state-unconfirmed' },
-      })
+      this.sendMsg({ type: 'network:state', sessionId, requestId, payload: writeFailed(before) })
       return
     }
 
@@ -2205,21 +2208,19 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
       if (result.confirmed) state.lastNetworkOffline = result.offline
       return this.classifyWrite(result, offline)
     } catch {
-      return { offline: before.offline, available: false, reason: 'state-unconfirmed' }
+      return writeFailed(before)
     }
   }
 
   async networkState(): Promise<NetworkStatePayload> {
     const live = this.soleLive()
-    const known = live.state.lastNetworkOffline
-    const state = await this.readNetworkState(live.serial, known)
-    // **`false` is not "unknown", it is "on the network".** A device nobody has ever observed, whose
-    // read has now failed, has no position to report — and answering `offline: false` there claims the
-    // one direction that hides the problem, which is what the WS report path stays silent about
-    // rather than say. A function has to answer, so it answers with the failure.
-    if (!state.available && known === undefined) {
-      throw new PlatformError('Cannot read the network state, and this device has never been observed')
-    }
+    // A device never observed whose read now fails answers `NetworkUnobserved`, where this used to
+    // throw because the payload had no way to say "not known" (#667). The capability promises an
+    // answer for a device that is there; an absent device still throws, from `soleLive`.
+    const state = await this.readNetworkState(live.serial, live.state.lastNetworkOffline)
+    // An observation, so it is remembered like the other paths' reads — otherwise a position this
+    // read had just seen would come back as "nobody knows" on the next failure.
+    if (state.available) live.state.lastNetworkOffline = state.offline
     return state
   }
 
@@ -2927,7 +2928,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
       // and nothing here is waiting on it — a session with no booted device answers nothing at all,
       // because `network:error` would be addressed to a requester that does not exist.
       case 'network:request-state':
-        void this.reportNetworkState(msg.sessionId)
+        void this.reportNetworkState(msg.sessionId, 're-join')
         break
       // Clipboard bridge. Emulator-only: it rides the gRPC EmulatorController, since the
       // AVD images have no `adb shell cmd clipboard`. The chord is pressed HERE, not by the
@@ -3363,4 +3364,14 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
   async openUrl(url: string): Promise<void> {
     await this.adb.openUrl(this.soleLive().serial, url)
   }
+}
+
+/**
+ * The answer to a write that threw: nothing reached the device, so it is where `before` found it —
+ * which is now unconfirmed. `before` passes through when it is already a failed read, so a device
+ * never observed keeps **no** `offline` key rather than gaining one set to `undefined`, which would
+ * disagree with the same frame after serialisation under `'offline' in p`.
+ */
+function writeFailed(before: NetworkStatePayload): NetworkStatePayload {
+  return before.available ? { offline: before.offline, available: false, reason: 'state-unconfirmed' } : before
 }

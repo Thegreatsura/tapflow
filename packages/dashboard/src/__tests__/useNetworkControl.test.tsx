@@ -104,6 +104,20 @@ describe('useNetworkControl', () => {
     expect(view.result.current.position).toBe('online')
   })
 
+  it('draws a report with no position as unknown, not online', () => {
+    // #667: an agent that has never read the device sends no `offline` at all. A truthy test reads the
+    // missing field as online, which is the lie the member exists to end — and nothing in the type
+    // system forces this branch, since `undefined` is as falsy as `false`.
+    //
+    // Mutation: reading `offline ? 'offline' : 'online'` as before fails here.
+    const { view, report } = setup()
+    report(steerable(true))
+    report({ available: false, reason: 'state-unconfirmed' })
+    expect(view.result.current.position).toBe('unknown')
+    expect(view.result.current.steerable).toBe(false)
+    expect(view.result.current.reason).toBe('state-unconfirmed')
+  })
+
   it('asks for online from a position it cannot steer, not offline again', () => {
     // The ratchet itself. Without the line above this asked `offline: true` forever.
     //

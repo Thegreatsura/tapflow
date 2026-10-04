@@ -70,6 +70,45 @@ describe('network control relay routing (#607)', () => {
     agent.close(); browser.close()
   })
 
+  // #667: a device the agent has never read is reported with no `offline`. The relay checks only the
+  // envelope of an agent frame and forwards it as it arrived — if it ever parsed the payload, a
+  // default here would put back the `false` the member exists to remove.
+  it('forwards a network:state with no position without adding one', async () => {
+    const { agent, browser, sessionId } = await setup()
+    browser.send(JSON.stringify(setMsg(sessionId, 'rq-unobserved', true)))
+    await waitForType(agent, 'network:set')
+
+    agent.send(JSON.stringify({
+      type: 'network:state', sessionId, requestId: 'rq-unobserved',
+      payload: { available: false, reason: 'state-unconfirmed' },
+    }))
+    const got = await waitForType<NetworkState>(browser, 'network:state')
+    expect(Object.keys(got.payload).sort()).toEqual(['available', 'reason'])
+
+    agent.close(); browser.close()
+  })
+
+  // #700: the relay checks its own gates through `hasCapability`, but stays a conduit for the list —
+  // a capability it does not know must reach a viewer that does, or an older relay would hide a
+  // feature a newer agent and dashboard both have.
+  it('passes a capability it does not know through to the viewer', async () => {
+    const agent = new WebSocket(`ws://localhost:${port}`)
+    await waitForOpen(agent)
+    agent.send(JSON.stringify({
+      type: 'agent:register', platform: 'ios', agentName: 'net-future', capabilities: ['network-control', 'future-capability'],
+      devices: [{ id: 'dev-1', name: 'iPhone', platform: 'ios', status: 'booted' }],
+    }))
+    const reply = await waitForType<AgentRegistered>(agent, 'agent:registered')
+    const browser = new WebSocket(`ws://localhost:${port}`)
+    await waitForOpen(browser)
+    browser.send(JSON.stringify({ type: 'session:start', sessionId: reply.registeredSessions[0]!.sessionId }))
+    const joined = await waitForType<SessionJoined>(browser, 'session:joined')
+
+    expect(joined.capabilities).toEqual(['network-control', 'future-capability'])
+
+    agent.close(); browser.close()
+  })
+
   it('routes network:state back to the browser, echoing the requestId', async () => {
     const { agent, browser, sessionId } = await setup()
     browser.send(JSON.stringify(setMsg(sessionId, 'rq-2', true)))

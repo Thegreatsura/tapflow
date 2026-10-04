@@ -17,10 +17,16 @@ function stringLiterals(text) {
   return [...text.matchAll(/(['"])([^\r\n]*?)\1/g)].map((match) => match[2])
 }
 
+// The union is derived from this array (#700), so the array is where the spelling lives. The
+// non-empty assertion is the guard on the guard: the union's right-hand side used to be parsed, and
+// once it became `(typeof …)[number]` it would have parsed to an empty set — every consumer then
+// "undeclared", or with a looser matcher, nothing checked at all.
 function agentCapabilities(text) {
-  const match = withoutComments(text).match(/export type AgentCapability\s*=\s*([\s\S]*?)(?=\n\s*\n)/)
-  expect(match, 'AgentCapability union did not parse').not.toBeNull()
-  return new Set(stringLiterals(match[1]))
+  const match = withoutComments(text).match(/export const KNOWN_AGENT_CAPABILITIES\s*=\s*\[([\s\S]*?)\]/)
+  expect(match, 'KNOWN_AGENT_CAPABILITIES did not parse').not.toBeNull()
+  const declared = new Set(stringLiterals(match[1]))
+  expect(declared.size, 'KNOWN_AGENT_CAPABILITIES parsed to nothing').toBeGreaterThan(0)
+  return declared
 }
 
 // This spelling floor only sees direct literal checks: aliases, constants, and template literals are

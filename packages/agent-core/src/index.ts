@@ -22,6 +22,9 @@ export {
   clipboardByteLength,
   CLIPBOARD_SENTINEL_PREFIX,
   isClipboardSentinel,
+  KNOWN_AGENT_CAPABILITIES,
+  isAgentCapability,
+  hasCapability,
   type BootAbandonReason,
   bootAbandonMessage,
   BOOT_NO_SESSION_STATE,
@@ -35,6 +38,7 @@ export type { DevicePosture, PosturableAgent } from './PosturableCapability.js'
 export type {
   NetworkControlCapability,
   NetworkStatePayload,
+  NetworkUnobserved,
   NetworkUnavailableReason,
 } from './NetworkControlCapability.js'
 export { createKeyedSerialQueue } from './utils/serialQueue.js'

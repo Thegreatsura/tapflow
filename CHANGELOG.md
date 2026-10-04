@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- **`@tapflowio/protocol`: `network:state` can carry no `offline`.** `NetworkStatePayload` gains `NetworkUnobserved`, sent when an Android device has never been read, so `payload.offline` is `boolean | undefined`. Migrate: treat `payload.offline === undefined` as unknown position; do not read it with a truthy test, which draws it as online. Code built against the old types keeps compiling unless it assigns `offline` to a `boolean`, and agents still send a boolean whenever they know; the dashboard shipped in the relay already handles it (see Fixed). Android's in-process `networkState()` returns this payload instead of throwing for a device it has never read.
+
+### Added
+
+- **`@tapflowio/agent-core` exports the capability vocabulary.** `KNOWN_AGENT_CAPABILITIES` lists every capability an agent can announce, and `AgentCapability` is derived from it. `isAgentCapability()` tells whether a string is in that vocabulary, and `hasCapability()` checks an announced list, which stays `string[]`. A third-party agent still declares only the capabilities it implements.
+
 ### Changed
 
 - **An Android emulator that runs out of space makes room and installs anyway.** When a build fails to install because the emulator's storage is full, tapflow now rolls back the Play Store updates of the Google apps Lean mode turns off (the Google app, YouTube, YouTube Music and Digital Wellbeing), whether or not Lean mode is on, and tries again for about 9 seconds while the space comes back. Those apps return to the version the emulator shipped with and lose their data; Play services, WebView and the Play Store are never touched, and an app that was turned off stays off. This happens only on an emulator tapflow started. If there is nothing left to roll back, or it is still not enough, you see the storage-full message as before, which says to use Full reset.
@@ -16,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Every form that sets a password says how long it must be before you submit.** The first-admin setup, invitation, password reset and the password change in **Settings** show "Use at least 8 characters" under the new password field. Before, the rule appeared only as an error after a submit had been refused. Screen readers hear it as the field's description. A refused submit replaces it in the same place with the error, which states the rule itself.
 
 ### Fixed
+
+- **Android shows the network state as unknown when it has never been read, instead of on the network.** If tapflow could not read airplane mode when an emulator booted, or when the network toggle failed before any read had worked, the toggle showed the device as online, even if someone had taken it offline in the emulator itself. It now shows the state as unknown and says tapflow could not read it. A dashboard from before this release still shows such a device as online, as it did before.
 
 - **The MCP server can drive a relay on another machine.** It sent its token on REST calls but not on the WebSocket that carries every device command, so a connection to the relay from outside localhost was refused. The API-type token the MCP docs ask for (`view`, `builds:write`) now reaches the socket, where `view` is the scope the relay checks. When the relay refuses the socket anyway, the error names its close code and reason.
 

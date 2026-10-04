@@ -204,6 +204,24 @@ describe('SimulatorToolbar — network control', () => {
     expect(seen.size, 'two positions are described the same way').toBe(4)
   })
 
+  it('says the state could not be read when a report arrived with no position', () => {
+    // #667: `unknown` used to be reachable only by silence, so its sentence said nothing had been
+    // reported. A report with no position is a different claim — something answered, and could not
+    // say where the device is — and the old sentence is false about it.
+    //
+    // Mutation: dropping the `steerable` branch from the `unknown` case fails here.
+    toolbar(control({ position: 'unknown', steerable: false, reason: 'state-unconfirmed' }))
+    const id = networkButton()!.getAttribute('aria-describedby')
+    const text = id === null ? '' : document.getElementById(id)?.textContent ?? ''
+    expect(text).not.toContain('No network state has been reported')
+    expect(text).toContain('could not read')
+    // The name carries the retry as well, because the description is the channel a verbosity setting
+    // can drop. Before #667 this pairing could not come from the hook, and the name stayed plain.
+    //
+    // Mutation: dropping `unobserved` from `networkAction`'s gate fails here.
+    expect(networkButton()!.getAttribute('aria-label')).toBe('Retry: toggle device network')
+  })
+
   it('still shows where the device is when tapflow can no longer move it', () => {
     // **The ratchet this replaced.** `available: false` means "cannot change it", not "cannot read
     // it" — the protocol carries `offline` on that member for exactly this — and an earlier draft
@@ -336,9 +354,10 @@ describe('SimulatorToolbar — network control', () => {
 
   it('does not say a retry failed where nothing was ever attempted', () => {
     // `steerable: false` means a report came back saying tapflow can no longer move it. A
-    // position-less state has had no report, so "Retry" there asserts an attempt that no channel
-    // explains. Unreachable through the hook — any report settles the position — but this component
-    // takes the two as independent props.
+    // position-less state reached by silence has had no report, so "Retry" there asserts an attempt
+    // that no channel explains. With no reason this pairing is unreachable through the hook, but this
+    // component takes the props independently. The one report that *does* leave the position unknown
+    // carries `state-unconfirmed`, and has its own test below.
     //
     // Mutation: prefixing unconditionally fails here.
     for (const position of ['waiting', 'unknown'] as const) {

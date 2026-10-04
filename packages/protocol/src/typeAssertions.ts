@@ -152,6 +152,14 @@ export const _networkUnavailableNeedsReason: NetworkStatePayload = { offline: tr
 // onto a continuation puts the error out of its reach — which reads as the assertion passing.
 // @ts-expect-error - a steerable state must not carry one
 export const _networkAvailableRefusesReason: NetworkStatePayload = { offline: true, available: true, reason: 'not-armed' }
+// Only `state-unconfirmed` may leave the position out (#667) — every other reason knows where the device
+// is. The positive case is here too, so this proves the member is reachable and not only that the
+// others refuse it.
+export const _networkUnobserved: NetworkStatePayload = { available: false, reason: 'state-unconfirmed' }
+// @ts-expect-error - a reason that knows the position must give it
+export const _networkUnobservedOnlyUnconfirmed: NetworkStatePayload = { available: false, reason: 'filter-unavailable' }
+// @ts-expect-error - a steerable state always has a position
+export const _networkSteerableNeedsPosition: NetworkStatePayload = { available: true }
 export const _ClipboardRead: ClipboardRead['type'] = 'clipboard:read'
 export const _ClipboardWrite: ClipboardWrite['type'] = 'clipboard:write'
 export const _ClipboardWriteDone: ClipboardWriteDone['type'] = 'clipboard:write-done'

@@ -261,7 +261,15 @@ function networkLook({ position, steerable, reason }: Pick<NetworkControl, 'posi
     case 'waiting':
       return { Icon: Radio, className: `${MUTED} animate-pulse`, status: 'Checking the network state.' };
     case 'unknown':
-      return { Icon: Radio, className: MUTED, status: 'No network state has been reported.' };
+      // Two ways to get here, and they are different claims. Silence — no report before the deadline,
+      // or a device that went away — is "nothing reported". A report with no position (#667) is an
+      // agent that answered and could not read the device, which the first sentence would deny.
+      // Keyed on `steerable` because that is what the report lowers and what silence resets.
+      return {
+        Icon: Radio,
+        className: MUTED,
+        status: steerable ? 'No network state has been reported.' : 'tapflow could not read the network state — try again.',
+      };
   }
 }
 
@@ -289,10 +297,17 @@ function networkAction({ position, steerable, reason }: Pick<NetworkControl, 'po
   // verbosity setting can drop it. "Retry" is honest where it is offered: the last attempt did not
   // land, and clicking will try again.
   // **Only where there is an attempt to retry.** `steerable` is about a report that came back, and a
-  // position-less state has had none — so prefixing there would assert a failed attempt that no
-  // channel explains, which is the claim-from-silence the rest of this file is built to avoid. The
-  // combination is unreachable through `useNetworkControl`, where any report settles the position;
-  // this component takes the two as independent props and has to be right on its own terms.
+  // position-less state reached through *silence* has had none — so prefixing there would assert a
+  // failed attempt that no channel explains, which is the claim-from-silence the rest of this file is
+  // built to avoid.
+  //
+  // **A report with no position is the exception, and it became reachable with #667.** This used to
+  // say no report could leave the position unsettled. `NetworkUnobserved` does: the agent tried to read
+  // the device, could not, and had nothing earlier to fall back on, so the hook sets `unknown` and
+  // `steerable: false` from one frame. That is an attempt that did not land, and its description already
+  // says "try again" — leaving the name plain put the retry in the one channel this paragraph distrusts.
+  // Recognised by `state-unconfirmed`, the only reason that member carries, so `unknown` reached by
+  // silence still keeps the plain name.
   // `awaiting-app` keeps the plain name too. "Retry" claims a previous attempt that did not land, and
   // waiting for an app is not a failed attempt — it is a click that will work, on a device nobody has
   // opened an app on yet.
@@ -316,13 +331,14 @@ function networkAction({ position, steerable, reason }: Pick<NetworkControl, 'po
   // said it would not work, and colour is exactly the channel a screen-reader user does not have. The
   // description says it, and the paragraph above is about why that channel cannot be relied on alone.
   const settled = position === 'online' || position === 'offline';
+  const unobserved = position === 'unknown' && !steerable && reason === 'state-unconfirmed';
   const retryable = reason === 'state-unconfirmed' || reason === 'unsupported-device';
   //
   // **`awaiting-app` is excluded from both**, and that is the same exception it has always had here.
   // Traffic control works in that state — a device taken offline really does stop reaching the
   // network — so neither "Retry" nor "unavailable" is true of it. What is missing is only that the app
   // is told, which the sentence says.
-  if (steerable || !settled || reason === 'awaiting-app') return action;
+  if (steerable || !(settled || unobserved) || reason === 'awaiting-app') return action;
   return retryable ? `Retry: ${action.toLowerCase()}` : `${action} — unavailable`;
 }
 
