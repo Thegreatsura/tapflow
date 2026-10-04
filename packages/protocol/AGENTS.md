@@ -50,6 +50,10 @@ The cost of a broad name is ambiguity about what belongs — answered by the two
     correlated request set is `scripts/__tests__/correlatedRequestsGated.test.mjs`'s job, because
     nothing else compares the two.
 
+- **The connection handshake's query parameters**, as prose rather than types — see
+  [Connection handshake](#connection-handshake--what-the-upgrade-url-carries). No message carries them, but a
+  client written outside this repo needs them as much as it needs the messages (#581).
+
 ## Scope — what does not
 
 - **The binary frame envelope (TFFE).** That is a separate wire format with its own header layout — see [`contributing/frame-envelope.md`](../../contributing/frame-envelope.md). It is currently implemented separately in the relay and the dashboard, which is the same kind of drift risk, but unifying it is not this package's job today.
@@ -112,6 +116,27 @@ The derivation is checked in source, and it is the only guard here that a regene
 The per-message bindings in `typeAssertions.ts` (`_InputDone: InputDone['type'] = 'input:done'`) compare
 two copies of one fact, so they catch an author who edits one of them; measured, editing both left every
 assertion green.
+
+## Connection handshake — what the upgrade URL carries
+
+A browser cannot set headers on a WebSocket, so what a connection says about itself before its first
+message rides on the upgrade URL's query string. One parameter today:
+
+- **`?client=<id>` — who owns the sessions this socket starts** (#527). The relay keys ownership as
+  `<userId>:<clientId>`, where the user comes from the connection's credential (cookie or PAT) and the
+  client id is this parameter. **Omitting it is valid and changes the meaning**: the relay mints one per
+  connection, so the caller gets per-socket ownership — a reconnect is a stranger to the sessions the
+  previous socket held. **Sending a stable value** is what lets a reconnect resume its own sessions, and
+  the user half is why a leaked client id is useless to anyone else.
+- Read once at the upgrade, never re-read: the owner is a property of the connection, not of a join.
+- Not validated, and not trusted for anything but grouping — `ownerKeyFor` in `RelayServer.ts` records
+  why a caller-supplied string must not encode anything security-relevant.
+
+The three in-repo clients send it: the dashboard (`useRelay.ts`, one value per *document*), `mcp-server`
+(`client.ts`) and `flow-runner` (`RelayClient.ts`), one per client instance, so a reconnect of the same
+instance resumes its sessions. Why the dashboard's is per document
+rather than per tab-storage is a relay implementation decision and lives in
+[relay/AGENTS.md](../relay/AGENTS.md).
 
 ## Request/response correlation — `requestId`, required on both sides
 
@@ -512,6 +537,34 @@ must erase under `import type` (see HOW NOT) — so each agent owns its own word
 `scripts/__tests__/inputErrorReason.test.mjs` holds both **agents** to the one union, since neither
 agent's own test suite can see the other. The relay is the third producer and needs no such check: it
 sends through `sendTo(socket, msg: RelayOutbound)`, so its literal is checked by the compiler.
+
+## Changing what a value means — add a member, do not narrow one (#662)
+
+Agents and the relay are installed separately — a Docker relay against a Mac agent installed months
+earlier — and the dashboard ships inside the relay but a tab opened before an upgrade keeps running the
+old bundle. So two pairs can skew: **relay ↔ agent** and **open tab ↔ relay**. There is no version
+handshake (see *Skew is logged, not hedged* above), and adding one would not help the direction that
+matters most: an old consumer has no code to read a new field.
+
+So a change to what an existing wire value *means* is made like this:
+
+1. **Add a new member rather than narrowing an old one.** #618 narrowed `unsupported-device` in place;
+   it happened to be safe only because nothing had released either meaning yet.
+2. **Write down what each released consumer renders for the new shape, and accept it only if that is
+   the same as today or better.** `NetworkUnobserved` (#667) passed by this test and a third string value
+   for `offline` failed it: released dashboards read `offline` as a truthy test, so an absent field draws
+   online — what the `false` it replaced already drew — while `'unknown'` would have drawn *offline*.
+   Consumers' `default` branches help only where they exist; that one was a ternary.
+3. **If neither works, gate on a capability marker.** `capabilities` is an open `string[]` that the relay
+   forwards verbatim to the viewer on `session:joined`, `session:rebound` and the device listing, so an
+   agent can announce "I mean the new thing" with no schema change, and a viewer can fall back when the
+   marker is absent. The relay must stay a conduit for the list for this to work — it checks its own
+   gates through `hasCapability` and never filters the list.
+
+#662 asked for a version field on `agent:register`. It was not added: the two skews it described never
+shipped (network control, the reason split and `enforcement-lost` all first released together in
+0.20.0), a version cannot fix an old consumer, and an optional field is non-breaking whenever a real use
+for one — diagnostics, say — turns up.
 
 ## HOW NOT
 

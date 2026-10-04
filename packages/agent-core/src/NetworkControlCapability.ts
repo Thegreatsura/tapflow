@@ -1,4 +1,4 @@
-import type { NetworkStatePayload, NetworkUnavailableReason } from '@tapflowio/protocol'
+import type { NetworkStatePayload, NetworkUnavailableReason, NetworkUnobserved } from '@tapflowio/protocol'
 import type { DeviceAgent } from './DeviceAgent.js'
 
 // Optional network-control capability (take the device under test off the network and back), kept
@@ -20,7 +20,7 @@ import type { DeviceAgent } from './DeviceAgent.js'
 // `NetworkState` is deliberately **not** the name used here. Protocol exports that as the *message*;
 // taking it for the payload would put two different types under one name across two packages an
 // agent imports in the same file.
-export type { NetworkStatePayload, NetworkUnavailableReason }
+export type { NetworkStatePayload, NetworkUnavailableReason, NetworkUnobserved }
 
 /**
  * **In-process only, and that is the whole scope (#617, #620).**

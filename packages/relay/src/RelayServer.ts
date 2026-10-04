@@ -26,7 +26,7 @@ import { createTrailingRequester, systemTimerScheduler, type TrailingRequester }
 import { getDb } from './db.js'
 import { handleLogin, handleLogout, handleMe, handleChangePassword, handleInit, handleAuthStatus } from './api/auth.js'
 import { handleVerify, handleAccept } from './api/invitations.js'
-import { createLogger } from '@tapflowio/agent-core'
+import { createLogger, hasCapability } from '@tapflowio/agent-core'
 import {
   createKeyframeAwareSender,
   createRateLimitedDropWarn,
@@ -2255,7 +2255,7 @@ export class RelayServer {
       // skipping safe is not the agent's silence but the viewer's: with `readySent` false the
       // `device:ready` above is not replayed either, so nothing is rendering a live device to be wrong
       // about. `deviceStatus` is not the fix — the comment on `device:ready` says why (#440).
-      if (session.agentCapabilities?.includes('network-control')) this.networkStateRequester(session.id)()
+      if (hasCapability(session.agentCapabilities, 'network-control')) this.networkStateRequester(session.id)()
     }
   }
 
@@ -2618,7 +2618,7 @@ export class RelayServer {
    * laptop waking up would otherwise repeat this indefinitely. Same shape as `warnedProxyMisconfig`.
    */
   private warnLegacyInstaller(identity: string, capabilities: string[]): void {
-    if (capabilities.includes('build-download') || this.warnedLegacyInstaller.has(identity)) return
+    if (hasCapability(capabilities, 'build-download') || this.warnedLegacyInstaller.has(identity)) return
     this.warnedLegacyInstaller.add(identity)
     logger.warn(
       `[relay] agent ${identity} predates build downloading. If it is not on the same machine as ` +

@@ -11,9 +11,11 @@ export type NetworkMessageHandler = (msg: NetworkMessage) => void
 /**
  * Where the device is, which is **four things and not two**.
  *
- * `unknown` means no report has arrived and the wait is over — not "the report said something
- * unhelpful". `waiting` is the wait itself, kept apart because collapsing the two would say "could
- * not read" about a device that is merely slow, a claim made before anything was asked.
+ * `unknown` means no report has arrived and the wait is over, or — since #667 — a report arrived that
+ * could not say where the device is (`NetworkUnobserved`, told apart by `steerable: false`). Not "the
+ * report said something unhelpful": a report that knows the position always sets it. `waiting` is the
+ * wait itself, kept apart because collapsing the two would say "could not read" about a device that is
+ * merely slow, a claim made before anything was asked.
  *
  * Spelling any of this as a boolean is the mistake the agent made on the other side of this wire: a
  * `lastNetworkOffline` initialised to `false` reported "on the network" for a device that had never
@@ -181,8 +183,8 @@ export function useNetworkControl({ sessionId, send, supported, deviceReady, han
       setPosition('waiting')
       return
     }
-    // `unknown` renders as "No network state has been reported", which is true and promises no
-    // ending. Only for a device that has been here: before the first one, `waiting` is still right.
+    // `unknown` with the control steerable renders as "No network state has been reported", which is
+    // true and promises no ending. Only for a device that has been here: before the first one, `waiting` is still right.
     setPosition(everReady.current ? 'unknown' : 'waiting')
     // **`steerable` is a claim about the device as much as the position is**, and it was the one this
     // reset kept. A last report of `available: false` left the control disabled with `reason` cleared
@@ -268,14 +270,19 @@ export function useNetworkControl({ sessionId, send, supported, deviceReady, han
       if (msg.requestId !== undefined && abandoned.current.has(msg.requestId)) return
       // **The position comes from `offline` whatever `available` says.** A device tapflow can no
       // longer steer still has a network state, and the protocol carries the field on both members
-      // for exactly that. What `available` changes is what the button can promise, not where it points.
+      // that know one for exactly that — the third, `NetworkUnobserved`, is the exception below. What `available` changes is what the button can promise, not where it points.
       //
       // **The reason is passed through whole**, where this used to keep `awaiting-app` and drop the
       // rest. What made dropping them right was a set that conflated — see `reason` above — and what
       // makes passing them on right is that it no longer does. The rendering decisions stay in the
       // component, which is where the sentences are.
+      //
+      // **Except when there is no `offline` to draw from** (#667): an agent that has never read the
+      // device sends none, and the truthy test below would draw that as online — the lie the
+      // protocol member exists to end. Branched on `undefined` explicitly, because the compiler does
+      // not force it: a missing field is as falsy as `false`.
       const next = msg.payload.available ? undefined : msg.payload.reason
-      setPosition(msg.payload.offline ? 'offline' : 'online')
+      setPosition(msg.payload.offline === undefined ? 'unknown' : msg.payload.offline ? 'offline' : 'online')
       setSteerable(msg.payload.available)
       setReason(next)
       // **The one reason that has to interrupt rather than re-colour.** It says a device that was

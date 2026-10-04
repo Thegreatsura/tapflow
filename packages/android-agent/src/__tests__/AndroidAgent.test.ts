@@ -569,6 +569,29 @@ describe('AndroidAgent', () => {
       expect(state.payload).toEqual({ offline: true, available: false, reason: 'state-unconfirmed' })
     })
 
+    // **The report the protocol promises on `device:ready`, and the commonest frame to carry #667's
+    // lie.** The reset started from `known = false`, so a boot whose read failed reported "online" for a
+    // device nobody had read. It must still report — the frame is promised — but with no position.
+    //
+    // `Object.keys`, not `toEqual`: `toEqual` treats an `offline: undefined` key as absent, and the key's
+    // absence is the whole contract on the wire.
+    it('reports a boot it could not read as unobserved, not as online', async () => {
+      const a = mockAdb(true)
+      vi.spyOn(a, 'airplaneMode').mockRejectedValue(new Error('device offline'))
+      vi.spyOn(a, 'setAirplaneMode').mockRejectedValue(new Error('exit 255'))
+      await session(a)
+
+      browser.send(JSON.stringify({
+        type: 'device:boot', requestId: 'rq-b', sessionId: agent.sessionId,
+        payload: { deviceId: 'avd:Pixel_8_API_34' },
+      }))
+      await waitForType(browser, 'device:ready')
+      const state = await waitForType<NetworkState>(browser, 'network:state')
+
+      expect(state.payload).toEqual({ available: false, reason: 'state-unconfirmed' })
+      expect(Object.keys(state.payload).sort()).toEqual(['available', 'reason'])
+    })
+
     // The boot reset **writes to the device**, so it has to answer to `bootSeq` like every other
     // await in that path. The window is a real one: the read below is an adb round trip, and a
     // tester whose device just went ready can arm the toggle inside it — after which a superseded
@@ -875,6 +898,22 @@ describe('AndroidAgent', () => {
       expect(state.requestId).toBe('rq-barrier')
     })
 
+    // The answer to `network:set` cannot stay silent the way the re-join report does, and it used to
+    // answer `offline: false` — the exact frame #667 was filed about.
+    it('answers a write it could neither make nor read on an unobserved device with no position', async () => {
+      adb = mockAdb(true)
+      vi.spyOn(adb, 'airplaneMode').mockRejectedValue(new Error('device offline'))
+      vi.spyOn(adb, 'setAirplaneMode').mockRejectedValue(new Error('exit 255'))
+      await session(adb)
+
+      set(true, 'rq-unobserved')
+      const state = await waitForType<NetworkState>(browser, 'network:state')
+
+      expect(state.requestId).toBe('rq-unobserved')
+      expect(state.payload).toEqual({ available: false, reason: 'state-unconfirmed' })
+      expect(Object.keys(state.payload).sort()).toEqual(['available', 'reason'])
+    })
+
     // Injected past the relay, which is the only way to reach these: its schema requires
     // `payload.offline` and refuses the frame itself, so a browser cannot produce one. That door
     // is not the agent's, though — inbound is unvalidated here (#444), and the dispatch swallows a
@@ -985,16 +1024,31 @@ describe('AndroidAgent', () => {
           .toEqual({ offline: true, available: false, reason: 'state-unconfirmed' })
       })
 
-      it('refuses to answer for a device it has never observed and cannot read', async () => {
+      it('answers with no position for a device it has never observed and cannot read', async () => {
         // **`false` is not "unknown", it is "on the network".** With nothing ever confirmed and the
-        // read failing, there is no position to report — and answering `offline: false` claims the one
-        // direction that hides the problem. The WS report path stays silent in this state; a function
-        // has to answer, so it answers with the failure.
+        // read failing, there is no position to report. This used to throw, because the payload could
+        // not say so; `NetworkUnobserved` can (#667), and the capability promises an answer rather than
+        // an error for a device that is there.
         adb = mockAdb(true)
         vi.spyOn(adb, 'airplaneMode').mockRejectedValue(new Error('device offline'))
         await session(adb)
 
-        await expect(agent.networkState()).rejects.toThrow(/never been observed/)
+        const state = await agent.networkState()
+        expect(state).toEqual({ available: false, reason: 'state-unconfirmed' })
+        expect(Object.keys(state).sort()).toEqual(['available', 'reason'])
+      })
+
+      it('answers a failed write on an unobserved device with no position, with no undefined key', async () => {
+        // In-process the object is never serialised, so an `offline: undefined` key would survive and
+        // disagree with the wire under `'offline' in p` — see `NetworkUnobserved`.
+        adb = mockAdb(true)
+        vi.spyOn(adb, 'airplaneMode').mockRejectedValue(new Error('device offline'))
+        vi.spyOn(adb, 'setAirplaneMode').mockRejectedValue(new Error('exit 255'))
+        await session(adb)
+
+        const state = await agent.setNetworkOffline(true)
+        expect(state).toEqual({ available: false, reason: 'state-unconfirmed' })
+        expect(Object.keys(state).sort()).toEqual(['available', 'reason'])
       })
 
       it('still answers with the last confirmed value when a read fails', async () => {

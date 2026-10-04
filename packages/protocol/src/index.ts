@@ -719,11 +719,14 @@ export type NetworkUnavailableReason =
    * confirmed value when a read failed, and the *requested* value when a write landed and could not be
    * read back, because a write that was accepted is better evidence than the state before it. What it
    * is never is `false` as a stand-in for "unknown": a device that went offline and then became
-   * unreadable is still offline.
+   * unreadable is still offline. **And when there is no evidence at all** — a device this agent has
+   * never managed to read — there is no `offline` to give, and the frame is `NetworkUnobserved`
+   * instead (#667). Answering `false` there is the same stand-in by another route.
    *
-   * It must not be rendered as an unknown *position*. That was tried and reverted: from `unknown`
-   * every click asks for offline again, so nothing can bring the device back online through the UI.
-   * Say the uncertainty some other way — the position is not the channel for it.
+   * **Where `offline` is present**, it must not be rendered as an unknown *position*. That was tried
+   * and reverted: from `unknown` every click asks for offline again, so nothing can bring the device
+   * back online through the UI. Say the uncertainty some other way — the position is not the channel
+   * for it. Where it is absent, `unknown` is not a rendering choice but the only true one.
    */
   | 'state-unconfirmed'
   /**
@@ -768,7 +771,8 @@ export type NetworkUnavailableReason =
  *
  * **Answers `network:set`, and is also sent unsolicited** — on `device:ready`, when a boot re-arms
  * the injection, when a session's condition is cleared, and in reply to `network:request-state` from
- * a viewer's re-join (#614). So `requestId` is optional, and absent
+ * a viewer's re-join (#614) — **except** that a device never read is answered there with silence (see
+ * `NetworkUnobserved`). So `requestId` is optional, and absent
  * means *this frame is not the answer to a request* — never "an old agent" (see
  * 「Lifecycle correlation」 in AGENTS.md for what that optionality costs and who pays it).
  *
@@ -810,16 +814,49 @@ export interface NetworkNotSteerable {
 }
 
 /**
+ * **Where the device is, nobody knows** — it could not be read, and it never has been (#667).
+ *
+ * The one state where `offline` has no honest value. `NetworkNotSteerable` requires one, and its
+ * fallback is the last observed position; a device this agent has never read has none, and every
+ * value the field could take is a claim. `false` was the one producers reached for, and it is the
+ * claim that hides the problem: a device someone took offline in the emulator's own UI, drawn online.
+ *
+ * **A member of its own rather than `offline?` on `NetworkNotSteerable`**, so the compiler keeps the
+ * rule that only this reason can lack a position. `filter-unavailable` and `enforcement-lost` always
+ * know where the device is, and an optional field there would let a producer forget to say.
+ *
+ * **Narrow on `p.offline === undefined`, never on `'offline' in p`.** The key is absent on the wire, but
+ * an in-process producer can build the object with the key set to `undefined`, and the two disagree
+ * under `in`.
+ *
+ * **What a released viewer does with it**, since agents and the relay are installed separately: a
+ * dashboard from 0.20–0.26 reads `offline` as a truthy test and draws *online* — the same screen the
+ * `false` stand-in drew before this member existed, so nothing gets worse for it. That comparison is
+ * why the field is absent rather than a third string value: `'unknown'` is truthy, and those viewers
+ * would have drawn a device nobody can read as *offline*.
+ *
+ * **Not sent in reply to `network:request-state`.** A viewer re-joining has its own way to reach
+ * `unknown` — its report deadline — and on a released dashboard that silence is the honest path, where
+ * this frame would draw online. It is sent on `device:ready` and in answer to `network:set`, which
+ * must answer and which used to answer `false`.
+ */
+export interface NetworkUnobserved {
+  available: false
+  reason: 'state-unconfirmed'
+  offline?: undefined
+}
+
+/**
  * What a device's network is doing and whether tapflow can steer it.
  *
- * **Two named members rather than one interface with an optional field**, so the invariant is the
+ * **Named members rather than one interface with an optional field** — three since #667 — so the invariant is the
  * compiler's rather than a comment's. **And named rather than inline** so `agent-core` can
  * re-export instead of declaring a second copy — the rule `types.ts` already follows for
  * `ClipboardErrorPayload` — and so `scripts/__tests__/protocolPayloadTypes.test.mjs` can see the
  * shapes. That check reads named declarations; an inline payload is invisible to it, and so is a
  * union alias whose members are anonymous.
  */
-export type NetworkStatePayload = NetworkSteerable | NetworkNotSteerable
+export type NetworkStatePayload = NetworkSteerable | NetworkNotSteerable | NetworkUnobserved
 
 export interface NetworkState {
   type: 'network:state'

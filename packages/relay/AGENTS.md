@@ -91,7 +91,8 @@ iOS build format: `.app.zip` **or** `.tar.gz`/`.tgz` (EAS `eas build` simulator 
   having landed. `session:leave` and `session:end` are dropped, because neither has a reply and inventing
   one would grow the wire for a message no consumer reads.
   **A session is owned by a *client*, not by a socket** (#527). The owner is `<userId>:<clientId>`, taken
-  from the `?client=` query parameter at the handshake and minted per connection when absent — so there is
+  from the `?client=` query parameter at the handshake and minted per connection when absent — the
+  parameter is wire contract and is specified in protocol's AGENTS.md, *Connection handshake*. There is
   no fallback branch, and a caller that identifies itself gets an identity spanning its sockets while one
   that does not gets the per-socket identity ownership used to have. The dashboard sends one value per
   *document*, deliberately not `sessionStorage`: that store is copied into a tab opened from another, and

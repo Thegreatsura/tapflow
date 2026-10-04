@@ -103,6 +103,7 @@ A device that cannot be taken off the network draws the button in the failure co
 | Launch an app | Launch an app through tapflow. Traffic can already be cut; telling the app needs it running under tapflow |
 | Restart the device | Restart the device. Nothing was set up for it on this boot |
 | It could not be confirmed — try again | Press it again. This appears while a device is booting, or when the connection to it drops briefly |
+| tapflow could not read the network state — try again | Press it again. The button shows neither on nor off because tapflow has not read this device yet, which happens on Android while it boots or when the connection to it drops |
 | The device did not change when asked | Press it again. If it keeps happening, that device will not take the setting — use another one |
 | tapflow cannot tell this app it is off the network | Pressing again gives the same answer. Try launching a different app, and check the `Network hook` lines of `tapflow doctor ios` on the agent Mac |
 | This Mac is not set up for it | See [iOS needs the network extension](#ios-needs-the-network-extension) above. It is an install step on the agent Mac |
