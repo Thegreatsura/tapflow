@@ -2,10 +2,12 @@ import crypto from 'crypto'
 import { createLogger } from '@tapflowio/agent-core'
 import { getDb } from '../db.js'
 import { config } from './config.js'
+import { createSafeFetch, type FetchLike } from './webhookTransport.js'
 
 // Re-exported so existing importers keep using webhooks.ts; the implementation lives
 // in webhookUrl.ts to avoid a circular import with config.ts (which also validates).
 export { validateWebhookUrl } from './webhookUrl.js'
+export type { FetchLike } from './webhookTransport.js'
 
 const logger = createLogger('relay:webhooks')
 
@@ -22,12 +24,6 @@ export interface WebhookPayload {
   }
   changedAt: string
 }
-
-// Minimal fetch shape so tests can inject a fake without pulling in DOM lib types.
-export type FetchLike = (
-  url: string,
-  init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal }
-) => Promise<{ ok: boolean; status: number; text: () => Promise<string> }>
 
 /** HMAC-SHA256 signature of the raw request body, formatted like EAS's expo-signature. */
 export function signPayload(secret: string, body: string): string {
@@ -59,7 +55,7 @@ export async function deliverWebhooks(
   if (rows.length === 0) return
 
   const body = JSON.stringify(payload)
-  const fetchFn = opts.fetchFn ?? (globalThis.fetch as unknown as FetchLike)
+  const fetchFn = opts.fetchFn ?? createSafeFetch()
 
   await Promise.allSettled(
     rows.map(async (ep) => {
@@ -72,9 +68,13 @@ export async function deliverWebhooks(
           body,
           signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
         })
-        // Drain the body so undici releases the connection back to the pool.
+        // Drain the body so the connection is released.
         await res.text()
-        if (!res.ok) logger.warn(`webhook POST ${ep.url} returned ${res.status}`)
+        if (res.status >= 300 && res.status < 400) {
+          logger.warn(`webhook POST ${ep.url} returned ${res.status} (redirects are not followed; register the final URL)`)
+        } else if (!res.ok) {
+          logger.warn(`webhook POST ${ep.url} returned ${res.status}`)
+        }
       } catch (err) {
         logger.warn(`webhook POST ${ep.url} failed: ${String(err)}`)
       }

@@ -65,6 +65,7 @@ Here is what tapflow handles and what you manage as the infrastructure operator.
 - Network access control to the relay host (firewall, VPN, etc.)
 - Managing `JWT_SECRET` and other environment variables for the relay
 - Team separation: one relay serves one team, so run a separate relay for each team whose builds and streams must stay apart
+- Who can manage webhooks: webhook destinations may be private LAN addresses by design, so an Admin, Developer or QA member, or a `builds:write` PAT, can have the relay send requests to hosts on your LAN. The request body is a fixed build-status event and the response is not shown to whoever registered it. If that matters on your network, decide who gets those roles accordingly.
 
 ::: tip Running on an internal network only
 If the relay is only reachable within your internal LAN, you can operate without WAN-leg TLS. This is appropriate when every team member is on the same network — office Wi-Fi or a shared VPN.
