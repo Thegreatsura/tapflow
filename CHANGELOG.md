@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **The MCP server is on `@modelcontextprotocol/sdk` 1.31.0.** The SDK's OAuth client could send credentials to an authorization server the MCP server chose ([GHSA-6qxp-vccf-f47h](https://github.com/advisories/GHSA-6qxp-vccf-f47h)). tapflow's MCP server never uses that client, so it was not affected, but the update clears the warning for anyone auditing their install.
+
 ## [0.27.0] - 2026-10-07
 
 **Upgrade now.** This release fixes an unauthenticated file read in the relay that exposes its database and JWT secret ([GHSA-pq37-jfvf-hhhc](https://github.com/jo-duchan/tapflow/security/advisories/GHSA-pq37-jfvf-hhhc)), and a webhook check that let a destination reach the relay's own machine ([GHSA-32j8-75h9-978f](https://github.com/jo-duchan/tapflow/security/advisories/GHSA-32j8-75h9-978f)). If your relay was reachable by anyone you do not trust, follow the steps under Security after upgrading.
