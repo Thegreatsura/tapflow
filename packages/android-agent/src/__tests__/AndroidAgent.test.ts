@@ -204,6 +204,8 @@ interface AndroidAgentInternals {
   _reconnectTimer: ReturnType<typeof setTimeout> | null
   _reconnectAttempt: number
   _scheduleReconnect(): void
+  lastPingAt: number | null
+  lastSocketError: string | undefined
   restartVideoStream(state: TestState): Promise<void>
   cleanupDeviceState(state: TestState): void
   finishPosture(state: TestState | null, serial: string, before: 0 | 90 | 180 | 270 | null): Promise<void>
@@ -2443,8 +2445,10 @@ describe('AndroidAgent', () => {
         const ws = internals(agent).ws
         expect(ws && ws !== first && ws.readyState === WebSocket.OPEN).toBe(true)
       }, { timeout: 2000 })
-      internals(agent).ws!.terminate()
-      await vi.waitFor(() => expect(lines().some((l) => l.includes('relay disconnected (code 1006, no ping received)'))).toBe(true))
+      // Read from this agent, not from console lines: other tests' agents still reconnecting in the
+      // background print "no ping received" too, which made a line match pass with the reset deleted.
+      expect(internals(agent).lastPingAt).toBeNull()
+      expect(internals(agent).lastSocketError).toBeUndefined()
       agent.disconnect()
     })
 
