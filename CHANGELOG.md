@@ -86,7 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The relay's mail now uses Nodemailer 10.0.11.** It fixes two high-severity denials of service, where parsing a crafted address took quadratic time ([GHSA-prgh-xp8r-p3m5](https://github.com/advisories/GHSA-prgh-xp8r-p3m5), [GHSA-v53p-9fqp-m79j](https://github.com/advisories/GHSA-v53p-9fqp-m79j)), and a quoted local-part being parsed into a malformed envelope recipient ([GHSA-g57g-f23g-4646](https://github.com/advisories/GHSA-g57g-f23g-4646)). The relay parses addresses when it sends invitation and password reset mail, and an invitation's address is typed by an admin.
 
-- **SMTP credentials can no longer leak between mail transports.** The relay now uses Nodemailer 10.0.2, fixing a process-global DNS cache that reused one transport's TLS server name for another ([GHSA-6vj9-mwq6-2f5v](https://github.com/advisories/GHSA-6vj9-mwq6-2f5v)). The relay sends invitation and password reset mail through one SMTP configuration, so the cross-tenant case the advisory describes is unlikely here — but upgrade the relay regardless.
+- **SMTP credentials can no longer leak between mail transports.** Nodemailer 10.0.2, which the 10.0.11 update above includes, fixed a process-global DNS cache that reused one transport's TLS server name for another ([GHSA-6vj9-mwq6-2f5v](https://github.com/advisories/GHSA-6vj9-mwq6-2f5v)). The relay sends invitation and password reset mail through one SMTP configuration, so the cross-tenant case the advisory describes is unlikely here — but upgrade the relay regardless.
 
 ## [0.26.1] - 2026-09-27
 
