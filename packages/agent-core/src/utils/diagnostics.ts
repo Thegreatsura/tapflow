@@ -1,10 +1,4 @@
-import { createLogger } from '../logger.js'
-
-/** Local wall-clock time as `HH:MM:SS.mmm`, the stamp every logger line starts with. */
-export function formatClock(d: Date): string {
-  const p = (n: number, w = 2) => String(n).padStart(w, '0')
-  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`
-}
+import { createLogger, formatClock } from '../logger.js'
 
 export interface RelayLoss {
   code?: number
@@ -33,8 +27,11 @@ export function describeRelayLoss(loss: RelayLoss): string {
 }
 
 export interface StallReport {
+  /** A lower bound: a 1s tick only sees the loop was late by this much. */
   blockedMs: number
-  startedAt: Date
+  /** The stall began after the last tick and before the next one was due. */
+  startedAfter: Date
+  startedBy: Date
   /** CPU time this process used during the stall: high means JavaScript was busy, near zero means it
    *  was waiting (a synchronous child process) or not scheduled. */
   cpuMs: number
@@ -72,6 +69,7 @@ export function createLoopStallWatch(opts: LoopStallWatchOptions): { start(): vo
 
   let timer: ReturnType<typeof setInterval> | null = null
   let last = 0
+  let lastWall = 0
   let lastCpu = 0
   let lastFaults = 0
 
@@ -83,18 +81,19 @@ export function createLoopStallWatch(opts: LoopStallWatchOptions): { start(): vo
     if (blockedMs >= thresholdMs) {
       opts.onStall({
         blockedMs: Math.round(blockedMs),
-        startedAt: new Date(wallNow() - blockedMs),
+        startedAfter: new Date(lastWall),
+        startedBy: new Date(wallNow() - blockedMs),
         cpuMs: Math.round((cpu - lastCpu) / 1000),
         majorFaults: faults - lastFaults,
       })
     }
-    last = t; lastCpu = cpu; lastFaults = faults
+    last = t; lastWall = wallNow(); lastCpu = cpu; lastFaults = faults
   }
 
   return {
     start(): void {
       if (timer) return
-      last = now(); lastCpu = cpuMicros(); lastFaults = majorFaults()
+      last = now(); lastWall = wallNow(); lastCpu = cpuMicros(); lastFaults = majorFaults()
       timer = set(tick, intervalMs)
       timer.unref?.()
     },
@@ -119,8 +118,9 @@ export function acquireLoopStallWatch(): () => void {
     const log = createLogger('stall')
     shared = createLoopStallWatch({
       onStall: (r) => log.warn(
-        `event loop blocked for ${(r.blockedMs / 1000).toFixed(1)}s ` +
-        `(from ${formatClock(r.startedAt)}; cpu ${(r.cpuMs / 1000).toFixed(1)}s; ${r.majorFaults} major page faults)`,
+        `event loop blocked for at least ${(r.blockedMs / 1000).toFixed(1)}s ` +
+        `(began between ${formatClock(r.startedAfter)} and ${formatClock(r.startedBy)}; ` +
+        `cpu ${(r.cpuMs / 1000).toFixed(1)}s; ${r.majorFaults} major page faults)`,
       ),
     })
     shared.start()

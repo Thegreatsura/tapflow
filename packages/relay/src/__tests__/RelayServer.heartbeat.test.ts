@@ -266,6 +266,44 @@ describe('RelayServer — WebSocket heartbeat (#313)', () => {
       expect(diag(server).logBuffer.join('\n')).toMatch(/heartbeat sweep ran 20s late — the relay was stalled or the system slept/)
     })
 
+    const port = () => (server.address() as { port: number }).port
+    const register = async (name: string) => {
+      const ws = new WebSocket(`ws://localhost:${port()}`)
+      await waitForOpen(ws)
+      ws.send(JSON.stringify({ type: 'agent:register', platform: 'ios', agentName: name, devices: [{ id: 'devA', name: 'iPhone A', platform: 'ios', status: 'shutdown' }] }))
+      await waitForMessage(ws) // agent:registered
+      return ws
+    }
+
+    it('records an agent connecting, so a close line is not the last word on it', async () => {
+      const ws = await register('mac-mini')
+      expect(diag(server).logBuffer.join('\n')).toMatch(/agent connected: mac-mini \(ios\)/)
+      ws.close()
+    })
+
+    // A re-registration terminates the old socket; logged as a plain close it would read like a drop of an
+    // agent that is in fact already back.
+    it('says a socket was replaced when the same agent registered again', async () => {
+      const first = await register('mac-mini')
+      const firstClosed = new Promise<void>((r) => first.on('close', () => r()))
+      const second = await register('mac-mini')
+      await firstClosed
+      await vi.waitFor(() => expect(diag(server).logBuffer.join('\n')).toMatch(/agent socket replaced: mac-mini/))
+      expect(diag(server).logBuffer.some((l) => /agent socket closed: mac-mini/.test(l))).toBe(false)
+      second.close()
+    })
+
+    it('does not log a second close line for an agent the sweep just terminated', async () => {
+      const ws = await register('mac-mini')
+      const closed = new Promise<void>((r) => ws.on('close', () => r()))
+      const serverWs = [...diag(server).wss.clients][0]
+      diag(server).lastPongAt.set(serverWs, Date.now() - 10 * 60_000)
+      diag(server).runHeartbeat()
+      await closed
+      await new Promise((r) => setTimeout(r, 50))
+      expect(diag(server).logBuffer.filter((l) => l.includes('mac-mini') && /terminated|closed/.test(l))).toHaveLength(1)
+    })
+
     it('logs an agent socket closing, with its name and close code', async () => {
       const ws = new WebSocket(`ws://localhost:${(server.address() as { port: number }).port}`)
       await waitForOpen(ws)
@@ -273,6 +311,16 @@ describe('RelayServer — WebSocket heartbeat (#313)', () => {
       await waitForMessage(ws) // agent:registered
       ws.close(1001, 'going away')
       await vi.waitFor(() => expect(diag(server).logBuffer.join('\n')).toMatch(/agent socket closed: mac-mini \(code 1001 going away, last pong \d+s ago\)/))
+    })
+
+    it('logs no agent closes when the relay itself is stopping', async () => {
+      const ws = await register('mac-mini')
+      const closed = new Promise<void>((r) => ws.on('close', () => r()))
+      const buf = diag(server).logBuffer
+      await server.stop()
+      await closed
+      expect(buf.some((l) => l.includes('agent socket closed'))).toBe(false)
+      server = new RelayServer({ port: 0 }); await server.start()
     })
   })
 })

@@ -1,5 +1,3 @@
-import { formatClock } from './utils/diagnostics.js';
-
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 export interface Logger {
@@ -14,6 +12,12 @@ const LEVELS: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 
 function resolveLevel(): number {
   const raw = process.env.LOG_LEVEL ?? 'info';
   return LEVELS[raw as LogLevel] ?? LEVELS.info;
+}
+
+/** Local wall-clock time as `HH:MM:SS.mmm`, the stamp every line starts with. */
+export function formatClock(d: Date): string {
+  const p = (n: number, w = 2) => String(n).padStart(w, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
 }
 
 // Local time before the prefix: an agent drop could not be ordered against the boot and install around it

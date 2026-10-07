@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **An agent that drops off the relay can be diagnosed afterwards.** `tapflow logs` now records when the relay ends a connection that stopped answering and when an agent's connection closes, with the agent's name and how long since it last answered, and notes when the relay's own check ran late because the relay was held up or the machine slept. The agent's "relay disconnected" line gives the close code, any network error, and how long since the relay last checked on it. A relay or agent held up for more than two seconds says so, with how long and whether it was busy or waiting.
+- **An agent that drops off the relay can be diagnosed afterwards.** `tapflow logs` now records agents connecting, an agent's connection closing or being replaced, and the relay ending a connection that stopped answering, with the agent's name and how long since it last answered, and notes when the relay's own check ran late because the relay was held up or the machine slept. The agent's "relay disconnected" line gives the close code, any network error, and how long since the relay last checked on it. In the terminal output, a process held up for about three seconds or more prints a `[stall]` line saying for at least how long and whether it was busy or waiting; under `tapflow start` the relay and agents share that line.
 
 ### Changed
 

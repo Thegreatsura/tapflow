@@ -3342,6 +3342,27 @@ describe('IOSAgent', () => {
       agent.disconnect()
     })
 
+    // The ping age and the socket error are what separate a stalled agent from a lost network, so both are
+    // pinned, and so is the reset: a second socket must not report the first one's last ping.
+    it('reports the relay ping and socket error of the socket that closed, not an earlier one', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const agent = new IOSAgent({ reconnectDelays: [0] }, mockSimctl())
+      await agent.connect(`ws://localhost:${port}`)
+      const first = internals(agent).ws!
+      first.emit('ping', Buffer.alloc(0))
+      first.emit('error', Object.assign(new Error('reset'), { code: 'ECONNRESET' }))
+      first.terminate()
+      const lines = () => warn.mock.calls.map((c) => String(c[0]))
+      await vi.waitFor(() => expect(lines().some((l) => l.includes('relay disconnected (code 1006, error ECONNRESET, last ping 0s ago)'))).toBe(true))
+      await vi.waitFor(() => {
+        const ws = internals(agent).ws
+        expect(ws && ws !== first && ws.readyState === WebSocket.OPEN).toBe(true)
+      }, { timeout: 2000 })
+      internals(agent).ws!.terminate()
+      await vi.waitFor(() => expect(lines().some((l) => l.includes('relay disconnected (code 1006, no ping received)'))).toBe(true))
+      agent.disconnect()
+    })
+
     it('reconnects automatically when connection drops and relay is available', async () => {
       const agent = new IOSAgent({ reconnectDelays: [0] }, mockSimctl())
       await agent.connect(`ws://localhost:${port}`)

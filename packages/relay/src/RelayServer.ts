@@ -258,6 +258,9 @@ export class RelayServer {
    *  can still be named when its socket goes. */
   private agentNames = new WeakMap<WebSocket, string>()
   private releaseStallWatch: (() => void) | null = null
+  /** Agent sockets whose close was already explained — ended by a sweep, or replaced by the same agent
+   *  registering again — so the close handler does not log them as a fresh drop. */
+  private explainedCloses = new WeakMap<WebSocket, 'terminated' | 'replaced'>()
   /**
    * When each socket last answered a ping. WeakMap → no manual cleanup on close (GC handles it).
    *
@@ -616,7 +619,7 @@ export class RelayServer {
     this.lastSweepAt = Date.now()
     this.heartbeatTimer = setInterval(() => { this.noteLateSweep(); this.runHeartbeat() }, HEARTBEAT_MS)
     this.heartbeatTimer.unref()
-    this.releaseStallWatch = acquireLoopStallWatch()
+    this.releaseStallWatch ??= acquireLoopStallWatch()
 
     return new Promise<void>((resolve, reject) => {
       this.httpServer.once('error', (err: NodeJS.ErrnoException) => {
@@ -750,6 +753,7 @@ export class RelayServer {
         const role = this.wsRoles.get(ws)
         if (role === 'agent') {
           this.pushLog(`heartbeat terminated agent ${this.agentNames.get(ws) ?? 'unknown'} — last pong ${this.pongAgeSeconds(ws)}s ago`)
+          this.explainedCloses.set(ws, 'terminated')
         } else {
           const key = role ?? 'unregistered'
           others.set(key, (others.get(key) ?? 0) + 1)
@@ -1183,9 +1187,16 @@ export class RelayServer {
     })
 
     ws.on('close', (code: number, reason: Buffer) => {
-      if (this.wsRoles.get(ws) === 'agent') {
-        const why = reason.length > 0 ? ` ${reason.toString()}` : ''
-        this.pushLog(`agent socket closed: ${this.agentNames.get(ws) ?? 'unknown'} (code ${code}${why}, last pong ${this.pongAgeSeconds(ws)}s ago)`)
+      // Not while stopping: the relay ending every socket itself says nothing about the agents.
+      if (this.wsRoles.get(ws) === 'agent' && !this.stopping) {
+        const name = this.agentNames.get(ws) ?? 'unknown'
+        const explained = this.explainedCloses.get(ws)
+        if (explained === 'replaced') {
+          this.pushLog(`agent socket replaced: ${name} registered again on a new connection`)
+        } else if (!explained) {
+          const why = reason.length > 0 ? ` ${reason.toString()}` : ''
+          this.pushLog(`agent socket closed: ${name} (code ${code}${why}, last pong ${this.pongAgeSeconds(ws)}s ago)`)
+        }
       }
       this.wsRoles.delete(ws)
       this.wsExternal.delete(ws)
@@ -2101,6 +2112,7 @@ export class RelayServer {
         // gone and its in-flight screenshots would be undiscoverable — reject them here instead.
         // The rebound sessions have already moved off `old`, so this no longer covers them.
         this.evictAgentSocket(old, 'replaced')
+        this.explainedCloses.set(old, 'replaced')
         old.terminate()
       }
     }
@@ -2158,7 +2170,8 @@ export class RelayServer {
     // `||`, not `??`: the schema defaults both of these to `''` for an agent that omits them, so `??`
     // would print an empty name and an empty platform where this used to print `unknown`.
     this.agentNames.set(ws, msg.agentName || msg.agentId || 'unknown')
-    logger.info(`agent connected: ${msg.agentName || msg.agentId || 'unknown'} (${msg.platform || 'unknown'}) — ${registeredSessions.length} device(s)`)
+    // Through `pushLog` too, so `tapflow logs` shows an agent coming back after the line about it leaving.
+    this.pushLog(`agent connected: ${msg.agentName || msg.agentId || 'unknown'} (${msg.platform || 'unknown'}) — ${registeredSessions.length} device(s)`)
   }
 
   /** The only producer of `error` — all five exits below, and nothing else in the repo sends that message.

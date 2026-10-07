@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { createLogger } from '../logger'
-import { createLoopStallWatch, describeRelayLoss, formatClock } from '../utils/diagnostics'
+import { createLogger, formatClock } from '../logger'
+import { createLoopStallWatch, describeRelayLoss } from '../utils/diagnostics'
 
 afterEach(() => { vi.restoreAllMocks() })
 
@@ -94,10 +94,13 @@ describe('createLoopStallWatch', () => {
     h.advance(4200, { cpuMs: 150, faults: 37 })
     expect(h.onStall).toHaveBeenCalledTimes(1)
     const r = h.onStall.mock.calls[0][0]
+    // A 1s tick only bounds the stall: it began after the last tick and before the next one was due, and
+    // lasted at least the lateness.
     expect(r.blockedMs).toBe(3200)
     expect(r.cpuMs).toBe(150)
     expect(r.majorFaults).toBe(37)
-    expect(r.startedAt.getTime()).toBe(Date.UTC(2026, 9, 8, 3, 0, 2))
+    expect(r.startedAfter.getTime()).toBe(Date.UTC(2026, 9, 8, 3, 0, 1))
+    expect(r.startedBy.getTime()).toBe(Date.UTC(2026, 9, 8, 3, 0, 2))
   })
 
   it('does not report a lateness under the threshold', () => {
