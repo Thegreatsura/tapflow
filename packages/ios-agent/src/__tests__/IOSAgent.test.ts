@@ -2018,14 +2018,19 @@ describe('IOSAgent', () => {
       // through `firstLine`.
       it('app:launch-error carries simctl\'s reason, not the argv', async () => {
         const { simctl, agent, browser } = await bootedAgent()
+        // Captured from `simctl launch` of an unknown bundle on an iOS 26.5 simulator. The lines ending in
+        // a colon are headers; the reason a tester can act on is the first line that is not one.
         vi.mocked(simctl.launchApp).mockRejectedValueOnce(new Error(
           'Command failed: xcrun simctl launch 7273D5D7-3646-4042-BEBF-4CCDFF896AB0 com.example.app\n' +
-          'An error was encountered processing the command (domain=FBSOpenApplicationServiceErrorDomain, code=4):\n',
+          'An error was encountered processing the command (domain=FBSOpenApplicationServiceErrorDomain, code=4):\n' +
+          'Simulator device failed to launch com.example.app.\n' +
+          'Underlying error (domain=FBSOpenApplicationServiceErrorDomain, code=4):\n' +
+          '\tThe request to open "com.example.app" failed.\n',
         ))
         const err = waitForType(browser, 'app:launch-error')
         deliver(agent, { type: 'app:launch', sessionId: agent.sessionId, requestId: 'why-1', payload: { bundleId: 'com.example.app' } })
         const msg = await err
-        expect(msg['message']).toBe('An error was encountered processing the command (domain=FBSOpenApplicationServiceErrorDomain, code=4):')
+        expect(msg['message']).toBe('Simulator device failed to launch com.example.app.')
         agent.disconnect(); browser.close()
       })
 

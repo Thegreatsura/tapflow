@@ -50,6 +50,15 @@ export function firstLine(e: unknown): string {
   const lines = msg.split('\n').map((l) => l.trim()).filter(Boolean)
   return lines.find((l) => !l.startsWith('Command failed:')) ?? 'the simulator did not respond'
 }
+
+// `simctl launch` writes a header line ending in a colon before each reason ("An error was encountered
+// processing the command (…):", "Underlying error (…):"), so `firstLine` would show the header. The
+// launch reason is the first line that is neither the argv nor a header.
+export function launchFailureReason(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e)
+  const lines = msg.split('\n').map((l) => l.trim()).filter(Boolean)
+  return lines.find((l) => !l.startsWith('Command failed:') && !l.endsWith(':')) ?? firstLine(e)
+}
 import type { Device, DeviceStatus } from '@tapflowio/agent-core'
 import type { FormFactor } from '@tapflowio/protocol'
 import { defaultRunner, OutputTooLargeError, type SimctlRunner } from './simctl.js'

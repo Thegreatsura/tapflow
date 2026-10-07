@@ -290,10 +290,14 @@ export class AdbWrapper {
       // The reason reaches a dashboard toast. Node's message leads with the argv — the host's SDK path
       // and the serial — and monkey echoes its own arguments on stderr, so keep only a line that says
       // something: monkey's `** ` diagnostics or adb's own error. A package with no launchable activity
-      // leaves neither, because monkey prints that verdict to stdout.
+      // leaves neither, because monkey prints that verdict to stdout — but its argument echo (`args: [`)
+      // shows it ran. Without the echo, monkey may never have run at all.
       const lines = (e as Error).message.split('\n').map((l) => l.trim())
       const said = lines.find((l) => l.startsWith('** ') || l.startsWith('adb:') || l.startsWith('error:'))
-      throw new PlatformError(said?.replace(/^\*\* /, '') ?? `No launchable activity found for ${packageName}`, { cause: e })
+      const ran = lines.some((l) => l.startsWith('args: ['))
+      const reason = said?.replace(/^\*\* /, '')
+        ?? (ran ? `No launchable activity found for ${packageName}` : 'adb did not finish the launch')
+      throw new PlatformError(reason, { cause: e })
     }
   }
 

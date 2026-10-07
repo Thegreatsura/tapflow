@@ -69,7 +69,7 @@ import {
   sendAudioYieldingToVideo,
 } from '@tapflowio/agent-core/utils'
 import type { AudioFrame } from '@tapflowio/agent-core'
-import { SimctlWrapper, isDeviceMissingError, ClipboardTooLargeError, firstLine } from './SimctlWrapper.js'
+import { SimctlWrapper, isDeviceMissingError, ClipboardTooLargeError, firstLine, launchFailureReason } from './SimctlWrapper.js'
 import { SimulatorNetwork } from './SimulatorNetwork.js'
 import { LeanStore } from './LeanStore.js'
 import { LEAN_LABELS } from './leanLabels.js'
@@ -1236,8 +1236,9 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
             respond({ type: 'app:launch-done' })
           })
           .catch((e: unknown) => {
-            // `firstLine`, for the reason device:boot-error uses it: this reaches a toast.
-            respond({ type: 'app:launch-error', message: firstLine(e) })
+            // The toast gets the reason alone; the full simctl output stays in this log.
+            console.warn('[tapflow] app:launch failed:', e)
+            respond({ type: 'app:launch-error', message: launchFailureReason(e) })
           })
         break
       }

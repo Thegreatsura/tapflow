@@ -286,8 +286,15 @@ describe('AdbWrapper', () => {
       expect(await reasonFor(`${ARGV}\n${ECHO}\n`)).toBe('No launchable activity found for com.example.app')
     })
 
+    // Without monkey's echo, monkey may never have run — adb killed mid-call, or adb not spawned at all —
+    // so nothing says the app had nothing to launch.
+    it('does not blame the app when there is no sign monkey ran', async () => {
+      expect(await reasonFor(`${ARGV}\n`)).toBe('adb did not finish the launch')
+      expect(await reasonFor('spawn /Users/someone/Library/Android/sdk/platform-tools/adb ENOENT')).toBe('adb did not finish the launch')
+    })
+
     it('never carries the argv or the host path', async () => {
-      for (const m of [`${ARGV}\n${ECHO}\n`, `${ARGV}\n`]) {
+      for (const m of [`${ARGV}\n${ECHO}\n`, `${ARGV}\n`, 'spawn /Users/someone/Library/Android/sdk/platform-tools/adb ENOENT']) {
         const reason = await reasonFor(m)
         expect(reason).not.toContain('Command failed')
         expect(reason).not.toContain('/Users/')
