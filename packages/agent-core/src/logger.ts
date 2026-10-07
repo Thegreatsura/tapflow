@@ -1,3 +1,5 @@
+import { formatClock } from './utils/diagnostics.js';
+
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 export interface Logger {
@@ -14,11 +16,14 @@ function resolveLevel(): number {
   return LEVELS[raw as LogLevel] ?? LEVELS.info;
 }
 
+// Local time before the prefix: an agent drop could not be ordered against the boot and install around it
+// while no line carried a time. Before rather than after, so `[prefix] msg` stays a substring.
 function print(fn: (...args: unknown[]) => void, prefix: string, msg: string, meta: unknown): void {
+  const line = `${formatClock(new Date())} [${prefix}] ${msg}`;
   if (meta !== undefined) {
-    fn(`[${prefix}] ${msg}`, meta);
+    fn(line, meta);
   } else {
-    fn(`[${prefix}] ${msg}`);
+    fn(line);
   }
 }
 

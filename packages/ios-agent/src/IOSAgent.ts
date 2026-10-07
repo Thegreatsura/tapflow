@@ -57,6 +57,9 @@ import {
   createRateLimitedDropWarn,
   createThroughputSampler,
   createSleepBlocker,
+  acquireLoopStallWatch,
+  describeRelayLoss,
+  type RelayLoss,
   type SleepBlocker,
   getMachineId,
   isLocalhostWss,
@@ -255,6 +258,10 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
   // Holds a macOS power assertion while connected so the host doesn't idle-throttle the
   // simulator capture/encode when the Mac is unattended. No-op off macOS.
   private readonly sleepBlocker: SleepBlocker
+  /** What the next "relay disconnected" line reports: when the relay last pinged, and the socket's last error. */
+  private lastPingAt: number | null = null
+  private lastSocketError: string | undefined
+  private releaseStallWatch: (() => void) | null = null
   private relayUrl: string | null = null
   /** The last device-type lookup that answered. A udid's type never changes, so on a reconnect whose
    *  lookup fails this is still right — and the relay overwrites device fields on every register, so
@@ -403,7 +410,16 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
           })
           this.reportResources()
           this.resourcesTimer = setInterval(() => this.reportResources(), 5000)
-          ws.on('close', () => this._scheduleReconnect())
+          this.lastPingAt = null
+          this.lastSocketError = undefined
+          ws.on('ping', () => { this.lastPingAt = Date.now() })
+          // After registration the handshake's `once('error', reject)` lands on a settled promise, so the
+          // code (ETIMEDOUT, ECONNRESET…) was dropped. It is the network half of the disconnect line.
+          ws.on('error', (e: NodeJS.ErrnoException) => { this.lastSocketError = e.code ?? e.message })
+          ws.on('close', (code, reason) => this._scheduleReconnect({
+            code, reason: reason.toString(), errorCode: this.lastSocketError, lastPingAt: this.lastPingAt,
+          }))
+          this.releaseStallWatch ??= acquireLoopStallWatch()
           resolve()
         } else {
           clearTimeout(timer)
@@ -478,13 +494,16 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     // other things that tick. It is `unref`'d, which is why nobody noticed it had no caller.
     this.network.dispose()
     this.sleepBlocker.release()
+    this.releaseStallWatch?.()
+    this.releaseStallWatch = null
     this.ws?.close()
     this.ws = null
     this.relayUrl = null
     this.simctl.stopKeyboardDaemon()
   }
 
-  private _scheduleReconnect(): void {
+  /** `loss` is absent when a reconnect attempt failed: there is no close to describe, only a retry. */
+  private _scheduleReconnect(loss?: Omit<RelayLoss, 'now'>): void {
     if (this._stopping) return
     if (this.resourcesTimer) { clearInterval(this.resourcesTimer); this.resourcesTimer = null }
     for (const state of this.deviceStates.values()) {
@@ -503,7 +522,9 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     const delays = this.reconnectDelays
     const delay = delays[Math.min(this._reconnectAttempt, delays.length - 1)]
     this._reconnectAttempt++
-    logger.warn(`relay disconnected — reconnecting in ${delay / 1000}s (attempt ${this._reconnectAttempt})`)
+    logger.warn(loss
+      ? `relay disconnected (${describeRelayLoss({ ...loss, now: Date.now() })}) — reconnecting in ${delay / 1000}s (attempt ${this._reconnectAttempt})`
+      : `reconnecting in ${delay / 1000}s (attempt ${this._reconnectAttempt})`)
 
     this._reconnectTimer = setTimeout(() => {
       this._reconnectTimer = null

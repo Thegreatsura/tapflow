@@ -27,6 +27,7 @@ import { getDb } from './db.js'
 import { handleLogin, handleLogout, handleMe, handleChangePassword, handleInit, handleAuthStatus } from './api/auth.js'
 import { handleVerify, handleAccept } from './api/invitations.js'
 import { createLogger, hasCapability } from '@tapflowio/agent-core'
+import { acquireLoopStallWatch } from '@tapflowio/agent-core/utils'
 import {
   createKeyframeAwareSender,
   createRateLimitedDropWarn,
@@ -251,6 +252,12 @@ export class RelayServer {
   private purgeBuildsTimer: ReturnType<typeof setInterval> | null = null
   private flushResourcesTimer: ReturnType<typeof setInterval> | null = null
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
+  /** When the last heartbeat sweep ran, by the same clock `isAlive` judges with. */
+  private lastSweepAt = 0
+  /** Names agents give at registration, kept apart from the session map so an agent with no sessions
+   *  can still be named when its socket goes. */
+  private agentNames = new WeakMap<WebSocket, string>()
+  private releaseStallWatch: (() => void) | null = null
   /**
    * When each socket last answered a ping. WeakMap → no manual cleanup on close (GC handles it).
    *
@@ -606,8 +613,10 @@ export class RelayServer {
     this.flushResourcesTimer = setInterval(() => this.flushResourceBuffers(), 60_000)
     this.flushResourcesTimer.unref()
 
-    this.heartbeatTimer = setInterval(() => this.runHeartbeat(), HEARTBEAT_MS)
+    this.lastSweepAt = Date.now()
+    this.heartbeatTimer = setInterval(() => { this.noteLateSweep(); this.runHeartbeat() }, HEARTBEAT_MS)
     this.heartbeatTimer.unref()
+    this.releaseStallWatch = acquireLoopStallWatch()
 
     return new Promise<void>((resolve, reject) => {
       this.httpServer.once('error', (err: NodeJS.ErrnoException) => {
@@ -654,6 +663,7 @@ export class RelayServer {
     if (this.purgeBuildsTimer) { clearInterval(this.purgeBuildsTimer); this.purgeBuildsTimer = null }
     if (this.flushResourcesTimer) { clearInterval(this.flushResourcesTimer); this.flushResourcesTimer = null }
     if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null }
+    this.releaseStallWatch?.(); this.releaseStallWatch = null
     // `unref()` would not do: the test runner's process outlives the server, so an un-cleared hold
     // still fires — against a server that has already stopped.
     this.stopping = true
@@ -732,10 +742,41 @@ export class RelayServer {
   // interval, whatever path the change took. `onAuthChanged` is the same check run early.
   private runHeartbeat(clients: Iterable<WebSocket> = this.wss.clients): void {
     this.revalidateSockets(clients)
+    // Agents one line each; everything else summed, because a relay waking from sleep finds every socket
+    // stale at once and one line per browser tab would push the agent lines out of the log buffer.
+    const others = new Map<string, number>()
     for (const ws of clients) {
-      if (!this.isAlive(ws)) { ws.terminate(); continue }
+      if (!this.isAlive(ws)) {
+        const role = this.wsRoles.get(ws)
+        if (role === 'agent') {
+          this.pushLog(`heartbeat terminated agent ${this.agentNames.get(ws) ?? 'unknown'} — last pong ${this.pongAgeSeconds(ws)}s ago`)
+        } else {
+          const key = role ?? 'unregistered'
+          others.set(key, (others.get(key) ?? 0) + 1)
+        }
+        ws.terminate()
+        continue
+      }
       if (ws.readyState === WebSocket.OPEN) ws.ping()
     }
+    if (others.size > 0) {
+      this.pushLog(`heartbeat terminated ${[...others].map(([role, n]) => `${n} ${role}`).join(', ')} socket(s)`)
+    }
+  }
+
+  /** A sweep that runs late means this process was held, or the machine slept: the pongs it judges were
+   *  never read, so its terminations say nothing about the clients. Same clock as `isAlive`. */
+  private noteLateSweep(now: number = Date.now()): void {
+    const late = now - this.lastSweepAt - HEARTBEAT_MS
+    if (late > HEARTBEAT_MS / 2) {
+      this.pushLog(`heartbeat sweep ran ${Math.round(late / 1000)}s late — the relay was stalled or the system slept; this sweep may end sockets that were alive`)
+    }
+    this.lastSweepAt = now
+  }
+
+  private pongAgeSeconds(ws: WebSocket): number | string {
+    const at = this.lastPongAt.get(ws)
+    return at === undefined ? '?' : Math.round((Date.now() - at) / 1000)
   }
 
   /**
@@ -1141,7 +1182,11 @@ export class RelayServer {
       }
     })
 
-    ws.on('close', () => {
+    ws.on('close', (code: number, reason: Buffer) => {
+      if (this.wsRoles.get(ws) === 'agent') {
+        const why = reason.length > 0 ? ` ${reason.toString()}` : ''
+        this.pushLog(`agent socket closed: ${this.agentNames.get(ws) ?? 'unknown'} (code ${code}${why}, last pong ${this.pongAgeSeconds(ws)}s ago)`)
+      }
       this.wsRoles.delete(ws)
       this.wsExternal.delete(ws)
       this.forgetShutdownRequesters(ws)
@@ -2112,6 +2157,7 @@ export class RelayServer {
     // transition, matching the disconnect line in evictAgentSocket.
     // `||`, not `??`: the schema defaults both of these to `''` for an agent that omits them, so `??`
     // would print an empty name and an empty platform where this used to print `unknown`.
+    this.agentNames.set(ws, msg.agentName || msg.agentId || 'unknown')
     logger.info(`agent connected: ${msg.agentName || msg.agentId || 'unknown'} (${msg.platform || 'unknown'}) — ${registeredSessions.length} device(s)`)
   }
 

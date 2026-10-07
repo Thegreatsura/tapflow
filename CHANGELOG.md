@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **An agent that drops off the relay can be diagnosed afterwards.** `tapflow logs` now records when the relay ends a connection that stopped answering and when an agent's connection closes, with the agent's name and how long since it last answered, and notes when the relay's own check ran late because the relay was held up or the machine slept. The agent's "relay disconnected" line gives the close code, any network error, and how long since the relay last checked on it. A relay or agent held up for more than two seconds says so, with how long and whether it was busy or waiting.
+
+### Changed
+
+- **Relay and agent output lines start with the local time** (`HH:MM:SS.mmm`), so a disconnect can be put in order against what happened around it. `tapflow logs` keeps its UTC timestamps. If your log collector adds its own time, lines now carry two.
+
 ### Security
 
 - **The MCP server is on `@modelcontextprotocol/sdk` 1.31.0.** The SDK's OAuth client could send credentials to an authorization server the MCP server chose ([GHSA-6qxp-vccf-f47h](https://github.com/advisories/GHSA-6qxp-vccf-f47h)). tapflow's MCP server never uses that client, so it was not affected, but the update clears the warning for anyone auditing their install.
