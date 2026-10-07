@@ -1,5 +1,24 @@
 # @tapflowio/flow-runner
 
+## 0.27.0
+
+### Patch Changes
+
+- 4cf9ecc: Removes code nothing used: the dashboard's old session list and its relay plumbing, and lint directives that disabled rules the config never enables. No behaviour changes.
+
+  Backfills: #900, #926
+
+  <!-- changelog: internal — dead code and unused lint directives, nothing a user can observe -->
+
+- b8ce411: A `device:boot` stranded by an agent restart is now settled by the relay instead of the client (#885). The relay tracks in-flight boots by the agent socket they were dispatched to and answers only the ones tied to the replaced socket with a correlated `device:boot-error`, sent after `session:rebound` — so a boot the new agent is already handling completes normally instead of failing with "never saw this request". The failure still carries the rebound cause and reads as environmental. A new client against an older relay no longer has the client-side workaround and waits out the boot deadline again, as before #865: slower but correct, and intentional, since the relay and the clients upgrade separately.
+- Updated dependencies [751fc4b]
+- Updated dependencies [6f9c923]
+- Updated dependencies [751fc4b]
+- Updated dependencies [2c5b184]
+- Updated dependencies [57e91d3]
+  - @tapflowio/agent-core@0.27.0
+  - @tapflowio/protocol@0.27.0
+
 ## 0.26.1
 
 ### Patch Changes

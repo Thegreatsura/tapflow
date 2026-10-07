@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-10-07
+
+**Upgrade now.** This release fixes an unauthenticated file read in the relay that exposes its database and JWT secret ([GHSA-pq37-jfvf-hhhc](https://github.com/jo-duchan/tapflow/security/advisories/GHSA-pq37-jfvf-hhhc)), and a webhook check that let a destination reach the relay's own machine ([GHSA-32j8-75h9-978f](https://github.com/jo-duchan/tapflow/security/advisories/GHSA-32j8-75h9-978f)). If your relay was reachable by anyone you do not trust, follow the steps under Security after upgrading.
+
 ### Breaking Changes
 
 - **`@tapflowio/protocol`: `network:state` can carry no `offline`.** `NetworkStatePayload` gains `NetworkUnobserved`, sent when an Android device has never been read, so `payload.offline` is `boolean | undefined`. Migrate: treat `payload.offline === undefined` as unknown position; do not read it with a truthy test, which draws it as online. Code built against the old types keeps compiling unless it assigns `offline` to a `boolean`, and agents still send a boolean whenever they know; the dashboard shipped in the relay already handles it (see Fixed). Android's in-process `networkState()` returns this payload instead of throwing for a device it has never read.
@@ -935,7 +939,8 @@ found out by waiting.
 
 - Automatic `tapflow.config.json` creation as a side effect of `tapflow start` / `tapflow relay start`.
 
-[Unreleased]: https://github.com/jo-duchan/tapflow/compare/v0.26.1...HEAD
+[Unreleased]: https://github.com/jo-duchan/tapflow/compare/v0.27.0...HEAD
+[0.27.0]: https://github.com/jo-duchan/tapflow/compare/v0.26.1...v0.27.0
 [0.26.1]: https://github.com/jo-duchan/tapflow/compare/v0.26.0...v0.26.1
 [0.26.0]: https://github.com/jo-duchan/tapflow/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/jo-duchan/tapflow/compare/v0.24.0...v0.25.0

@@ -1,5 +1,20 @@
 # @tapflowio/mcp-server
 
+## 0.27.0
+
+### Patch Changes
+
+- 59bc91c: The MCP server now sends its token on the relay WebSocket, not only on its REST calls. Every tool except `list_builds`, `screenshot` and `query_ui_tree` goes over that socket, and the relay closes it without a token unless it counts the connection as loopback: from any other address since 0.4.1, and through a tunnel since 0.23.0, whose migration note asks MCP users for a token the server never put on the socket. Such a setup answered `list_builds` while every device tool failed with "Not connected to relay". When the relay refuses the socket or later closes it, for a token without `view` or one revoked or expired mid-session, the error now carries the relay's close code and reason, as `tapflow flow run` has since 0.25.0. A server that reaches the relay over loopback, such as a native install at `ws://localhost:4000`, is unaffected.
+- b8ce411: A `device:boot` stranded by an agent restart is now settled by the relay instead of the client (#885). The relay tracks in-flight boots by the agent socket they were dispatched to and answers only the ones tied to the replaced socket with a correlated `device:boot-error`, sent after `session:rebound` — so a boot the new agent is already handling completes normally instead of failing with "never saw this request". The failure still carries the rebound cause and reads as environmental. A new client against an older relay no longer has the client-side workaround and waits out the boot deadline again, as before #865: slower but correct, and intentional, since the relay and the clients upgrade separately.
+- Updated dependencies [4cf9ecc]
+- Updated dependencies [6f9c923]
+- Updated dependencies [751fc4b]
+- Updated dependencies [b8ce411]
+- Updated dependencies [2c5b184]
+- Updated dependencies [57e91d3]
+  - @tapflowio/flow-runner@0.27.0
+  - @tapflowio/protocol@0.27.0
+
 ## 0.26.1
 
 ### Patch Changes
