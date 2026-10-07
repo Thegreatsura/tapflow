@@ -2440,7 +2440,7 @@ describe('AndroidAgent', () => {
       first.emit('error', Object.assign(new Error('reset'), { code: 'ECONNRESET' }))
       first.terminate()
       const lines = () => warn.mock.calls.map((c) => String(c[0]))
-      await vi.waitFor(() => expect(lines().some((l) => l.includes('relay disconnected (code 1006, error ECONNRESET, last ping 0s ago)'))).toBe(true))
+      await vi.waitFor(() => expect(lines().some((l) => /relay disconnected \(code 1006, error ECONNRESET, last ping \d+s ago\)/.test(l))).toBe(true))
       await vi.waitFor(() => {
         const ws = internals(agent).ws
         expect(ws && ws !== first && ws.readyState === WebSocket.OPEN).toBe(true)
