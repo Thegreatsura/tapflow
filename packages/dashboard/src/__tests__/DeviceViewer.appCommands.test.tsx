@@ -25,6 +25,7 @@ vi.mock('@/lib/decoders/pickDecoder', async (importOriginal) => ({
 }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
+const { toast } = await import('sonner')
 const { DeviceViewer } = await import('@/components/DeviceViewer')
 
 const CHROME = {
@@ -101,6 +102,41 @@ describe('DeviceViewer only acts on app-command replies it asked for', () => {
 
     act(() => { screen.getByLabelText('Launch app').click() })
     expect(sentId('app:launch')).not.toBe(first)
+  })
+
+  // A failed launch used to stop the spinner and say nothing, so a tester saw a button that did nothing.
+  // The reason is shown whenever it is this viewer's own launch; another client's launch on the same
+  // session (an MCP agent, a flow run) is not this tester's to be told about.
+  describe('launch failure notice', () => {
+    beforeEach(() => { vi.mocked(toast.error).mockClear() })
+
+    function pressLaunch(): string {
+      live(7)
+      act(() => { deliver!({ type: 'app:install-done', sessionId: 'mine', requestId: sentId('app:install') }) })
+      act(() => { screen.getByLabelText('Launch app').click() })
+      return sentId('app:launch')
+    }
+
+    it('shows why its own launch failed', () => {
+      const id = pressLaunch()
+      act(() => { deliver!({ type: 'app:launch-error', sessionId: 'mine', requestId: id, message: 'No booted device' }) })
+      expect(toast.error).toHaveBeenCalledTimes(1)
+      expect(toast.error).toHaveBeenCalledWith('The app did not launch', { description: 'No booted device' })
+    })
+
+    it('says nothing about a launch it did not ask for', () => {
+      pressLaunch()
+      act(() => { deliver!({ type: 'app:launch-error', sessionId: 'mine', requestId: 'someone-elses', message: 'No booted device' }) })
+      expect(toast.error).not.toHaveBeenCalled()
+      // Still waiting on its own reply, so the failure above did not reach this viewer at all.
+      expect(screen.getByLabelText('Launch app')).toBeDisabled()
+    })
+
+    it('raises no error when the launch succeeds', () => {
+      const id = pressLaunch()
+      act(() => { deliver!({ type: 'app:launch-done', sessionId: 'mine', requestId: id }) })
+      expect(toast.error).not.toHaveBeenCalled()
+    })
   })
 
   it('ignores an install reply from a boot cycle that has ended', () => {

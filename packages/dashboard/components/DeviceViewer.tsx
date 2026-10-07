@@ -441,6 +441,8 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
     if (msg.type === 'app:launch-done' || msg.type === 'app:launch-error') {
       if (!appLaunchIdsRef.current.delete(msg.requestId)) return;
       setLaunching(false);
+      // Without this the spinner just stopped, and a failed launch looked like a button that did nothing.
+      if (msg.type === 'app:launch-error') toast.error('The app did not launch', { description: msg.message });
     }
     if (msg.type === 'session:chrome') { setChrome(msg.payload); }
     if (msg.type === 'device:postures') { setPostures(msg.payload); }
