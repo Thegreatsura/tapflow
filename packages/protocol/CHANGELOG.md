@@ -1,5 +1,19 @@
 # @tapflowio/protocol
 
+## 0.27.0
+
+### Minor Changes
+
+- 6f9c923: Devices carry an optional `formFactor` (`phone` | `tablet` | `foldable`) from the agent's register to `agents:listed`. The iOS agent reports it from `simctl list devicetypes` (`productFamily`), read once per connect with a timeout; a failed lookup falls back to the last answer, or to none on a first connect. A relay drops a value it does not know rather than refusing the register, and refuses a value that is not a string. The iOS viewer uses it to name an iPad's volume buttons by what they do: iPadOS raises the volume with whichever button is on the right or on top as held, so in landscape the tooltips swap where that differs from the physical names.
+- 751fc4b: An Android device whose network state tapflow has never managed to read is reported as unknown, not as online (#667). If airplane mode could not be read when the device booted, or when a network toggle failed before any read had succeeded, the agent answered `offline: false`, so a device someone had taken offline in the emulator's own UI was drawn as on the network. `network:state` now carries a third payload shape, `NetworkUnobserved` (`{ available: false, reason: 'state-unconfirmed' }` with no `offline`), sent on `device:ready` and in reply to `network:set`; the reply to a viewer's re-join stays silent as before. The dashboard draws it as unknown and says the state could not be read.
+
+  **Type-level breaking change.** `NetworkStatePayload` gains the member, so `offline` is `boolean | undefined`: code that assigns it to a `boolean` no longer compiles, and a truthy test reads the new shape as online. Narrow on `payload.offline === undefined`, not on `'offline' in payload`. Android's in-process `networkState()` now returns this payload where it used to throw for a device never observed. A released dashboard (0.20–0.26) draws the new shape as online, which is what it drew for the `false` it replaces.
+
+### Patch Changes
+
+- 2c5b184: `input:rotate` carries an optional target, `payload.orientation` (`portrait` or `landscape`), and both agents go there instead of toggling (#910). A toggle has a memory on each side, and the agent's was reset on every re-register while the device stayed put, so after an agent restart the viewer's undo turned the device landscape and every later press stayed inverted. Rotations are now queued per device, so a held shortcut or a boot racing the first press lands in order, and both agents stand the device upright when a session boots: iOS always, Android only when it is already locked to a turn, so an auto-rotating emulator is never newly locked. An agent without the field toggles as before, and the dashboard still sends its undo only from landscape, so a newer dashboard against an older agent behaves as it does today.
+- 57e91d3: A device shutdown that fails now says so (#455). iOS answered a failed `simctl shutdown` with nothing and Android answered a failed `adb emu kill` with `device:shutdown-done`; both now send `device:shutdown-error`, which moves from `RelayToBrowser` to `RelayOrAgentToBrowser`, and when `adb emu kill` fails (or adb has no console for the emulator) Android checks the process table before answering. Both agents also answer a correlated shutdown for a session they hold no state for. The relay now hands a correlated shutdown's answer to the socket that asked when that socket does not hold the session (#567), and tells it the outcome is unknown if the agent goes away for good first. Upgrade the relay before the agents: an older relay drops the agent's new error, so a failed shutdown on an upgraded Android agent goes unanswered instead of being reported as a success.
+
 ## 0.26.1
 
 ## 0.26.0

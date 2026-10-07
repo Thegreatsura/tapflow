@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-10-07
+
+**Upgrade now.** This release fixes an unauthenticated file read in the relay that exposes its database and JWT secret ([GHSA-pq37-jfvf-hhhc](https://github.com/jo-duchan/tapflow/security/advisories/GHSA-pq37-jfvf-hhhc)), and a webhook check that let a destination reach the relay's own machine ([GHSA-32j8-75h9-978f](https://github.com/jo-duchan/tapflow/security/advisories/GHSA-32j8-75h9-978f)). If your relay was reachable by anyone you do not trust, follow the steps under Security after upgrading.
+
 ### Breaking Changes
 
 - **`@tapflowio/protocol`: `network:state` can carry no `offline`.** `NetworkStatePayload` gains `NetworkUnobserved`, sent when an Android device has never been read, so `payload.offline` is `boolean | undefined`. Migrate: treat `payload.offline === undefined` as unknown position; do not read it with a truthy test, which draws it as online. Code built against the old types keeps compiling unless it assigns `offline` to a `boolean`, and agents still send a boolean whenever they know; the dashboard shipped in the relay already handles it (see Fixed). Android's in-process `networkState()` returns this payload instead of throwing for a device it has never read.
@@ -82,7 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The relay's mail now uses Nodemailer 10.0.11.** It fixes two high-severity denials of service, where parsing a crafted address took quadratic time ([GHSA-prgh-xp8r-p3m5](https://github.com/advisories/GHSA-prgh-xp8r-p3m5), [GHSA-v53p-9fqp-m79j](https://github.com/advisories/GHSA-v53p-9fqp-m79j)), and a quoted local-part being parsed into a malformed envelope recipient ([GHSA-g57g-f23g-4646](https://github.com/advisories/GHSA-g57g-f23g-4646)). The relay parses addresses when it sends invitation and password reset mail, and an invitation's address is typed by an admin.
 
-- **SMTP credentials can no longer leak between mail transports.** The relay now uses Nodemailer 10.0.2, fixing a process-global DNS cache that reused one transport's TLS server name for another ([GHSA-6vj9-mwq6-2f5v](https://github.com/advisories/GHSA-6vj9-mwq6-2f5v)). The relay sends invitation and password reset mail through one SMTP configuration, so the cross-tenant case the advisory describes is unlikely here — but upgrade the relay regardless.
+- **SMTP credentials can no longer leak between mail transports.** Nodemailer 10.0.2, which the 10.0.11 update above includes, fixed a process-global DNS cache that reused one transport's TLS server name for another ([GHSA-6vj9-mwq6-2f5v](https://github.com/advisories/GHSA-6vj9-mwq6-2f5v)). The relay sends invitation and password reset mail through one SMTP configuration, so the cross-tenant case the advisory describes is unlikely here — but upgrade the relay regardless.
 
 ## [0.26.1] - 2026-09-27
 
@@ -935,7 +939,8 @@ found out by waiting.
 
 - Automatic `tapflow.config.json` creation as a side effect of `tapflow start` / `tapflow relay start`.
 
-[Unreleased]: https://github.com/jo-duchan/tapflow/compare/v0.26.1...HEAD
+[Unreleased]: https://github.com/jo-duchan/tapflow/compare/v0.27.0...HEAD
+[0.27.0]: https://github.com/jo-duchan/tapflow/compare/v0.26.1...v0.27.0
 [0.26.1]: https://github.com/jo-duchan/tapflow/compare/v0.26.0...v0.26.1
 [0.26.0]: https://github.com/jo-duchan/tapflow/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/jo-duchan/tapflow/compare/v0.24.0...v0.25.0

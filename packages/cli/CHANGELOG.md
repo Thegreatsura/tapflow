@@ -1,5 +1,43 @@
 # tapflow
 
+## 0.27.0
+
+### Patch Changes
+
+- Updated dependencies [751fc4b]
+- Updated dependencies [7cda6f7]
+- Updated dependencies [58963d8]
+- Updated dependencies [66ef530]
+- Updated dependencies [c2028ae]
+- Updated dependencies [fed0255]
+- Updated dependencies [55b05fc]
+- Updated dependencies [0b3f690]
+- Updated dependencies [8d6c985]
+- Updated dependencies [6411c57]
+- Updated dependencies [4cf9ecc]
+- Updated dependencies [cb39bf4]
+- Updated dependencies [6f9c923]
+- Updated dependencies [c214eed]
+- Updated dependencies [89f0d13]
+- Updated dependencies [6fef0b8]
+- Updated dependencies [fe47586]
+- Updated dependencies [421715e]
+- Updated dependencies [5c24af2]
+- Updated dependencies [cd8f128]
+- Updated dependencies [751fc4b]
+- Updated dependencies [7af2259]
+- Updated dependencies [d0c3a88]
+- Updated dependencies [b8ce411]
+- Updated dependencies [2c5b184]
+- Updated dependencies [57e91d3]
+- Updated dependencies [1b3f024]
+- Updated dependencies [cf88fd9]
+  - @tapflowio/agent-core@0.27.0
+  - @tapflowio/relay@0.27.0
+  - @tapflowio/android-agent@0.27.0
+  - @tapflowio/flow-runner@0.27.0
+  - @tapflowio/ios-agent@0.27.0
+
 ## 0.26.1
 
 ### Patch Changes

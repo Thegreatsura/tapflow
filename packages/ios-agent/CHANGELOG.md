@@ -1,5 +1,23 @@
 # @tapflowio/ios-agent
 
+## 0.27.0
+
+### Patch Changes
+
+- 6f9c923: Devices carry an optional `formFactor` (`phone` | `tablet` | `foldable`) from the agent's register to `agents:listed`. The iOS agent reports it from `simctl list devicetypes` (`productFamily`), read once per connect with a timeout; a failed lookup falls back to the last answer, or to none on a first connect. A relay drops a value it does not know rather than refusing the register, and refuses a value that is not a string. The iOS viewer uses it to name an iPad's volume buttons by what they do: iPadOS raises the volume with whichever button is on the right or on top as held, so in landscape the tooltips swap where that differs from the physical names.
+- 5c24af2: The iOS network control keeps working after an app is launched again while it is running (#692), and a status bar it could not reset is retried and put right on the next toggle (#668). `SimulatorNetwork.target()` no longer deletes the hooks' verdict before each launch: it records the target bundle and when the launch was issued, and `readVerdict` treats a file that names another bundle, names none, or predates a launch that returned a new pid as missing. A launch that returns the same pid, which `simctl launch` does for a running app, keeps the running process's verdict, and a launch whose pid could not be read changes nothing. Layer 3 now tries `status_bar` up to three times, on a toggle and when lost enforcement takes the layers down; a bar that still fails is marked stale and written again on the device's next `setOffline`, including one refused because layer 1 is unavailable. A verdict written up to about 1.5 seconds before a launch can still pass as the new process's, since the library rounds `at`.
+- cd8f128: A failed app launch says why, without the command line. The reason used to be node's `Command failed: <argv>` message, which carries the simulator UDID on iOS and the host's SDK path and the emulator serial on Android, and on Android was followed by `monkey` repeating its own arguments. iOS now sends the first line of simctl's output that is not a header, such as "Simulator device failed to launch <bundle id>." Android sends `monkey`'s or adb's own error line; failing that, "No launchable activity found for <package>" when `monkey` ran, or "adb did not finish the launch" when nothing shows it did. Both agents log the full output.
+- 2c5b184: `input:rotate` carries an optional target, `payload.orientation` (`portrait` or `landscape`), and both agents go there instead of toggling (#910). A toggle has a memory on each side, and the agent's was reset on every re-register while the device stayed put, so after an agent restart the viewer's undo turned the device landscape and every later press stayed inverted. Rotations are now queued per device, so a held shortcut or a boot racing the first press lands in order, and both agents stand the device upright when a session boots: iOS always, Android only when it is already locked to a turn, so an auto-rotating emulator is never newly locked. An agent without the field toggles as before, and the dashboard still sends its undo only from landscape, so a newer dashboard against an older agent behaves as it does today.
+- 57e91d3: A device shutdown that fails now says so (#455). iOS answered a failed `simctl shutdown` with nothing and Android answered a failed `adb emu kill` with `device:shutdown-done`; both now send `device:shutdown-error`, which moves from `RelayToBrowser` to `RelayOrAgentToBrowser`, and when `adb emu kill` fails (or adb has no console for the emulator) Android checks the process table before answering. Both agents also answer a correlated shutdown for a session they hold no state for. The relay now hands a correlated shutdown's answer to the socket that asked when that socket does not hold the session (#567), and tells it the outcome is unknown if the agent goes away for good first. Upgrade the relay before the agents: an older relay drops the agent's new error, so a failed shutdown on an upgraded Android agent goes unanswered instead of being reported as a success.
+- Updated dependencies [751fc4b]
+- Updated dependencies [6f9c923]
+- Updated dependencies [751fc4b]
+- Updated dependencies [2c5b184]
+- Updated dependencies [57e91d3]
+  - @tapflowio/agent-core@0.27.0
+  - @tapflowio/protocol@0.27.0
+  - @tapflowio/audiotap-helper@0.3.10
+
 ## 0.26.1
 
 ### Patch Changes
