@@ -281,10 +281,24 @@ export class AdbWrapper {
     // keys — an emulator whose AVD profile has hw.mainKeys=no, as Pixel profiles do — it aborts
     // with exit 251 before sending any event, the launch included ("SYS_KEYS has no physical keys
     // but with factor 2.0%"). Options must precede the count: monkey stops parsing at it.
-    await this.runner.exec(
-      '-s', serial, 'shell', 'monkey', '--pct-syskeys', '0',
-      '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1',
-    )
+    try {
+      await this.runner.exec(
+        '-s', serial, 'shell', 'monkey', '--pct-syskeys', '0',
+        '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1',
+      )
+    } catch (e) {
+      // The reason reaches a dashboard toast. Node's message leads with the argv — the host's SDK path
+      // and the serial — and monkey echoes its own arguments on stderr, so keep only a line that says
+      // something: monkey's `** ` diagnostics or adb's own error. A package with no launchable activity
+      // leaves neither, because monkey prints that verdict to stdout — but its argument echo (`args: [`)
+      // shows it ran. Without the echo, monkey may never have run at all.
+      const lines = (e as Error).message.split('\n').map((l) => l.trim())
+      const said = lines.find((l) => l.startsWith('** ') || l.startsWith('adb:') || l.startsWith('error:'))
+      const ran = lines.some((l) => l.startsWith('args: ['))
+      const reason = said?.replace(/^\*\* /, '')
+        ?? (ran ? `No launchable activity found for ${packageName}` : 'adb did not finish the launch')
+      throw new PlatformError(reason, { cause: e })
+    }
   }
 
   async openUrl(serial: string, url: string): Promise<void> {

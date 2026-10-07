@@ -2568,6 +2568,8 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
           .then(() => respond({ type: 'app:launch-done' }))
           .catch((e: unknown) => {
             const message = e instanceof Error ? e.message : String(e)
+            // The toast gets the reason alone; the full adb output (the cause) stays in this log.
+            console.warn('[tapflow] app:launch failed:', e instanceof Error && e.cause !== undefined ? e.cause : e)
             respond({ type: 'app:launch-error', message })
           })
         break

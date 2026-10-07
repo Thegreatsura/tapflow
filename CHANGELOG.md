@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The dashboard says why Launch app failed.** A failed launch stopped the spinner and showed nothing, so the button looked like it did nothing. It now shows "The app did not launch" and why.
+
 - **Launch app opens the app on Android emulators.** Pressing it stopped the spinner and nothing opened. tapflow launches apps with Android's `monkey` command, which stops before sending any event on a device with no physical system keys, and emulator profiles such as Pixel have none. A flow's `launchApp` step failed on the same emulators for the same reason. tapflow now tells `monkey` to send no system-key events, so the launch goes through.
 
 - **Android shows the network state as unknown when it has never been read, instead of on the network.** If tapflow could not read airplane mode when an emulator booted, or when the network toggle failed before any read had worked, the toggle showed the device as online, even if someone had taken it offline in the emulator itself. It now shows the state as unknown and says tapflow could not read it. A dashboard from before this release still shows such a device as online, as it did before.

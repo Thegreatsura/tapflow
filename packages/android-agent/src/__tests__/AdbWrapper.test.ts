@@ -253,6 +253,55 @@ describe('AdbWrapper', () => {
     })
   })
 
+  // The launch failure reaches a dashboard toast, and node's message for a failed adb call leads with the
+  // argv — the host's SDK path, the serial, the package — followed by monkey echoing its own arguments on
+  // stderr. Shapes below are the real ones, captured from a Pixel_9_tapflow emulator (API 34).
+  describe('launchApp failure reason', () => {
+    const ARGV = 'Command failed: /Users/someone/Library/Android/sdk/platform-tools/adb -s emulator-5554 shell monkey --pct-syskeys 0 -p com.example.app -c android.intent.category.LAUNCHER 1'
+    const ECHO = 'args: [--pct-syskeys, 0, -p, com.example.app, -c, android.intent.category.LAUNCHER, 1]\n arg: "-p"\n arg: "com.example.app"\ndata="com.example.app"\ndata="android.intent.category.LAUNCHER"'
+    const failing = (message: string): AdbRunner => ({
+      exec: vi.fn(async () => { throw new Error(message) }),
+      execBinary: vi.fn(),
+      listAvds: vi.fn(async () => []),
+    })
+    const reasonFor = async (message: string): Promise<string> => {
+      const e = await new AdbWrapper(failing(message)).launchApp('emulator-5554', 'com.example.app').catch((x: unknown) => x)
+      expect(e).toBeInstanceOf(PlatformError)
+      return (e as Error).message
+    }
+
+    it('names monkey\'s own diagnostic line', async () => {
+      expect(await reasonFor(`${ARGV}\n${ECHO}\n** SYS_KEYS has no physical keys but with factor 2.0%.\n`))
+        .toBe('SYS_KEYS has no physical keys but with factor 2.0%.')
+    })
+
+    it('names adb\'s own error line', async () => {
+      expect(await reasonFor(`${ARGV}\nadb: device 'emulator-5554' not found\n`))
+        .toBe("adb: device 'emulator-5554' not found")
+    })
+
+    // A package with no launchable activity: monkey prints its "No activities found" line to stdout, which
+    // the error does not carry, so stderr holds nothing but the echo.
+    it('says what it could not launch when stderr is only the argument echo', async () => {
+      expect(await reasonFor(`${ARGV}\n${ECHO}\n`)).toBe('No launchable activity found for com.example.app')
+    })
+
+    // Without monkey's echo, monkey may never have run — adb killed mid-call, or adb not spawned at all —
+    // so nothing says the app had nothing to launch.
+    it('does not blame the app when there is no sign monkey ran', async () => {
+      expect(await reasonFor(`${ARGV}\n`)).toBe('adb did not finish the launch')
+      expect(await reasonFor('spawn /Users/someone/Library/Android/sdk/platform-tools/adb ENOENT')).toBe('adb did not finish the launch')
+    })
+
+    it('never carries the argv or the host path', async () => {
+      for (const m of [`${ARGV}\n${ECHO}\n`, `${ARGV}\n`, 'spawn /Users/someone/Library/Android/sdk/platform-tools/adb ENOENT']) {
+        const reason = await reasonFor(m)
+        expect(reason).not.toContain('Command failed')
+        expect(reason).not.toContain('/Users/')
+      }
+    })
+  })
+
   describe('getScreenSize', () => {
     it('parses wm size output correctly', async () => {
       const wrapper = new AdbWrapper(mockRunner({ screenSize: '1080x2400' }))

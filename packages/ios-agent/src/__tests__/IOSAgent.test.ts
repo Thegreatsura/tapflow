@@ -2013,6 +2013,27 @@ describe('IOSAgent', () => {
         agent.disconnect()
       })
 
+      // The launch failure reaches a dashboard toast. Node's first line is the argv, which echoes the
+      // simulator UDID and says nothing a tester can act on — the same reason device:boot-error goes
+      // through `firstLine`.
+      it('app:launch-error carries simctl\'s reason, not the argv', async () => {
+        const { simctl, agent, browser } = await bootedAgent()
+        // Captured from `simctl launch` of an unknown bundle on an iOS 26.5 simulator. The lines ending in
+        // a colon are headers; the reason a tester can act on is the first line that is not one.
+        vi.mocked(simctl.launchApp).mockRejectedValueOnce(new Error(
+          'Command failed: xcrun simctl launch 7273D5D7-3646-4042-BEBF-4CCDFF896AB0 com.example.app\n' +
+          'An error was encountered processing the command (domain=FBSOpenApplicationServiceErrorDomain, code=4):\n' +
+          'Simulator device failed to launch com.example.app.\n' +
+          'Underlying error (domain=FBSOpenApplicationServiceErrorDomain, code=4):\n' +
+          '\tThe request to open "com.example.app" failed.\n',
+        ))
+        const err = waitForType(browser, 'app:launch-error')
+        deliver(agent, { type: 'app:launch', sessionId: agent.sessionId, requestId: 'why-1', payload: { bundleId: 'com.example.app' } })
+        const msg = await err
+        expect(msg['message']).toBe('Simulator device failed to launch com.example.app.')
+        agent.disconnect(); browser.close()
+      })
+
       // The reply direction, for all three app commands. Nothing asserted it before: review made all six
       // `respond` helpers emit a fabricated correlator and every suite held its baseline exactly, which is
       // the only guarantee this layer has — the compiler sees the field is present, never that it is the
