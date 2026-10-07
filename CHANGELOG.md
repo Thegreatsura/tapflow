@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **The dashboard says why Launch app failed.** A failed launch stopped the spinner and showed nothing, so the button looked like it did nothing. It now shows "The app did not launch" with the reason the device gave.
+- **The dashboard says why Launch app failed.** A failed launch stopped the spinner and showed nothing, so the button looked like it did nothing. It now shows "The app did not launch" and why.
 
 - **Launch app opens the app on Android emulators.** Pressing it stopped the spinner and nothing opened. tapflow launches apps with Android's `monkey` command, which stops before sending any event on a device with no physical system keys, and emulator profiles such as Pixel have none. A flow's `launchApp` step failed on the same emulators for the same reason. tapflow now tells `monkey` to send no system-key events, so the launch goes through.
 

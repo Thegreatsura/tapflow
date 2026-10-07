@@ -122,6 +122,9 @@ describe('DeviceViewer only acts on app-command replies it asked for', () => {
       act(() => { deliver!({ type: 'app:launch-error', sessionId: 'mine', requestId: id, message: 'No booted device' }) })
       expect(toast.error).toHaveBeenCalledTimes(1)
       expect(toast.error).toHaveBeenCalledWith('The app did not launch', { description: 'No booted device' })
+      // The id is spent on the first reply, so a repeat of it is someone else's to report.
+      act(() => { deliver!({ type: 'app:launch-error', sessionId: 'mine', requestId: id, message: 'No booted device' }) })
+      expect(toast.error).toHaveBeenCalledTimes(1)
     })
 
     it('says nothing about a launch it did not ask for', () => {

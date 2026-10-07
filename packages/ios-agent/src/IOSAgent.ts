@@ -1236,8 +1236,8 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
             respond({ type: 'app:launch-done' })
           })
           .catch((e: unknown) => {
-            const message = e instanceof Error ? e.message : String(e)
-            respond({ type: 'app:launch-error', message })
+            // `firstLine`, for the reason device:boot-error uses it: this reaches a toast.
+            respond({ type: 'app:launch-error', message: firstLine(e) })
           })
         break
       }
