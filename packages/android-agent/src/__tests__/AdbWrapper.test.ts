@@ -239,14 +239,16 @@ describe('AdbWrapper', () => {
     })
 
     // monkey gives 2% of its events to system keys by default, and on a device with no physical
-    // system keys — every emulator — it aborts with exit 251 before sending any event, launch
-    // included. Asserted apart from the full argument list so a rewrite that drops it fails here.
+    // system keys (an AVD with hw.mainKeys=no) it aborts with exit 251 before sending any event,
+    // launch included. Asserted apart from the full argument list so a rewrite that drops it, or
+    // moves it after the count where monkey no longer reads options, fails here.
     it('sets the system-key share to zero so monkey runs on a device with no physical keys', async () => {
       const runner = mockRunner()
       await new AdbWrapper(runner).launchApp('emulator-5554', 'com.example.app')
       const args = vi.mocked(runner.exec).mock.calls[0]
       const i = args.indexOf('--pct-syskeys')
       expect(i).toBeGreaterThan(args.indexOf('monkey'))
+      expect(i).toBeLessThan(args.indexOf('-p'))
       expect(args[i + 1]).toBe('0')
     })
   })

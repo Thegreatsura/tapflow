@@ -278,8 +278,9 @@ export class AdbWrapper {
 
   async launchApp(serial: string, packageName: string): Promise<void> {
     // monkey reserves 2% of its events for system keys, and on a device with no physical system
-    // keys — every emulator — it aborts with exit 251 before sending any event, the launch
-    // included ("SYS_KEYS has no physical keys but with factor 2.0%").
+    // keys — an emulator whose AVD profile has hw.mainKeys=no, as Pixel profiles do — it aborts
+    // with exit 251 before sending any event, the launch included ("SYS_KEYS has no physical keys
+    // but with factor 2.0%"). Options must precede the count: monkey stops parsing at it.
     await this.runner.exec(
       '-s', serial, 'shell', 'monkey', '--pct-syskeys', '0',
       '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1',
