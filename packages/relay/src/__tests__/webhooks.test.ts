@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest'
 import http from 'http'
 import crypto from 'crypto'
 import fs from 'fs'
@@ -16,6 +16,22 @@ import {
   type WebhookPayload,
 } from '../lib/webhooks'
 import { config, resolveWebhooksConfig } from '../lib/config'
+
+// The firing tests drive the real delivery path from a PATCH, and the only receiver a test can stand up
+// is on loopback — which delivery refuses. So the default transport resolves `receiver.test` to
+// 127.0.0.1 and lets that one address through; everything else about the transport is real.
+vi.mock('../lib/webhookTransport', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../lib/webhookTransport')>()
+  const { isBlockedAddress } = await import('../lib/webhookUrl')
+  return {
+    ...mod,
+    createSafeFetch: () =>
+      mod.createSafeFetch({
+        lookup: async () => [{ address: '127.0.0.1', family: 4 }],
+        isBlocked: (ip) => ip !== '127.0.0.1' && isBlockedAddress(ip),
+      }),
+  }
+})
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -333,9 +349,9 @@ describe('webhook firing on build status transition', () => {
     port = (server.address() as { port: number }).port
     receiver = makeReceiver()
     recvPort = await listen(receiver.server)
-    // Register the receiver directly (bypasses URL validation, which rejects loopback).
+    // A name, not the loopback literal: delivery re-validates the stored URL. See the vi.mock above.
     getDb().prepare('INSERT INTO webhook_endpoints (url, secret, enabled) VALUES (?, ?, 1)')
-      .run(`http://127.0.0.1:${recvPort}/hook`, 'sig-secret')
+      .run(`http://receiver.test:${recvPort}/hook`, 'sig-secret')
   })
   afterEach(async () => {
     await server.stop()
@@ -392,7 +408,7 @@ describe('webhook firing on build status transition', () => {
     getDb().prepare('DELETE FROM webhook_endpoints').run()
     await new Promise<void>((r) => receiver.server.close(() => r())) // now nothing is listening on recvPort
     getDb().prepare('INSERT INTO webhook_endpoints (url, secret, enabled) VALUES (?, ?, 1)')
-      .run(`http://127.0.0.1:${recvPort}/hook`, null)
+      .run(`http://receiver.test:${recvPort}/hook`, null)
     const r = await httpJson(port, 'PATCH', `/api/v1/builds/${buildId}`, cookie, { status_label: 'Done' })
     expect(r.status).toBe(200)
     const status = (getDb().prepare('SELECT status_label FROM builds WHERE id = ?').get(buildId) as { status_label: string }).status_label

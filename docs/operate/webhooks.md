@@ -138,7 +138,10 @@ A webhook is sent **only when** `status_label` changes to `Done` or `Rejected`.
 ## Security
 
 - The payload carries metadata only; app binaries are never sent.
-- Registration rejects loopback (`127.0.0.1`) and cloud-metadata (`169.254.169.254`) addresses. Private LAN addresses (`10.x`, `192.168.x`, …) are allowed for self-hosted CI.
+- Webhooks are never sent to loopback (`127.0.0.1`, `localhost` and names under it) or cloud-metadata (`169.254.169.254`) addresses. Registration rejects those URLs, and each delivery checks the addresses the hostname resolves to at that moment and connects only to an allowed one, so a name that points only at them is refused too.
+- Private LAN addresses (`10.x`, `192.168.x`, …) are allowed for self-hosted CI. Anyone who can manage webhooks can therefore have the relay send a request to a LAN address; see [Access control boundaries](/reference/security#access-control-boundaries).
+- Redirects are not followed. If your receiver answers with a redirect, register the URL it redirects to.
+- A URL containing a username or password is rejected. Use `secret` to authenticate deliveries instead.
 - `secret` is optional, but set one — an exposed URL can otherwise receive forged requests.
 
 ## Getting a build in
