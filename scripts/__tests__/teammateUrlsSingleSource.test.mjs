@@ -63,6 +63,7 @@ const HEADER_READS = [
 /** File → the header reads it is allowed, and why. */
 const HEADER_ALLOWED = {
   'packages/relay/src/lib/csrf.ts': { reads: ["headers['host']"], why: 'compares Origin with Host for same-origin; builds no link (#5)' },
+  'packages/relay/src/lib/clientAddress.ts': { reads: ['x-forwarded-proto'], why: 'only tests whether a trusted proxy sent it, to warn about a missing X-Forwarded-For; reads no value, builds no link' },
 }
 
 export function judgeRelayFile(path, text) {

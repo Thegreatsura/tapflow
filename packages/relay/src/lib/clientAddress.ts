@@ -75,6 +75,32 @@ function resolveByAddress(input: ResolveClientAddressInput): ResolvedClientAddre
   return { addr: socket, isLocal: isLoopback(socket) }
 }
 
+/** Headers a reverse proxy adds and nothing on the relay host sends: the agent, the CLI and a browser on
+ *  this Mac connect with none of them. */
+const PROXY_ONLY_HEADERS = ['forwarded', 'x-real-ip', 'x-forwarded-proto', 'x-forwarded-host', 'via'] as const
+
+/**
+ * A request from a listed proxy that carries no `X-Forwarded-For` is resolved by its socket — local, for a
+ * proxy on loopback. That is deliberate: this host's own agent, CLI and first-admin claim arrive exactly so,
+ * and by address they cannot be told from a proxied request (GHSA-pq37's finding 2). So it cannot be refused,
+ * only noticed. Returns the proxy header that gives such a request away, or `null`.
+ *
+ * Only on a header a proxy adds, because "from a listed proxy, no `X-Forwarded-For`" alone is every
+ * connection the host's agent makes — a warning on that would greet every correct deployment on every
+ * start. What this catches is the common slip: an nginx block that sets `X-Real-IP` or
+ * `X-Forwarded-Proto` and not `X-Forwarded-For`. A proxy that adds nothing at all cannot be seen.
+ */
+export function proxiedWithoutForwardedFor(
+  socketAddr: string,
+  headers: http.IncomingHttpHeaders,
+  trustedProxies: string[],
+): string | null {
+  if (!trustedProxies.includes(normalize(socketAddr))) return null
+  const xff = headers['x-forwarded-for']
+  if ((Array.isArray(xff) ? xff.join('') : xff ?? '').trim().length > 0) return null
+  return PROXY_ONLY_HEADERS.find((h) => headers[h] !== undefined) ?? null
+}
+
 // Keyed by the request object rather than the socket: an HTTPS server hands its `connection` listener the
 // raw TCP socket while `req.socket` is the TLS one, and the upgrade path passes this same object on to the
 // WebSocket `connection` handler.
