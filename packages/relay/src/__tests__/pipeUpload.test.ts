@@ -33,4 +33,28 @@ describe('pipeUpload', () => {
     await new Promise((r) => setTimeout(r, 20))
     expect(fs.existsSync(dest)).toBe(false)
   })
+
+  // An error before the asynchronous open completes: removing the file at once deleted nothing, and the open
+  // then created it.
+  it('removes the file even when the source fails before the file is open', async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tapflow-pipe-'))
+    const dest = path.join(dir, 'f')
+    const src = new PassThrough()
+    const written = pipeUpload(src, dest, 'test')
+    src.destroy(new Error('early'))
+    await expect(written).rejects.toThrow('early')
+    expect(fs.existsSync(dest)).toBe(false)
+  })
+
+  // A writer error unpipes the source; left unread it holds the multipart parser short of 'finish'.
+  it('keeps draining the source after a failed write', async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tapflow-pipe-'))
+    const src = new PassThrough()
+    const written = pipeUpload(src, path.join(dir, 'missing', 'f'), 'test')
+    await expect(written).rejects.toThrow()
+    const ended = new Promise<void>((resolve) => src.on('end', () => resolve()))
+    src.write(Buffer.alloc(64 * 1024))
+    src.end()
+    await ended
+  })
 })

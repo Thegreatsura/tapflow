@@ -161,4 +161,20 @@ describe('upload size-limit handling', () => {
     expect(fs.readFileSync(path.join(dir, 'user-1.png'), 'utf8')).toBe('new-image')
     expect(fs.readdirSync(dir).filter((f) => f.endsWith('.part'))).toEqual([])
   })
+
+  // A failed write rejects what the build route awaits in an async listener; uncaught, that ended the relay.
+  it.skipIf(process.platform === 'win32')('빌드: 저장 실패 → 500 응답, 릴레이는 계속 동작', async () => {
+    const buildsDir = path.join(uploadsDir, 'builds')
+    fs.mkdirSync(buildsDir, { recursive: true })
+    fs.chmodSync(buildsDir, 0o500)
+    try {
+      const boundary = 'write-fails'
+      const body = multipartBody(boundary, [{ name: 'file', filename: 'app.apk', contentType: 'application/octet-stream', data: 'apk-bytes' }])
+      const r = await httpPostMultipart(port, '/api/v1/builds', body, boundary, cookie)
+      expect(r.status).toBe(500)
+      expect(fs.readdirSync(buildsDir)).toEqual([])
+    } finally {
+      fs.chmodSync(buildsDir, 0o700)
+    }
+  })
 })

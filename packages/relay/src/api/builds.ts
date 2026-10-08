@@ -607,7 +607,13 @@ export function handleUploadBuild(
   })
 
   bb.on('finish', async () => {
-    await writePromise
+    // A failed write rejects this, and an uncaught rejection in this async listener would end the relay.
+    // `pipeUpload` has already removed the file.
+    try {
+      await writePromise
+    } catch {
+      return json(res, 500, { error: 'Upload failed' })
+    }
     if (fileError) {
       if (savedPath) unlinkSafe(savedPath, 'rejected upload')
       return json(res, 400, { error: fileError })

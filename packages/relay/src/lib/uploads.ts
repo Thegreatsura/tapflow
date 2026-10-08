@@ -19,16 +19,26 @@ export function unlinkSafe(filePath: string, label: string): void {
  * `stream.pipe(writer)` does neither: when busboy destroys a file's stream — a body that ends inside the
  * part — the writer stays open and the partial file stays on disk, once per failed upload.
  *
- * The rejection is marked handled here. A failed part also fails the parser, whose `'error'` handler answers
- * the request, so the caller's `'finish'` handler that would await this never runs.
+ * The rejection is marked handled here, for the case where nobody awaits it: a failed part also fails the
+ * parser, whose `'error'` handler answers the request, and the route's `'finish'` never runs. A failed
+ * *write* (a full disk) is different — the parser still finishes and the route awaits a rejection, so every
+ * caller catches it.
  */
 export function pipeUpload(stream: NodeJS.ReadableStream, dest: string, label: string): Promise<void> {
   const writer = fs.createWriteStream(dest)
   const written = new Promise<void>((resolve, reject) => {
+    let failed = false
     const fail = (err: unknown) => {
-      writer.destroy()
-      unlinkSafe(dest, label)
-      reject(err)
+      if (failed) return
+      failed = true
+      // Keep reading the upload: a writer error unpipes it, and a part nobody reads holds the parser short
+      // of `'finish'`, so the route would never answer.
+      stream.resume()
+      // Remove the file once the writer has closed it: Windows refuses to delete an open file, and an error
+      // before the open completes would otherwise delete nothing and leave the file it then creates.
+      const remove = () => { unlinkSafe(dest, label); reject(err) }
+      if (writer.closed) remove()
+      else { writer.once('close', remove); writer.destroy() }
     }
     writer.on('finish', resolve)
     writer.on('error', fail)
