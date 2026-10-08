@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **An iOS device whose frame could not be built is shown anyway.** When the agent cannot build the device frame (a model Xcode has no frame for, a failed render, or a slow first build that ran out of time), the viewer used to sit on its loading placeholder for the whole session while the device ran behind it. It now shows the screen without a frame and says the side buttons (lock, volume) are unavailable for that session. Upgrading the relay is enough; the agent is unchanged.
 
-- **"Waiting for first frame" is readable over the device screen.** After a restart or a stalled stream the text sat directly on the last picture; the screen is now dimmed behind it.
+- **"Waiting for first frame" is readable over the device screen.** After a restart or a stalled stream the text sat directly on the last picture; the screen is now dimmed behind it. It also no longer flickers on for a moment every half minute over a still screen.
 
 - **Booting an iOS device no longer freezes the agent while it prepares the device frame.** The frame was built with blocking calls, a `simctl` query on every boot and image renders the first time a model was used, so every session on that Mac stopped responding for seconds. It is now built in the background with time limits and kept per model while the agent runs.
 

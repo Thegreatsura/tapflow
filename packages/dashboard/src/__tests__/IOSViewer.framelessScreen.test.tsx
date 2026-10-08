@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, act } from '@testing-library/react'
 import { framelessChrome } from '@/lib/framelessChrome'
 
@@ -56,7 +56,7 @@ describe('IOSViewer — a chrome that changes under a running decoder', () => {
   // The decoder surface took the canvas's place once, when it started. A real chrome replacing the
   // frameless one left it covering the whole canvas, frame and all.
   it('moves the decoder surface to the new screen', () => {
-    const view = render(<IOSViewer {...props(framelessChrome(1000, 2000))} />)
+    const view = render(<IOSViewer {...props(framelessChrome({ width: 1000, height: 2000 }))} />)
     const surface = document.createElement('canvas')
     act(() => { captured.onDecoderReady?.({ surface, size: null }) })
     expect(surface.style.left).toBe('0%')
@@ -67,7 +67,7 @@ describe('IOSViewer — a chrome that changes under a running decoder', () => {
 
   it('reports the size the stream arrives at', () => {
     const onStreamSize = vi.fn()
-    render(<IOSViewer {...props(framelessChrome(1000, 2000), onStreamSize)} />)
+    render(<IOSViewer {...props(framelessChrome({ width: 1000, height: 2000 }), onStreamSize)} />)
     act(() => { captured.onResize?.({ width: 1206, height: 2622 }) })
     expect(onStreamSize).toHaveBeenCalledWith({ width: 1206, height: 2622 })
   })
@@ -76,12 +76,28 @@ describe('IOSViewer — a chrome that changes under a running decoder', () => {
 describe('IOSViewer — waiting for a frame', () => {
   const waiting = (c: HTMLElement) => c.querySelector<HTMLElement>('[data-testid="screen-waiting"]')!
 
+  afterEach(() => { vi.useRealTimers() })
+
   // White text over a picture already on screen was unreadable; over the skeleton it is not.
   it('dims a screen that already shows a picture, and not the skeleton', () => {
+    vi.useFakeTimers()
     const view = render(<IOSViewer {...props(REAL)} />)
     expect(waiting(view.container).querySelector('[aria-hidden="true"]'), 'the skeleton was dimmed').toBeNull()
     act(() => { captured.onResize?.({ width: 1206, height: 2622 }) })
+    act(() => { vi.advanceTimersByTime(3000) })
     expect(waiting(view.container).querySelector('[aria-hidden="true"]'), 'the picture was not dimmed').toBeTruthy()
+  })
+
+  // A still screen's keep-alive comes about every 1.03s, so a one-second fps window reads 0 every half
+  // minute on a healthy stream. Over a picture that blink, now dimmed, must not show.
+  it('says nothing over a picture until the stream has stayed quiet', () => {
+    vi.useFakeTimers()
+    const view = render(<IOSViewer {...props(REAL)} />)
+    act(() => { captured.onResize?.({ width: 1206, height: 2622 }) })
+    act(() => { vi.advanceTimersByTime(2000) })
+    expect(view.container.querySelector('[data-testid="screen-waiting"]'), 'one quiet window was announced').toBeNull()
+    act(() => { vi.advanceTimersByTime(600) })
+    expect(view.container.querySelector('[data-testid="screen-waiting"]')).toBeTruthy()
   })
 
   // The dim is placed and rounded by the box it sits in, which is the screen's own geometry.

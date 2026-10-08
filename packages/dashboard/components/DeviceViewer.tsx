@@ -2,6 +2,7 @@
 
 import { skeletonSize } from '@/lib/deviceSkeleton';
 import { framelessChrome } from '@/lib/framelessChrome';
+
 import type { BrowserToRelay, FormFactor, SessionTerminatedReason } from '@tapflowio/protocol'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useRelay } from '@/hooks/useRelay';
@@ -552,11 +553,12 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
   // chrome — so the stream ran behind a skeleton for the whole session. Show the screen alone instead.
   // Sized like the skeleton until the first frame says otherwise.
   //
-  // `platform` is the build's, and reads 'ios' until the build loads; `!androidChrome` covers that
-  // window, since an Android agent always sends its chrome before ready.
-  const framelessSize = streamSize ?? { width: skeletonSize(formFactor, platform).width * 2, height: skeletonSize(formFactor, platform).height * 2 };
+  // **A platform check, in the one component that chooses which viewer to mount** — that is routing, not
+  // drawing, and the rule against platform conditionals is about drawing. `platform` is the build's and
+  // reads 'ios' until the build loads; `!androidChrome` covers that window, since an Android agent always
+  // sends its chrome before ready.
   const iosChrome = sentIosChrome ?? (deviceReady && platform === 'ios' && !androidChrome
-    ? framelessChrome(framelessSize.width, framelessSize.height)
+    ? framelessChrome(streamSize ?? skeletonSize(formFactor, platform))
     : null);
 
   /**

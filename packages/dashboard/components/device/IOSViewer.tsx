@@ -71,6 +71,9 @@ interface IOSViewerProps {
   onStreamSize?: (size: { width: number; height: number }) => void;
 }
 
+/** How long a stream that already painted a picture stays silent before the viewer says it is waiting. */
+const STALL_MS = 2500;
+
 export function IOSViewer({
   sessionId, buildId, send, openUrl, launchApp, connected, joined,
   deviceReady, installing, installed, installError, bootError,
@@ -84,6 +87,18 @@ export function IOSViewer({
   const containerRef = useRef<HTMLDivElement>(null);
   const screenAreaRef = useRef<HTMLDivElement>(null);
   const { fps, frameCount } = useFps();
+  // **Over a picture, the wait overlay waits too.** fps is counted in one-second windows, and a still
+  // H.264 screen sends a keep-alive about every 1.03s, so an empty window turns up every half minute on a
+  // healthy stream (the status card says the same of its own fps). With the screen dimmed behind the
+  // text that blink became loud, so once a picture is up the overlay shows only after the stream has
+  // stayed quiet for `STALL_MS`. Before the first frame it shows at once, as it always did.
+  const [stalled, setStalled] = useState(false);
+  if (fps !== 0 && stalled) setStalled(false);
+  useEffect(() => {
+    if (fps !== 0) return;
+    const t = setTimeout(() => setStalled(true), STALL_MS);
+    return () => clearTimeout(t);
+  }, [fps]);
 
   const lastFrameRecvAtRef = useRef<number>(0);
   const { recordState, recordCanvasRef, setComposeFrame, startClientRecording, stopClientRecording } = useClientRecording({ sessionId, buildId, onRecordingUploaded });
@@ -795,7 +810,7 @@ export function IOSViewer({
                 </>
               )
             })()}
-            {joined && fps === 0 && (
+            {joined && fps === 0 && (!canvasReady || stalled) && (
               <div data-testid="screen-waiting" className="absolute overflow-hidden pointer-events-none flex items-center justify-center" style={{ zIndex: 8, ...screenBox }}>
                 {/* Over a picture already on screen — a restart, a stalled stream — white text alone was
                     unreadable, so the screen is dimmed behind it. Before the first frame the skeleton
