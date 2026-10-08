@@ -3,7 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import { tmpdir } from 'os'
 import { randomUUID } from 'crypto'
-import { spawnSync } from 'child_process'
+import { spawn } from 'child_process'
 import { WebSocket } from 'ws'
 import type { BootAbandonReason, ClipboardErrorPayload, Device, DeviceAgent, NetworkControlCapability, NetworkStatePayload, UIElement } from '@tapflowio/agent-core'
 import { createLogger, PlatformError, ValidationError, bootAbandonMessage, BOOT_NO_SESSION_STATE, SHUTDOWN_NO_SESSION_STATE, downloadBuild } from '@tapflowio/agent-core'
@@ -97,9 +97,6 @@ import { KEY_CODE_MAP, MODIFIER_BITS } from './KeyCodeMap.js'
 // processes (launched apps, WebKit WebContent). Short enough that a tab's audio starts promptly,
 // long enough to keep `ps` overhead negligible.
 const AUDIO_POLL_MS = 1500
-
-// 아카이브 추출(tar/unzip) 시 stdout 상한. 기본 1MB 로는 파일 많은 큰 .app 에서 넘칠 수 있어 넉넉히 잡는다.
-const EXTRACT_MAXBUFFER = 256 * 1024 * 1024 // 256 MB
 
 /** Lean mode needs an iOS runtime of 18.5 or later, where launchd honours the host-side overrides
  *  across reboots. tvOS, watchOS and visionOS devices come through the same list and are left alone. */
@@ -1867,7 +1864,8 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
       }
       return await this.installFrom(udid, source, tmpDir)
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true })
+      // Async for the same reason as the extraction: a large .app is a lot of files to unlink.
+      await fs.promises.rm(tmpDir, { recursive: true, force: true })
     }
   }
 
@@ -1884,11 +1882,12 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     // `tmpDir`, and extracting beside it would put the two in one listing.
     const outDir = path.join(tmpDir, 'x')
     fs.mkdirSync(outDir, { recursive: true })
-    // tar 는 기본 무음, unzip 은 -q 로 무음화해 큰 .app 에서 verbose stdout 이 기본
-    // maxBuffer(1MB)를 넘겨 추출이 죽는 것을 막는다.
+    // **Not `spawnSync`.** It held the event loop for as long as the extraction ran, which on a large build
+    // or a busy Mac was long enough for the relay's heartbeat to end this agent's connection — and every
+    // other session on the Mac froze with it.
     const result = isTar
-      ? spawnSync('tar', ['-xzf', filePath, '-C', outDir], { maxBuffer: EXTRACT_MAXBUFFER })
-      : spawnSync('unzip', ['-q', '-o', filePath, '-d', outDir], { maxBuffer: EXTRACT_MAXBUFFER })
+      ? await runExtractor('tar', ['-xzf', filePath, '-C', outDir])
+      : await runExtractor('unzip', ['-q', '-o', filePath, '-d', outDir])
     // 실행 자체 실패(tar/unzip 부재=ENOENT 등)는 아카이브 무효와 구분한다.
     if (result.error) {
       const code = (result.error as NodeJS.ErrnoException).code ?? result.error.message
@@ -1899,7 +1898,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
       // evidence away, so a build that was fine read as corrupt — `unzip` had said
       // `cannot find or open`, which names a missing file rather than a bad archive, and nobody
       // could see it. Trimmed because the whole thing reaches a browser toast.
-      const detail = (result.stderr?.toString() ?? '').trim().split('\n')[0]?.slice(0, 300)
+      const detail = result.stderr.trim().split('\n')[0]?.slice(0, 300)
       throw new ValidationError(
         (isTar
           ? 'tar.gz 압축 해제 실패 — 시뮬레이터용 .tar.gz(경로 탈출/심볼릭 링크 없는)인지 확인하세요.'
@@ -2254,4 +2253,22 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
   async openUrl(url: string): Promise<void> {
     return this.simctl.openUrl(await this.soleLiveDeviceId(), url)
   }
+}
+
+/**
+ * Runs an archive tool without blocking, in the shape `spawnSync` returned: a spawn failure (the tool is
+ * missing) in `error`, otherwise the exit `status` and what it wrote to stderr. stdout is discarded — the
+ * tools run quiet, and nothing reads it.
+ */
+function runExtractor(cmd: string, args: string[]): Promise<{ error?: Error; status: number | null; stderr: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(cmd, args, { stdio: ['ignore', 'ignore', 'pipe'] })
+    let stderr = ''
+    // Decoded by the stream, not per chunk: a chunk boundary inside a multibyte character (a Korean file
+    // name in unzip's message) would otherwise turn into replacement characters.
+    child.stderr?.setEncoding('utf8')
+    child.stderr?.on('data', (chunk: string) => { if (stderr.length < 64 * 1024) stderr += chunk })
+    child.once('error', (error) => resolve({ error, status: null, stderr }))
+    child.once('close', (status) => resolve({ status, stderr }))
+  })
 }

@@ -327,6 +327,47 @@ describe('IOSAgent', () => {
       return out
     }
 
+    // ── Extraction must not hold the event loop ─────────────────────────────
+    //
+    // `spawnSync` froze the whole agent for as long as `unzip` ran: on a large build or a busy Mac that
+    // was long enough for the relay's heartbeat to end the agent's connection. A slow fake `unzip` makes
+    // the hold measurable — a 1 ms interval keeps ticking only if the extraction is asynchronous.
+    describe('extraction off the event loop', () => {
+      const realUnzip = spawnSync('/bin/sh', ['-c', 'command -v unzip']).stdout.toString().trim()
+      const originalPath = process.env.PATH
+      afterEach(() => {
+        if (originalPath === undefined) delete process.env.PATH
+        else process.env.PATH = originalPath
+      })
+
+      it('keeps the event loop running while the archive extracts', async () => {
+        const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'tapflow-slow-unzip-'))
+        fs.writeFileSync(path.join(bin, 'unzip'), `#!/bin/sh\nsleep 0.3\nexec "${realUnzip}" "$@"\n`, { mode: 0o755 })
+        process.env.PATH = `${bin}:${originalPath ?? ''}`
+        const archive = makeSimAppArchive('SlowApp', '.app.zip')
+        const simctl = mockSimctl()
+        let ticks = 0
+        let ticksAtInstall = -1
+        vi.mocked(simctl.installApp).mockImplementation(async () => { ticksAtInstall = ticks })
+        const timer = setInterval(() => { ticks++ }, 1)
+        try {
+          await (new IOSAgent({}, simctl) as unknown as WithInstallBuild).installBuild('dev-1', archive)
+        } finally {
+          clearInterval(timer)
+        }
+        expect(simctl.installApp).toHaveBeenCalledWith('dev-1', expect.stringMatching(/SlowApp\.app$/))
+        expect(ticksAtInstall).toBeGreaterThanOrEqual(20)
+      })
+
+      it('still reports a missing extractor as a failure to run it, not a bad archive', async () => {
+        const archive = makeSimAppArchive('NoTool', '.app.zip')
+        process.env.PATH = fs.mkdtempSync(path.join(os.tmpdir(), 'tapflow-empty-path-'))
+        const err = await (new IOSAgent({}, mockSimctl()) as unknown as WithInstallBuild)
+          .installBuild('dev-1', archive).catch((e: unknown) => e)
+        expect(String(err)).toMatch(/아카이브 추출 실행 실패 \(unzip: ENOENT\)/)
+      })
+    })
+
     // ── Downloading the build instead of opening the relay's path ───────────
     //
     // The relay used to send its own filesystem path and this agent opened it, which holds only when
