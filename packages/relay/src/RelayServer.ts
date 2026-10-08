@@ -14,7 +14,7 @@ import type { ParsedInbound, ParseFailure, ParseResult } from '@tapflowio/protoc
 import { Router, json } from './router.js'
 import { requireViewAuth, requireAuth, getAuth, verifyPat, touchPat, findPat, findUser } from './middleware/auth.js'
 import { AGENT_SCOPE, WS_ACCESS_CHANGED_REASON, WS_AGENT_OWNER_REASON, WS_SCOPE_REASON, classifyConnection, isAffectedBy, revalidatePrincipal, type AuthChange, type SocketPrincipal } from './lib/connectionAuth.js'
-import { isTunnelIngress, markTunnelIngress, resolveClientAddress, resolveRequestClient } from './lib/clientAddress.js'
+import { isTunnelIngress, markTunnelIngress, proxiedWithoutForwardedFor, resolveClientAddress, resolveRequestClient } from './lib/clientAddress.js'
 import { BuildTicketStore } from './lib/buildTickets.js'
 import { resolveBuildFile } from './lib/buildFiles.js'
 import { resolveCorsHeaders } from './lib/cors.js'
@@ -344,6 +344,7 @@ export class RelayServer {
   private readonly corsAllowed: Set<string>
   // One-shot warning when XFF arrives on a loopback socket but TAPFLOW_TRUSTED_PROXIES is unset.
   private warnedProxyMisconfig = false
+  private warnedTrustedProxyWithoutXff = false
   /** Agent identities already warned about a missing `build-download`. See `warnLegacyInstaller`. */
   private readonly warnedLegacyInstaller = new Set<string>()
   private readonly buildTickets = new BuildTicketStore()
@@ -620,6 +621,15 @@ export class RelayServer {
     this.heartbeatTimer = setInterval(() => { this.noteLateSweep(); this.runHeartbeat() }, HEARTBEAT_MS)
     this.heartbeatTimer.unref()
     this.releaseStallWatch ??= acquireLoopStallWatch()
+    // The rule a proxy has to follow, said once to whoever set the list: the case it covers (a proxy that
+    // sends no forwarding header at all) is one no request-time check can see.
+    const trustedProxies = this.options.trustedProxies ?? []
+    if (trustedProxies.length > 0) {
+      logger.info(
+        `Trusted proxies: ${trustedProxies.join(', ')}. A request from one of these without ` +
+        'X-Forwarded-For is treated as coming from that address itself, so the proxy must send X-Forwarded-For.'
+      )
+    }
 
     return new Promise<void>((resolve, reject) => {
       this.httpServer.once('error', (err: NodeJS.ErrnoException) => {
@@ -1006,6 +1016,24 @@ export class RelayServer {
     return request.socket.remoteAddress ?? ''
   }
 
+  /**
+   * Called on both doors — the WebSocket upgrade and every HTTP request — since `auth/init` and the logs
+   * route decide locality on the HTTP side. Not on the tunnel listener, where every request is remote
+   * whatever it carries.
+   */
+  private warnTrustedProxyWithoutXffOnce(request: http.IncomingMessage): void {
+    if (this.warnedTrustedProxyWithoutXff || isTunnelIngress(request)) return
+    const header = proxiedWithoutForwardedFor(this.remoteAddressOf(request), request.headers, this.options.trustedProxies ?? [])
+    if (!header) return
+    logger.warn(
+      `A request from a trusted proxy (TAPFLOW_TRUSTED_PROXIES) carried ${header} but no X-Forwarded-For. ` +
+      'Without that header the relay cannot see the real client, so it treats the request as coming from the ' +
+      'proxy itself, which counts as local (unauthenticated) for a proxy on this host. Configure the proxy to ' +
+      'send X-Forwarded-For, or point it at the tunnel port instead (TAPFLOW_TUNNEL_PORT, default 4001).'
+    )
+    this.warnedTrustedProxyWithoutXff = true
+  }
+
   private warnProxyMisconfigOnce(socketAddr: string, forwardedFor: string | undefined): void {
     if (this.warnedProxyMisconfig) return
     if ((this.options.trustedProxies?.length ?? 0) > 0 || !forwardedFor) return
@@ -1028,6 +1056,7 @@ export class RelayServer {
     const viaTunnel = isTunnelIngress(request)
     // A proxy in front of the tunnel port adds the header too, and there it changes nothing about auth.
     if (!viaTunnel) this.warnProxyMisconfigOnce(socketAddr, forwardedFor)
+    this.warnTrustedProxyWithoutXffOnce(request)
     const { addr, isLocal } = resolveClientAddress({
       socketAddr,
       forwardedFor,
@@ -2890,6 +2919,7 @@ export class RelayServer {
   }
 
   private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    this.warnTrustedProxyWithoutXffOnce(req)
     const corsHeaders = resolveCorsHeaders(req.headers.origin, this.corsAllowed)
     if (corsHeaders) {
       for (const [k, v] of Object.entries(corsHeaders)) res.setHeader(k, v)

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { resolveClientAddress, parseTrustedProxies } from '../lib/clientAddress'
+import { resolveClientAddress, parseTrustedProxies, proxiedWithoutForwardedFor } from '../lib/clientAddress'
 
 // ⑤ trusted-proxy — same-host 리버스 프록시 뒤에서 loopback 무인증 우회 차단
 describe('resolveClientAddress', () => {
@@ -114,5 +114,30 @@ describe('parseTrustedProxies', () => {
 
   it('IPv4-mapped IPv6 항목을 정규화', () => {
     expect(parseTrustedProxies('::ffff:127.0.0.1')).toEqual(['127.0.0.1'])
+  })
+})
+
+// GHSA-pq37 finding 2: a listed proxy that sends no X-Forwarded-For makes its clients local. It cannot be
+// refused — the host's own agent arrives the same way — so it is noticed by a header only a proxy adds.
+describe('proxiedWithoutForwardedFor', () => {
+  const proxies = ['127.0.0.1']
+
+  it('names the proxy header on a request from a listed proxy with no X-Forwarded-For', () => {
+    expect(proxiedWithoutForwardedFor('127.0.0.1', { 'x-real-ip': '203.0.113.5' }, proxies)).toBe('x-real-ip')
+    expect(proxiedWithoutForwardedFor('::ffff:127.0.0.1', { 'x-forwarded-proto': 'https' }, proxies)).toBe('x-forwarded-proto')
+  })
+
+  // The agent's and the CLI's shape. Paired with the case above: the same request plus one header warns.
+  it('says nothing about a request with no proxy header, as this host\'s agent sends', () => {
+    expect(proxiedWithoutForwardedFor('127.0.0.1', { host: '127.0.0.1:4000', 'user-agent': 'node' }, proxies)).toBeNull()
+  })
+
+  it('says nothing when X-Forwarded-For is there', () => {
+    expect(proxiedWithoutForwardedFor('127.0.0.1', { 'x-real-ip': '203.0.113.5', 'x-forwarded-for': '203.0.113.5' }, proxies)).toBeNull()
+  })
+
+  it('says nothing about an address that is not a listed proxy', () => {
+    expect(proxiedWithoutForwardedFor('192.168.0.9', { 'x-real-ip': '203.0.113.5' }, proxies)).toBeNull()
+    expect(proxiedWithoutForwardedFor('127.0.0.1', { 'x-real-ip': '203.0.113.5' }, [])).toBeNull()
   })
 })

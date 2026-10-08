@@ -105,8 +105,12 @@ What the relay enforces, from a defender's point of view:
 - **First-admin setup is gated** so a remote party cannot claim the initial-setup window on a freshly
   exposed instance.
 - **Reverse-proxy deployments use an explicit trusted-proxy boundary.** The real client address is
-  resolved only from proxies you list in `TAPFLOW_TRUSTED_PROXIES`; forwarded headers from anywhere
-  else are ignored, and an ambiguous case is treated as remote, so a token is required.
+  resolved only from proxies you list in `TAPFLOW_TRUSTED_PROXIES`, and forwarded headers from anywhere
+  else are ignored. A forwarded chain made only of listed proxies is treated as remote. A request from a
+  listed proxy that carries no `X-Forwarded-For` is treated as coming from the proxy's own address, and
+  for a proxy on the relay host that address is local. This is deliberate: the host's own agent and CLI
+  connect the same way. So the proxy must send `X-Forwarded-For`. The relay states this rule at start
+  and logs a warning when a listed proxy sends proxy headers without it.
 - **Request hygiene**: CORS is limited to configured origins on authenticated paths rather than a
   blanket wildcard, state-changing requests carry a same-origin guard, and invitation links are built
   from a configured base URL rather than a request header.
