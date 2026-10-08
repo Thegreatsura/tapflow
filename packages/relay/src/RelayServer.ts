@@ -1052,6 +1052,12 @@ export class RelayServer {
   }
 
   private handleConnection(ws: WebSocket, request: http.IncomingMessage): void {
+    // **First, before anything can return.** A socket error — a frame that breaks the protocol, a reset —
+    // is emitted on this socket, and an EventEmitter with no `'error'` listener throws: from inside `ws`'s
+    // receiver, with nothing above it to catch. One client could end the relay for everyone, signed in or
+    // not. `ws` closes the socket itself after emitting, so the `'close'` handler below still runs.
+    // Debug, not warn: any client can produce this at will, and the close is already logged where it matters.
+    ws.on('error', (err) => logger.debug(`WebSocket error: ${err.message}`))
     const socketAddr = this.remoteAddressOf(request)
     const xff = request.headers['x-forwarded-for']
     const forwardedFor = Array.isArray(xff) ? xff[0] : xff
