@@ -312,7 +312,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     this.intervalMs = options.intervalMs
     this.reconnectDelays = options.reconnectDelays ?? [1000, 2000, 4000, 8000, 16000, 30000]
     this.chromeLoader = options.chromeLoader ?? new DeviceChromeLoader(process.env.VITEST
-      ? { chromeMapPath: path.join(tmpdir(), 'tapflow-no-chrome', 'map.plist'), chromeDir: path.join(tmpdir(), 'tapflow-no-chrome') }
+      ? { run: () => Promise.reject(new Error('no chrome under vitest')) }
       : {})
     this.deviceFilter = options.deviceFilter
     this.token = options.token
@@ -598,8 +598,9 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     state.streamWs = null
   }
 
-  /** Resolves `false` when the boot was superseded or the control socket went away during the chrome load,
-   *  in which case nothing was stored and the caller abandons the boot. */
+  /** Resolves `false` when a newer boot or a relay loss retired this one during the chrome load, in which case
+   *  nothing was stored and the caller abandons the boot. A closed socket alone continues as it always did —
+   *  the relay loss that follows bumps the seq. */
   private async sendChromeData(state: DeviceState, device: Device, seq: number): Promise<boolean> {
     // `readyState`, not presence: this runs mid-boot, and a socket that closed since the entry guard
     // takes the payload into a buffer nobody flushes while `device:ready` is dropped by `sendMsg`'s own

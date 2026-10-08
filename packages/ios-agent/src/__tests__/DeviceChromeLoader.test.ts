@@ -75,12 +75,14 @@ describe('screenSizeFromDeviceType', () => {
 // and a runner answering the tools the loader calls. Every external call goes through the runner, so these
 // tests see each one — the synchronous `execFileSync` calls they replaced froze the whole agent.
 describe('DeviceChromeLoader.load', () => {
-  function fixture(opts: { types?: object[]; swift?: ChromeRunner; cacheDir?: string } = {}) {
+  function fixture(opts: { types?: object[]; swift?: ChromeRunner; cacheDir?: string; button?: boolean } = {}) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tapflow-chrome-'))
     const res = path.join(root, 'chrome', 'phone.devicechrome', 'Contents', 'Resources')
     fs.mkdirSync(res, { recursive: true })
-    fs.writeFileSync(path.join(res, 'chrome.json'), JSON.stringify({ images: { sizing: { leftWidth: 10, rightWidth: 10, topHeight: 10, bottomHeight: 10 } } }))
+    const inputs = opts.button ? [{ name: 'power', image: 'Power', anchor: 'right', offsets: { normal: { x: 0, y: 100 } } }] : []
+    fs.writeFileSync(path.join(res, 'chrome.json'), JSON.stringify({ images: { sizing: { leftWidth: 10, rightWidth: 10, topHeight: 10, bottomHeight: 10 } }, inputs }))
     fs.writeFileSync(path.join(res, 'PhoneComposite.pdf'), '')
+    if (opts.button) fs.writeFileSync(path.join(res, 'Power.pdf'), '')
     const cacheDir = opts.cacheDir ?? path.join(root, 'cache'); fs.mkdirSync(cacheDir, { recursive: true })
     const calls: string[][] = []
     const run: ChromeRunner = async (cmd, args, timeoutMs, signal) => {
@@ -105,7 +107,7 @@ describe('DeviceChromeLoader.load', () => {
     expect(chrome?.framePng).toBe(Buffer.from('PNG').toString('base64'))
     expect(calls.filter((c) => c[0] === 'xcrun')).toHaveLength(1)
     // The script and the temporary image are removed; the frame was renamed into place.
-    expect(fs.readdirSync(cacheDir)).toEqual(['tapflow-frame-v3-phone.png'])
+    expect(fs.readdirSync(cacheDir)).toEqual(['tapflow-frame-v3-phone-c400x800.png'])
   })
 
   it('runs nothing the second time a device type loads', async () => {
@@ -163,7 +165,7 @@ describe('DeviceChromeLoader.load', () => {
     const dies: ChromeRunner = async (_c, args) => { fs.writeFileSync(args[args.length - 1], 'PN'); throw new Error('killed') }
     const { loader, cacheDir } = fixture({ swift: dies })
     expect(await loader.load('T')).toBeNull()
-    expect(fs.existsSync(path.join(cacheDir, 'tapflow-frame-v3-phone.png'))).toBe(false)
+    expect(fs.readdirSync(cacheDir).some((f) => f.startsWith('tapflow-frame-v3-phone'))).toBe(false)
   })
 
   it('lists device types once for the process, not once per load', async () => {
@@ -171,5 +173,32 @@ describe('DeviceChromeLoader.load', () => {
     await loader.load('T')
     await loader.load('T2')
     expect(calls.filter((c) => c[0] === 'xcrun')).toHaveLength(1)
+  })
+
+  // The budget usually runs out in the button renders, after the frame: a load that skipped a button used to
+  // be remembered, and that model showed no side buttons until the agent restarted.
+  it('does not remember a load that skipped a button, and keeps the one that finished', async () => {
+    let swiftCalls = 0
+    const flaky: ChromeRunner = async (_c, args) => {
+      if (++swiftCalls === 2) throw new Error('killed')
+      fs.writeFileSync(args[args.length - 1], 'PNG')
+      return Buffer.alloc(0)
+    }
+    const { loader } = fixture({ swift: flaky, button: true })
+    const partial = await loader.load('T')
+    expect(partial?.buttons).toHaveLength(1)
+    expect(partial?.buttons[0].buttonPng).toBeUndefined()
+    const complete = await loader.load('T')
+    expect(complete?.buttons[0].buttonPng).toBeDefined()
+    // Only the button rendered again: the frame was already on disk.
+    expect(swiftCalls).toBe(3)
+    expect(await loader.load('T')).toBe(complete)
+  })
+
+  // A frame rendered with a button missing has narrower margins than one with all of them.
+  it('keys the cached frame by its canvas size', async () => {
+    const { loader, cacheDir } = fixture({ button: true })
+    await loader.load('T')
+    expect(fs.readdirSync(cacheDir).filter((f) => f.startsWith('tapflow-frame-v3-'))).toEqual(['tapflow-frame-v3-phone-c800x800.png'])
   })
 })

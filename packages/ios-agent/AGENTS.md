@@ -436,7 +436,7 @@ already received. Nothing reports it.
 **Loading is asynchronous and bounded** (it was `execFileSync` throughout and froze the agent for seconds on a
 cold cache). Every tool runs through one runner with a per-call timeout and a whole-load budget; renders write
 unique script files and rename their PNG into place, so concurrent loads cannot swap geometry or cache a
-half-written image; results are kept per device type for the process, failures never.
+half-written image; results are kept per device type for the process; a failure, or a load that skipped a button, is not kept.
 
 **Button layout**: `PhoneComposite.pdf` contains no physical buttons. Buttons are separate PDF assets; placement data is in `chrome.json`'s `inputs[]`.
 

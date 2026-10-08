@@ -44,6 +44,8 @@ interface Ctx {
   run: ChromeRunner
   signal: AbortSignal
   cacheDir: string
+  /** Set when a button was skipped because it could not be measured or rendered — including by the budget. */
+  incomplete: boolean
 }
 
 let renderSeq = 0
@@ -153,7 +155,7 @@ async function computeButtonLayout(
       const size = await getSipsSize(ctx, pdfPath)
       const roll = inp.offsets.rollover ?? inp.offsets.normal
       infos.push({ input: inp, w: size.width, h: size.height, roll })
-    } catch { /* skip unmeasurable assets */ }
+    } catch { ctx.incomplete = true /* skip unmeasurable assets */ }
   }
 
   // Pass 1 — margins (baguette's computeMargins, rollover offset)
@@ -233,7 +235,7 @@ async function computeButtonLayout(
             pdfW:     downSize.width,
             pdfH:     downSize.height,
           }
-        } catch { /* skip unmeasurable pressed asset */ }
+        } catch { ctx.incomplete = true /* skip unmeasurable pressed asset */ }
       }
     }
     pressedData.push(pressed)
@@ -661,7 +663,7 @@ async function attachButtonPngs(
         await renderPdfToPng(ctx, pdfPath, outPath)
       }
       buttons[i].buttonPng = readFileSync(outPath).toString('base64')
-    } catch { /* skip if rendering fails */ }
+    } catch { ctx.incomplete = true /* skip if rendering fails */ }
   }
 }
 
@@ -694,7 +696,7 @@ async function attachPressedPngs(
         width:  Math.round(pd.pdfW    * scale),
         height: Math.round(pd.pdfH    * scale),
       }
-    } catch { /* skip if rendering fails */ }
+    } catch { ctx.incomplete = true /* skip if rendering fails */ }
   }
 }
 
@@ -738,9 +740,16 @@ export class DeviceChromeLoader {
   load(typeIdentifier: string): Promise<ChromeData | null> {
     const pending = this.loads.get(typeIdentifier)
     if (pending) return pending
-    const loading = this.loadUncached(typeIdentifier).catch(() => null)
+    const budget = new AbortController()
+    const timer = setTimeout(() => budget.abort(), this.loadBudgetMs)
+    timer.unref?.()
+    const ctx: Ctx = { run: this.run, signal: budget.signal, cacheDir: this.cacheDir, incomplete: false }
+    const loading = this.loadUncached(typeIdentifier, ctx).catch(() => null).finally(() => clearTimeout(timer))
     this.loads.set(typeIdentifier, loading)
-    void loading.then((chrome) => { if (!chrome) this.loads.delete(typeIdentifier) })
+    // A load that skipped a button still gives this boot a device, but is not kept: the budget usually runs
+    // out in the button renders, and remembering that result would hide those buttons until a restart. What
+    // did render is on disk, so the next boot picks up where this one stopped.
+    void loading.then((chrome) => { if (!chrome || ctx.incomplete) this.loads.delete(typeIdentifier) })
     return loading
   }
 
@@ -753,11 +762,7 @@ export class DeviceChromeLoader {
     return types
   }
 
-  private async loadUncached(typeIdentifier: string): Promise<ChromeData | null> {
-    const budget = new AbortController()
-    const timer = setTimeout(() => budget.abort(), this.loadBudgetMs)
-    timer.unref?.()
-    const ctx: Ctx = { run: this.run, signal: budget.signal, cacheDir: this.cacheDir }
+  private async loadUncached(typeIdentifier: string, ctx: Ctx): Promise<ChromeData | null> {
     try {
       const types = await this.listDeviceTypes(ctx)
       const typeInfo = types.find(t => t.identifier === typeIdentifier)
@@ -820,8 +825,10 @@ export class DeviceChromeLoader {
         const expandedW = pdfSize.width  + btnM.left + btnM.right
         const expandedH = pdfSize.height + btnM.top  + btnM.bottom
 
-        // v3: buttons excluded from framePng — rendered separately as CSS-animated overlays
-        const framePath = join(this.cacheDir, `tapflow-frame-v3-${chromeName}.png`)
+        // v3: buttons excluded from framePng — rendered separately as CSS-animated overlays.
+        // The canvas size is in the key, as for nine-slice: a button that could not be measured shrinks the
+        // margins, and a frame rendered that way must not be served to a later load that measured them all.
+        const framePath = join(this.cacheDir, `tapflow-frame-v3-${chromeName}-c${Math.round(expandedW)}x${Math.round(expandedH)}.png`)
         if (!existsSync(framePath) || statSync(compositePdf).mtimeMs > statSync(framePath).mtimeMs) {
           await renderFramePng(ctx, compositePdf, framePath, btnM, [])
         }
@@ -954,8 +961,6 @@ export class DeviceChromeLoader {
       }
     } catch {
       return null
-    } finally {
-      clearTimeout(timer)
     }
   }
 }
