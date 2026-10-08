@@ -104,4 +104,15 @@ describe('MjpegStreamer', () => {
 
     resolve()
   })
+
+  // An errored ReadableStream is never cancelled, so the capture interval used to outlive it and keep
+  // taking screenshots for good — one more leaked timer every time the agent restarted the stream.
+  it('stops capturing once a screenshot fails', async () => {
+    const screenshot = vi.fn().mockRejectedValue(new Error('device io not ready'))
+    const reader = new MjpegStreamer({ screenshot }, 'dev-1', 10).start().getReader()
+    await expect(reader.read()).rejects.toThrow('device io not ready')
+    const calls = screenshot.mock.calls.length
+    await new Promise((r) => setTimeout(r, 100))
+    expect(screenshot.mock.calls.length).toBe(calls)
+  })
 })

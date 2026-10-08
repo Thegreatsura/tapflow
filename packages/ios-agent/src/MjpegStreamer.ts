@@ -31,6 +31,9 @@ export class MjpegStreamer {
             const frame = await this.simctl.screenshot(this.udid, 'jpeg')
             controller.enqueue({ payload: frame, keyframe: false })
           } catch (err) {
+            // An errored stream is never cancelled, so the interval would outlive it and keep taking
+            // screenshots for good — one more leaked timer per restart.
+            if (timer !== null) { clearInterval(timer); timer = null }
             controller.error(err)
           } finally {
             capturing = false
