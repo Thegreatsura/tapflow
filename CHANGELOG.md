@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Booting an iOS device no longer freezes the agent while it prepares the device frame.** The frame was built with blocking calls, a `simctl` query on every boot and image renders the first time a model was used, so every session on that Mac stopped responding for seconds. It is now built in the background with time limits and kept per model while the agent runs.
+
 - **The agents recover more gracefully from a misbehaving device.** An iOS screen stream that keeps ending before its first frame is retried with a growing delay instead of in a tight loop, and a stream that failed can no longer end the agent when its session closes. A reconnect no longer hangs on a stuck `simctl list`; it gives up after 10 seconds and tries again. On Android, stopping the host-speaker mute no longer blocks the agent.
 
 - **Installing an iOS build no longer freezes the agent.** Unpacking the `.app.zip` or `.tar.gz` and removing the temporary files held the agent's event loop, so on a large build or a busy Mac its other sessions stopped responding and the relay could drop its connection.

@@ -130,6 +130,9 @@ export interface IOSAgentOptions {
   lean?: boolean
   /** Where the launchd overrides are written. Injectable for the same reason as `network`. */
   leanStore?: LeanStore
+  /** Device frame loading. Under vitest the default points at directories that do not exist, so a suite never
+   *  reads the developer's Xcode chrome or spends seconds rendering it. */
+  chromeLoader?: DeviceChromeLoader
 }
 
 interface DeviceState {
@@ -308,7 +311,9 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     this.fps = options.fps ?? 30
     this.intervalMs = options.intervalMs
     this.reconnectDelays = options.reconnectDelays ?? [1000, 2000, 4000, 8000, 16000, 30000]
-    this.chromeLoader = new DeviceChromeLoader()
+    this.chromeLoader = options.chromeLoader ?? new DeviceChromeLoader(process.env.VITEST
+      ? { chromeMapPath: path.join(tmpdir(), 'tapflow-no-chrome', 'map.plist'), chromeDir: path.join(tmpdir(), 'tapflow-no-chrome') }
+      : {})
     this.deviceFilter = options.deviceFilter
     this.token = options.token
     this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? 10_000
@@ -593,11 +598,13 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     state.streamWs = null
   }
 
-  private sendChromeData(state: DeviceState, device: Device): void {
+  /** Resolves `false` when the boot was superseded or the control socket went away during the chrome load,
+   *  in which case nothing was stored and the caller abandons the boot. */
+  private async sendChromeData(state: DeviceState, device: Device, seq: number): Promise<boolean> {
     // `readyState`, not presence: this runs mid-boot, and a socket that closed since the entry guard
     // takes the payload into a buffer nobody flushes while `device:ready` is dropped by `sendMsg`'s own
     // check — leaving the caller with neither the data nor an answer.
-    if (this.ws?.readyState !== WebSocket.OPEN) return
+    if (this.ws?.readyState !== WebSocket.OPEN) return true
     // Stop the outgoing helper before dropping the reference. This used to leak a child process;
     // now that a helper revives itself on death, an orphan would also keep respawning with
     // nobody left holding a reference to stop it.
@@ -612,13 +619,21 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
         osVersion: device.osVersion ?? '',
       },
     })
-    state.loadedChrome = this.chromeLoader.load(device.typeId ?? device.name)
-    if (!state.loadedChrome) return
-    this.sendOn(this.ws, {
+    // Awaited where it used to block: a cold load is seconds of swift renders. A newer boot or a shutdown can
+    // land meanwhile, so the result is stored only after the seq is checked — otherwise a slow stale load
+    // would overwrite the chrome a faster newer boot already set, and the button path reads it.
+    const chrome = await this.chromeLoader.load(device.typeId ?? device.name)
+    if (seq !== state.bootSeq) return false
+    const ws = this.ws
+    if (ws?.readyState !== WebSocket.OPEN) return true
+    state.loadedChrome = chrome
+    if (!chrome) return true
+    this.sendOn(ws, {
       type: 'session:chrome',
       sessionId: state.sessionId,
-      payload: state.loadedChrome,
+      payload: chrome,
     })
+    return true
   }
 
   /** `failures` counts the frameless runs before this one; only the restart in `pump` passes it, so a new
@@ -905,7 +920,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
       // device it is taking down — and one that revives itself, so the stale reference outlives the
       // boot that returns just below.
       if (seq !== state.bootSeq) { this.abandonBoot(state, seq, sessionId, requestId); return }
-      this.sendChromeData(state, bootedDevice)
+      if (!(await this.sendChromeData(state, bootedDevice, seq))) { this.abandonBoot(state, seq, sessionId, requestId); return }
 
       const streamWs = await this.openStreamWs(state)
       if (seq !== state.bootSeq) {

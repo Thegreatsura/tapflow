@@ -1,7 +1,8 @@
 // Button layout logic (computeButtonLayout) is derived from baguette (Apache-2.0):
 // https://github.com/tddworks/baguette
-import { execFileSync } from 'child_process'
-import { existsSync, readFileSync, writeFileSync, statSync } from 'fs'
+import { execFile } from 'child_process'
+import { existsSync, readFileSync, statSync } from 'fs'
+import { rename, rm, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
 // The chrome types are the wire payload of `session:chrome`, so `@tapflowio/protocol` owns them.
@@ -20,16 +21,63 @@ const PROFILES_DIR = '/Library/Developer/CoreSimulator/Profiles/DeviceTypes'
 // Utilities
 // ---------------------------------------------------------------------------
 
-function readPlistAsJson(filePath: string): unknown {
-  const json = execFileSync('plutil', ['-convert', 'json', '-o', '-', filePath])
+// Every external call goes through this, bounded, so the agent's event loop is never held. It used to be
+// `execFileSync` throughout: on a cold cache ~11 swift renders plus `simctl list devicetypes` on every
+// boot, freezing every session on the agent while it ran.
+/** Runs a tool and resolves its stdout. Killing on timeout ends the swift interpreter too: the `swift`
+ *  driver execs into `swift-frontend` under the same pid (measured). */
+export type ChromeRunner = (cmd: string, args: string[], timeoutMs: number, signal: AbortSignal) => Promise<Buffer>
+
+const defaultRunner: ChromeRunner = (cmd, args, timeoutMs, signal) => new Promise((resolve, reject) => {
+  execFile(cmd, args, { timeout: timeoutMs, killSignal: 'SIGKILL', signal, encoding: 'buffer', maxBuffer: 16 * 1024 * 1024 },
+    (err, stdout) => (err ? reject(err) : resolve(stdout)))
+})
+
+/** Per call: plutil, sips and simctl answer in milliseconds; a swift render compiles first. */
+const TOOL_TIMEOUT_MS = 10_000
+const SWIFT_TIMEOUT_MS = 45_000
+/** For a whole load. A cold cache runs a frame render plus one per button state, so per-call bounds alone
+ *  could add up to minutes against a boot the relay clients give 180s in total. */
+const LOAD_BUDGET_MS = 60_000
+
+interface Ctx {
+  run: ChromeRunner
+  signal: AbortSignal
+  cacheDir: string
+}
+
+let renderSeq = 0
+
+async function readPlistAsJson(ctx: Ctx, filePath: string): Promise<unknown> {
+  const json = await ctx.run('plutil', ['-convert', 'json', '-o', '-', filePath], TOOL_TIMEOUT_MS, ctx.signal)
   return JSON.parse(json.toString())
 }
 
-function getSipsSize(filePath: string): { width: number; height: number } {
-  const out = execFileSync('sips', ['-g', 'pixelWidth', '-g', 'pixelHeight', filePath]).toString()
+async function getSipsSize(ctx: Ctx, filePath: string): Promise<{ width: number; height: number }> {
+  const out = (await ctx.run('sips', ['-g', 'pixelWidth', '-g', 'pixelHeight', filePath], TOOL_TIMEOUT_MS, ctx.signal)).toString()
   const w = out.match(/pixelWidth:\s*([\d.]+)/)
   const h = out.match(/pixelHeight:\s*([\d.]+)/)
   return { width: Math.round(parseFloat(w![1])), height: Math.round(parseFloat(h![1])) }
+}
+
+/**
+ * Runs a generated swift script that writes one PNG. Both the script and the image get a name of their own:
+ * the frame scripts carry per-device geometry in their text, so a shared script path let two concurrent
+ * loads render one device with the other's numbers and cache it; and the image is renamed into place, so a
+ * render killed half-way, or read by another load mid-write, never leaves a truncated PNG behind as cache.
+ */
+async function renderSwift(ctx: Ctx, script: string, inputs: string[], outPath: string): Promise<void> {
+  const tag = `${process.pid}-${++renderSeq}`
+  const scriptPath = join(ctx.cacheDir, `tapflow-render-${tag}.swift`)
+  const tmpOut = `${outPath}.${tag}.tmp`
+  try {
+    await writeFile(scriptPath, script)
+    await ctx.run('swift', [scriptPath, ...inputs, tmpOut], SWIFT_TIMEOUT_MS, ctx.signal)
+    await rename(tmpOut, outPath)
+  } finally {
+    await rm(scriptPath, { force: true })
+    await rm(tmpOut, { force: true })
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -82,7 +130,8 @@ interface ButtonLayout {
 // leftWidth/rightWidth: bezel sizes; top/bottom-anchor x offsets are measured from
 //   the screen edge (after bezel), so we add leftWidth for leading and subtract
 //   rightWidth for trailing to convert to canvas coordinates.
-function computeButtonLayout(
+async function computeButtonLayout(
+  ctx: Ctx,
   inputs: RawInput[],
   resourcesDir: string,
   compositeW: number,
@@ -90,7 +139,7 @@ function computeButtonLayout(
   scale = 2,
   leftWidth = 0,
   rightWidth = 0,
-): ButtonLayout {
+): Promise<ButtonLayout> {
   const margins = { left: 0, top: 0, right: 0, bottom: 0 }
 
   interface BtnInfo { input: RawInput; w: number; h: number; roll: { x: number; y: number } }
@@ -101,7 +150,7 @@ function computeButtonLayout(
     const pdfPath = join(resourcesDir, `${inp.image}.pdf`)
     if (!existsSync(pdfPath)) continue
     try {
-      const size = getSipsSize(pdfPath)
+      const size = await getSipsSize(ctx, pdfPath)
       const roll = inp.offsets.rollover ?? inp.offsets.normal
       infos.push({ input: inp, w: size.width, h: size.height, roll })
     } catch { /* skip unmeasurable assets */ }
@@ -176,7 +225,7 @@ function computeButtonLayout(
       const downPath = join(resourcesDir, `${inp.imageDown}.pdf`)
       if (existsSync(downPath)) {
         try {
-          const downSize = getSipsSize(downPath)
+          const downSize = await getSipsSize(ctx, downPath)
           pressed = {
             pdfPath:  downPath,
             topLeftX: btnTopLeftX,
@@ -252,7 +301,7 @@ function computeButtonLayout(
 // Single PDF → PNG at 2× (used for pressed-state button images)
 // ---------------------------------------------------------------------------
 
-function renderPdfToPng(pdfPath: string, outPath: string): void {
+function renderPdfToPng(ctx: Ctx, pdfPath: string, outPath: string): Promise<void> {
   const SCRIPT = `
 import Foundation
 import CoreGraphics
@@ -283,9 +332,7 @@ let dest = CGImageDestinationCreateWithURL(URL(fileURLWithPath: dst) as CFURL, "
 CGImageDestinationAddImage(dest, img, nil)
 CGImageDestinationFinalize(dest)
 `
-  const scriptPath = join(tmpdir(), 'tapflow-pdf-to-png.swift')
-  writeFileSync(scriptPath, SCRIPT)
-  execFileSync('swift', [scriptPath, pdfPath, outPath])
+  return renderSwift(ctx, SCRIPT, [pdfPath], outPath)
 }
 
 // ---------------------------------------------------------------------------
@@ -294,11 +341,12 @@ CGImageDestinationFinalize(dest)
 // ---------------------------------------------------------------------------
 
 function renderFramePng(
+  ctx: Ctx,
   compositePdf: string,
   outPath: string,
   margins: { left: number; top: number; right: number; bottom: number },
   buttons: ButtonDrawData[],
-): void {
+): Promise<void> {
   const behind = buttons.filter(b => !b.onTop)
   const onTop  = buttons.filter(b => b.onTop)
 
@@ -373,9 +421,7 @@ CGImageDestinationAddImage(dest, img, nil)
 CGImageDestinationFinalize(dest)
 `
 
-  const scriptPath = join(tmpdir(), 'tapflow-frame-png.swift')
-  writeFileSync(scriptPath, SCRIPT)
-  execFileSync('swift', [scriptPath, compositePdf, outPath])
+  return renderSwift(ctx, SCRIPT, [compositePdf], outPath)
 }
 
 // ---------------------------------------------------------------------------
@@ -385,6 +431,7 @@ CGImageDestinationFinalize(dest)
 // ---------------------------------------------------------------------------
 
 function renderNineSlicePng(
+  ctx: Ctx,
   slicePaths: {
     topLeft: string; top: string; topRight: string; right: string
     bottomRight: string; bottom: string; bottomLeft: string; left: string
@@ -396,7 +443,7 @@ function renderNineSlicePng(
   screenW: number, screenH: number,
   margins: { left: number; top: number; right: number; bottom: number },
   buttons: ButtonDrawData[],
-): void {
+): Promise<void> {
   const behind = buttons.filter(b => !b.onTop)
   const onTop  = buttons.filter(b => b.onTop)
 
@@ -530,27 +577,14 @@ CGImageDestinationAddImage(dest, outImg, nil)
 CGImageDestinationFinalize(dest)
 `
 
-  const scriptPath = join(tmpdir(), 'tapflow-frame-nineslice.swift')
-  writeFileSync(scriptPath, SCRIPT)
-  execFileSync('swift', [scriptPath, outPath])
+  return renderSwift(ctx, SCRIPT, [], outPath)
 }
 
 // ---------------------------------------------------------------------------
 // Model identifier and profile lookups
 // ---------------------------------------------------------------------------
 
-function modelIdentifierForType(typeIdentifier: string): string | null {
-  try {
-    const out = execFileSync('xcrun', ['simctl', 'list', 'devicetypes', '-j'])
-    const types = (JSON.parse(out.toString())['devicetypes'] as Array<{
-      identifier: string
-      modelIdentifier?: string
-    }>)
-    return types.find(t => t.identifier === typeIdentifier)?.modelIdentifier ?? null
-  } catch {
-    return null
-  }
-}
+interface DeviceTypeInfo { identifier: string; name?: string; modelIdentifier?: string }
 
 type ScreenSize = { width: number; height: number }
 
@@ -590,24 +624,17 @@ export function screenSizeFromDeviceType(profile: unknown, capabilities: unknown
   return null
 }
 
-function loadProfileScreenSize(typeIdentifier: string): ScreenSize | null {
+async function loadProfileScreenSize(ctx: Ctx, profilesDir: string, name: string | undefined): Promise<ScreenSize | null> {
   try {
-    const out = execFileSync('xcrun', ['simctl', 'list', 'devicetypes', '-j'])
-    const types = (JSON.parse(out.toString())['devicetypes'] as Array<{
-      identifier: string
-      name?: string
-    }>)
-    const name = types.find(t => t.identifier === typeIdentifier)?.name
     if (!name) return null
-
-    const resourcesDir = join(PROFILES_DIR, `${name}.simdevicetype`, 'Contents', 'Resources')
+    const resourcesDir = join(profilesDir, `${name}.simdevicetype`, 'Contents', 'Resources')
     const plistPath = join(resourcesDir, 'profile.plist')
     if (!existsSync(plistPath)) return null
     const capabilitiesPath = join(resourcesDir, 'capabilities.plist')
 
     return screenSizeFromDeviceType(
-      readPlistAsJson(plistPath),
-      existsSync(capabilitiesPath) ? readPlistAsJson(capabilitiesPath) : null,
+      await readPlistAsJson(ctx, plistPath),
+      existsSync(capabilitiesPath) ? await readPlistAsJson(ctx, capabilitiesPath) : null,
     )
   } catch {
     return null
@@ -618,19 +645,20 @@ function loadProfileScreenSize(typeIdentifier: string): ScreenSize | null {
 // Button PNG attachment — renders each button's normal PDF separately for CSS overlay
 // ---------------------------------------------------------------------------
 
-function attachButtonPngs(
+async function attachButtonPngs(
+  ctx: Ctx,
   buttons: ChromeButton[],
   drawData: ButtonDrawData[],
   chromeName: string,
-): void {
+): Promise<void> {
   for (let i = 0; i < buttons.length; i++) {
     if (i >= drawData.length) continue
     const pdfPath = drawData[i].pdfPath
     const cacheKey = `tapflow-btn-normal-${chromeName}-${i}.png`
-    const outPath = join(tmpdir(), cacheKey)
+    const outPath = join(ctx.cacheDir, cacheKey)
     try {
       if (!existsSync(outPath) || statSync(pdfPath).mtimeMs > statSync(outPath).mtimeMs) {
-        renderPdfToPng(pdfPath, outPath)
+        await renderPdfToPng(ctx, pdfPath, outPath)
       }
       buttons[i].buttonPng = readFileSync(outPath).toString('base64')
     } catch { /* skip if rendering fails */ }
@@ -641,22 +669,23 @@ function attachButtonPngs(
 // Pressed PNG attachment — renders imageDown PDFs and attaches to buttons[]
 // ---------------------------------------------------------------------------
 
-function attachPressedPngs(
+async function attachPressedPngs(
+  ctx: Ctx,
   buttons: ChromeButton[],
   pressedData: (PressedData | null)[],
   chromeName: string,
   scale: number,
-): void {
+): Promise<void> {
   for (let i = 0; i < buttons.length; i++) {
     const pd = pressedData[i]
     if (!pd) continue
 
     const cacheKey = `tapflow-btn-pressed-${chromeName}-${i}.png`
-    const outPath  = join(tmpdir(), cacheKey)
+    const outPath  = join(ctx.cacheDir, cacheKey)
 
     try {
       if (!existsSync(outPath) || statSync(pd.pdfPath).mtimeMs > statSync(outPath).mtimeMs) {
-        renderPdfToPng(pd.pdfPath, outPath)
+        await renderPdfToPng(ctx, pd.pdfPath, outPath)
       }
       buttons[i].pressedPng  = readFileSync(outPath).toString('base64')
       buttons[i].pressedRect = {
@@ -673,18 +702,74 @@ function attachPressedPngs(
 // DeviceChromeLoader
 // ---------------------------------------------------------------------------
 
+export interface DeviceChromeLoaderOptions {
+  run?: ChromeRunner
+  chromeMapPath?: string
+  chromeDir?: string
+  profilesDir?: string
+  /** Where rendered PNGs are cached, and the render scripts written. */
+  cacheDir?: string
+  loadBudgetMs?: number
+}
+
 export class DeviceChromeLoader {
-  load(typeIdentifier: string): ChromeData | null {
+  private readonly run: ChromeRunner
+  private readonly chromeMapPath: string
+  private readonly chromeDir: string
+  private readonly profilesDir: string
+  private readonly cacheDir: string
+  private readonly loadBudgetMs: number
+  /** One load per device type at a time, and its result for the life of the process. A failure is not kept:
+   *  the dashboard mounts no viewer at all without chrome, so remembering a `null` from one slow first boot
+   *  would leave that model blank until the agent restarted. Xcode updated under a running agent keeps the old
+   *  chrome until restart — this bypasses the disk cache's mtime check. */
+  private readonly loads = new Map<string, Promise<ChromeData | null>>()
+  private deviceTypes: DeviceTypeInfo[] | null = null
+
+  constructor(options: DeviceChromeLoaderOptions = {}) {
+    this.run = options.run ?? defaultRunner
+    this.chromeMapPath = options.chromeMapPath ?? CHROME_MAP_PATH
+    this.chromeDir = options.chromeDir ?? CHROME_DIR
+    this.profilesDir = options.profilesDir ?? PROFILES_DIR
+    this.cacheDir = options.cacheDir ?? tmpdir()
+    this.loadBudgetMs = options.loadBudgetMs ?? LOAD_BUDGET_MS
+  }
+
+  load(typeIdentifier: string): Promise<ChromeData | null> {
+    const pending = this.loads.get(typeIdentifier)
+    if (pending) return pending
+    const loading = this.loadUncached(typeIdentifier).catch(() => null)
+    this.loads.set(typeIdentifier, loading)
+    void loading.then((chrome) => { if (!chrome) this.loads.delete(typeIdentifier) })
+    return loading
+  }
+
+  /** Once per process when it succeeds: it used to run twice on every boot. */
+  private async listDeviceTypes(ctx: Ctx): Promise<DeviceTypeInfo[]> {
+    if (this.deviceTypes) return this.deviceTypes
+    const out = await ctx.run('xcrun', ['simctl', 'list', 'devicetypes', '-j'], TOOL_TIMEOUT_MS, ctx.signal)
+    const types = JSON.parse(out.toString())['devicetypes'] as DeviceTypeInfo[]
+    this.deviceTypes = types
+    return types
+  }
+
+  private async loadUncached(typeIdentifier: string): Promise<ChromeData | null> {
+    const budget = new AbortController()
+    const timer = setTimeout(() => budget.abort(), this.loadBudgetMs)
+    timer.unref?.()
+    const ctx: Ctx = { run: this.run, signal: budget.signal, cacheDir: this.cacheDir }
     try {
-      const modelId = modelIdentifierForType(typeIdentifier)
+      const types = await this.listDeviceTypes(ctx)
+      const typeInfo = types.find(t => t.identifier === typeIdentifier)
+      const modelId = typeInfo?.modelIdentifier
       if (!modelId) return null
 
-      const chromeMap = readPlistAsJson(CHROME_MAP_PATH) as Record<string, { ChromeIdentifier: string }>
+      const chromeMap = await readPlistAsJson(ctx, this.chromeMapPath) as Record<string, { ChromeIdentifier: string }>
       const entry = chromeMap[modelId]
       if (!entry) return null
 
       const chromeName = entry.ChromeIdentifier.split('.').pop()!
-      const resourcesDir = join(CHROME_DIR, `${chromeName}.devicechrome`, 'Contents', 'Resources')
+      const resourcesDir = join(this.chromeDir, `${chromeName}.devicechrome`, 'Contents', 'Resources')
       const chromeJsonPath = join(resourcesDir, 'chrome.json')
       if (!existsSync(chromeJsonPath)) return null
 
@@ -721,28 +806,28 @@ export class DeviceChromeLoader {
       // -----------------------------------------------------------------------
       const compositePdf = join(resourcesDir, 'PhoneComposite.pdf')
       if (existsSync(compositePdf)) {
-        const pdfSize = getSipsSize(compositePdf)
+        const pdfSize = await getSipsSize(ctx, compositePdf)
         const screenW = pdfSize.width  - leftWidth  - rightWidth
         const screenH = pdfSize.height - topHeight  - bottomHeight
 
         const bezelInset        = Math.max(leftWidth, topHeight)
         const screenCornerRadius1x = Math.max(0, outerRadius - bezelInset)
 
-        const { margins: btnM, drawData, buttons, pressedData } = computeButtonLayout(
-          rawInputs, resourcesDir, pdfSize.width, pdfSize.height, scale, leftWidth, rightWidth,
+        const { margins: btnM, drawData, buttons, pressedData } = await computeButtonLayout(
+          ctx, rawInputs, resourcesDir, pdfSize.width, pdfSize.height, scale, leftWidth, rightWidth,
         )
 
         const expandedW = pdfSize.width  + btnM.left + btnM.right
         const expandedH = pdfSize.height + btnM.top  + btnM.bottom
 
         // v3: buttons excluded from framePng — rendered separately as CSS-animated overlays
-        const framePath = join(tmpdir(), `tapflow-frame-v3-${chromeName}.png`)
+        const framePath = join(this.cacheDir, `tapflow-frame-v3-${chromeName}.png`)
         if (!existsSync(framePath) || statSync(compositePdf).mtimeMs > statSync(framePath).mtimeMs) {
-          renderFramePng(compositePdf, framePath, btnM, [])
+          await renderFramePng(ctx, compositePdf, framePath, btnM, [])
         }
 
-        attachButtonPngs(buttons, drawData, chromeName)
-        attachPressedPngs(buttons, pressedData, chromeName, scale)
+        await attachButtonPngs(ctx, buttons, drawData, chromeName)
+        await attachPressedPngs(ctx, buttons, pressedData, chromeName, scale)
 
         const screenRect: ChromeRect = {
           x:      Math.round((leftWidth + btnM.left) * scale),
@@ -800,12 +885,12 @@ export class DeviceChromeLoader {
       // Corner PDF dimensions define the actual bezel insets used in composition.
       // The sizing.leftWidth/rightWidth in chrome.json is the VISIBLE bezel width
       // (interior of the corner), not the full corner PDF dimensions.
-      const cornerSize = getSipsSize(slicePaths.topLeft)
+      const cornerSize = await getSipsSize(ctx, slicePaths.topLeft)
       const cornerW = cornerSize.width
       const cornerH = cornerSize.height  // should equal topHeight from sizing
 
       // Get logical screen dimensions from the device type's plists
-      const screenSize = loadProfileScreenSize(typeIdentifier)
+      const screenSize = await loadProfileScreenSize(ctx, this.profilesDir, typeInfo?.name)
       if (!screenSize) return null
       const screenW = screenSize.width
       const screenH = screenSize.height
@@ -817,29 +902,29 @@ export class DeviceChromeLoader {
       const bezelInset        = Math.max(leftWidth, topHeight)
       const screenCornerRadius1x = Math.max(0, outerRadius - bezelInset)
 
-      const { margins: btnM, drawData, buttons, pressedData } = computeButtonLayout(
-        rawInputs, resourcesDir, compositeW, compositeH, scale, leftWidth, rightWidth,
+      const { margins: btnM, drawData, buttons, pressedData } = await computeButtonLayout(
+        ctx, rawInputs, resourcesDir, compositeW, compositeH, scale, leftWidth, rightWidth,
       )
 
       const expandedW = compositeW + btnM.left + btnM.right
       const expandedH = compositeH + btnM.top  + btnM.bottom
 
       // nb = no-buttons: buttons excluded from framePng, rendered separately as CSS-animated overlays
-      const framePath = join(tmpdir(), `tapflow-frame-nineslice-nb-${chromeName}-${screenW}x${screenH}-c${Math.round(expandedW)}x${Math.round(expandedH)}.png`)
+      const framePath = join(this.cacheDir, `tapflow-frame-nineslice-nb-${chromeName}-${screenW}x${screenH}-c${Math.round(expandedW)}x${Math.round(expandedH)}.png`)
       const needsRender = !existsSync(framePath)
         || statSync(slicePaths.topLeft).mtimeMs > statSync(framePath).mtimeMs
 
       if (needsRender) {
-        renderNineSlicePng(
-          slicePaths, framePath,
+        await renderNineSlicePng(
+          ctx, slicePaths, framePath,
           leftWidth, rightWidth, topHeight, bottomHeight,
           cornerW, cornerH, screenW, screenH,
           btnM, [],
         )
       }
 
-      attachButtonPngs(buttons, drawData, chromeName)
-      attachPressedPngs(buttons, pressedData, chromeName, scale)
+      await attachButtonPngs(ctx, buttons, drawData, chromeName)
+      await attachPressedPngs(ctx, buttons, pressedData, chromeName, scale)
 
       // Screen hole: starts at sizing insets within the device body
       const screenRect: ChromeRect = {
@@ -869,6 +954,8 @@ export class DeviceChromeLoader {
       }
     } catch {
       return null
+    } finally {
+      clearTimeout(timer)
     }
   }
 }
