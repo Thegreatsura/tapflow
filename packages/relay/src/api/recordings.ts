@@ -1,5 +1,6 @@
 import http from 'http'
 import fs from 'fs'
+import { pipeUpload } from '../lib/uploads.js'
 import path from 'path'
 import { randomUUID } from 'crypto'
 import busboy from 'busboy'
@@ -40,12 +41,7 @@ export function handleUploadRecording(
     mime = info.mimeType || mime
     filename = `${randomUUID()}-${Date.now()}${ext}`
     filePath = path.join(recordingsDir, filename)
-    const ws = fs.createWriteStream(filePath)
-    fileStream.pipe(ws)
-    writeDone = new Promise<void>((resolve, reject) => {
-      ws.on('finish', resolve)
-      ws.on('error', reject)
-    })
+    writeDone = pipeUpload(fileStream, filePath, 'failed recording upload')
   })
   bb.on('finish', () => {
     if (!writeDone) { res.writeHead(400); res.end('No file'); return }

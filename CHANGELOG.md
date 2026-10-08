@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A failed upload leaves nothing behind.** A build, comment attachment or recording upload that fails no longer leaves a partial file on disk or a file held open. An avatar or team logo upload that fails or is over the 2 MB limit keeps the current image; it used to be overwritten with a broken or truncated one.
+
 - **An iOS device whose frame could not be built is shown anyway.** When the agent cannot build the device frame (a model Xcode has no frame for, a failed render, or a slow first build that ran out of time), the viewer used to sit on its loading placeholder for the whole session while the device ran behind it. It now shows the screen without a frame and says the side buttons (lock, volume) are unavailable for that session. Upgrading the relay is enough; the agent is unchanged.
 
 - **The "waiting for a frame" notice is readable over the device screen.** After a restart or a stalled stream the text sat directly on the last picture; the screen is now dimmed behind it, and it says "Waiting for next frame" there instead of "first frame". It also no longer flickers on for a moment every half minute over a still screen.

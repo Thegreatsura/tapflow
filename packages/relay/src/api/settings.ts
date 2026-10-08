@@ -2,9 +2,11 @@ import http from 'http'
 import fs from 'fs'
 import path from 'path'
 import busboy from 'busboy'
+import { randomUUID } from 'crypto'
 import { getDb } from '../db.js'
 import { requireRole, requireAuth } from '../middleware/auth.js'
 import { json } from '../router.js'
+import { pipeUpload, unlinkSafe } from '../lib/uploads.js'
 
 export function handleGetSettings(req: http.IncomingMessage, res: http.ServerResponse): void {
   const auth = requireAuth(req, res)
@@ -31,6 +33,8 @@ export function handleUpdateSettings(
   const bb = busboy({ headers: req.headers, limits: { fileSize: 2 * 1024 * 1024 } })
   const fields: Record<string, string> = {}
   let logoPath = ''
+  let stagedPath = ''
+  let written: Promise<void> | null = null
   let sizeError = false
 
   bb.on('field', (name, val) => { fields[name] = val })
@@ -45,16 +49,28 @@ export function handleUpdateSettings(
     logoPath = path.join(uploadsDir, 'team', `logo${ext}`)
     fs.mkdirSync(path.dirname(logoPath), { recursive: true })
 
-    let size = 0
-    stream.on('data', (chunk: Buffer) => {
-      size += chunk.length
-      if (size > 2 * 1024 * 1024) sizeError = true
-    })
-    stream.pipe(fs.createWriteStream(logoPath))
+    // **Staged, then renamed into place.** It used to be written straight over the live image, so an upload
+    // that failed partway left the current one empty or truncated. busboy also stops at the size limit
+    // rather than erroring, which `'limit'` reports.
+    stagedPath = `${logoPath}.${randomUUID()}.part`
+    stream.on('limit', () => { sizeError = true })
+    written = pipeUpload(stream, stagedPath, 'staged team logo')
   })
 
-  bb.on('finish', () => {
-    if (sizeError) return json(res, 400, { error: 'Max 2MB for logo' })
+  bb.on('finish', async () => {
+    if (sizeError) {
+      if (stagedPath) unlinkSafe(stagedPath, 'oversized team logo')
+      return json(res, 400, { error: 'Max 2MB for logo' })
+    }
+    if (written) {
+      try {
+        await written
+        fs.renameSync(stagedPath, logoPath)
+      } catch {
+        unlinkSafe(stagedPath, 'staged team logo')
+        return json(res, 500, { error: 'Update failed' })
+      }
+    }
 
     const db = getDb()
     const updates: string[] = ['updated_at = datetime(\'now\')']

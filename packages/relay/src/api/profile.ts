@@ -2,9 +2,11 @@ import http from 'http'
 import fs from 'fs'
 import path from 'path'
 import busboy from 'busboy'
+import { randomUUID } from 'crypto'
 import { getDb } from '../db.js'
 import { requireAuth } from '../middleware/auth.js'
 import { json } from '../router.js'
+import { pipeUpload, unlinkSafe } from '../lib/uploads.js'
 
 export function handleUpdateProfile(
   req: http.IncomingMessage,
@@ -17,6 +19,8 @@ export function handleUpdateProfile(
   const bb = busboy({ headers: req.headers, limits: { fileSize: 2 * 1024 * 1024 } })
   const fields: Record<string, string> = {}
   let avatarPath = ''
+  let stagedPath = ''
+  let written: Promise<void> | null = null
   let sizeError = false
 
   bb.on('field', (name, val) => { fields[name] = val })
@@ -31,16 +35,28 @@ export function handleUpdateProfile(
     avatarPath = path.join(uploadsDir, 'avatars', `user-${auth.userId}${ext}`)
     fs.mkdirSync(path.dirname(avatarPath), { recursive: true })
 
-    let size = 0
-    stream.on('data', (chunk: Buffer) => {
-      size += chunk.length
-      if (size > 2 * 1024 * 1024) sizeError = true
-    })
-    stream.pipe(fs.createWriteStream(avatarPath))
+    // **Staged, then renamed into place.** It used to be written straight over the live image, so an upload
+    // that failed partway left the current one empty or truncated. busboy also stops at the size limit
+    // rather than erroring, which `'limit'` reports.
+    stagedPath = `${avatarPath}.${randomUUID()}.part`
+    stream.on('limit', () => { sizeError = true })
+    written = pipeUpload(stream, stagedPath, 'staged avatar')
   })
 
-  bb.on('finish', () => {
-    if (sizeError) return json(res, 400, { error: 'Max 2MB for avatar' })
+  bb.on('finish', async () => {
+    if (sizeError) {
+      if (stagedPath) unlinkSafe(stagedPath, 'oversized avatar')
+      return json(res, 400, { error: 'Max 2MB for avatar' })
+    }
+    if (written) {
+      try {
+        await written
+        fs.renameSync(stagedPath, avatarPath)
+      } catch {
+        unlinkSafe(stagedPath, 'staged avatar')
+        return json(res, 500, { error: 'Update failed' })
+      }
+    }
 
     const db = getDb()
     const updates: string[] = []

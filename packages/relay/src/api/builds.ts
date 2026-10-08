@@ -9,7 +9,7 @@ import busboy from 'busboy'
 import { getDb } from '../db.js'
 import { assertCanWrite, requireAuth, requireBuildAuth } from '../middleware/auth.js'
 import { json, readJson } from '../router.js'
-import { unlinkSafe } from '../lib/uploads.js'
+import { pipeUpload, unlinkSafe } from '../lib/uploads.js'
 import { deliverWebhooks } from '../lib/webhooks.js'
 import { resolveBuildFile } from '../lib/buildFiles.js'
 
@@ -601,14 +601,9 @@ export function handleUploadBuild(
     const fileName = `${Date.now()}-${randomUUID().slice(0, 8)}_${path.basename(originalName)}`
     savedPath = path.join(uploadsDir, 'builds', fileName)
     fs.mkdirSync(path.dirname(savedPath), { recursive: true })
-    const ws = fs.createWriteStream(savedPath)
-    writePromise = new Promise((resolve, reject) => {
-      ws.on('finish', resolve)
-      ws.on('error', reject)
-    })
     // 크기 상한 초과 시 busboy가 스트림을 잘라('limit') 보내므로, 잘린 파일을 유효 빌드로 저장하면 안 된다.
     stream.on('limit', () => { fileError = 'File exceeds the upload size limit' })
-    stream.pipe(ws)
+    writePromise = pipeUpload(stream, savedPath, 'failed build upload')
   })
 
   bb.on('finish', async () => {
