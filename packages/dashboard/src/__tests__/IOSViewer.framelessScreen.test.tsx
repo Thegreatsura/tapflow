@@ -100,6 +100,24 @@ describe('IOSViewer — waiting for a frame', () => {
     expect(view.container.querySelector('[data-testid="screen-waiting"]')).toBeTruthy()
   })
 
+  // The quiet is measured from the picture: a first frame later than the delay must not arrive dimmed.
+  it('does not dim a first frame that took longer than the delay', () => {
+    vi.useFakeTimers()
+    const view = render(<IOSViewer {...props(REAL)} />)
+    act(() => { vi.advanceTimersByTime(3000) })
+    act(() => { captured.onResize?.({ width: 1206, height: 2622 }) })
+    expect(view.container.querySelector('[data-testid="screen-waiting"]'), 'the new picture was dimmed at once').toBeNull()
+  })
+
+  it('says "first frame" before any picture and "next frame" over one', () => {
+    vi.useFakeTimers()
+    const view = render(<IOSViewer {...props(REAL)} />)
+    expect(waiting(view.container).textContent).toBe('Waiting for first frame...')
+    act(() => { captured.onResize?.({ width: 1206, height: 2622 }) })
+    act(() => { vi.advanceTimersByTime(3000) })
+    expect(waiting(view.container).textContent).toBe('Waiting for next frame...')
+  })
+
   // The dim is placed and rounded by the box it sits in, which is the screen's own geometry.
   it('sits in a box with the screen\'s place and corners, clipping what is inside', () => {
     const view = render(<IOSViewer {...props(REAL)} />)

@@ -87,18 +87,6 @@ export function IOSViewer({
   const containerRef = useRef<HTMLDivElement>(null);
   const screenAreaRef = useRef<HTMLDivElement>(null);
   const { fps, frameCount } = useFps();
-  // **Over a picture, the wait overlay waits too.** fps is counted in one-second windows, and a still
-  // H.264 screen sends a keep-alive about every 1.03s, so an empty window turns up every half minute on a
-  // healthy stream (the status card says the same of its own fps). With the screen dimmed behind the
-  // text that blink became loud, so once a picture is up the overlay shows only after the stream has
-  // stayed quiet for `STALL_MS`. Before the first frame it shows at once, as it always did.
-  const [stalled, setStalled] = useState(false);
-  if (fps !== 0 && stalled) setStalled(false);
-  useEffect(() => {
-    if (fps !== 0) return;
-    const t = setTimeout(() => setStalled(true), STALL_MS);
-    return () => clearTimeout(t);
-  }, [fps]);
 
   const lastFrameRecvAtRef = useRef<number>(0);
   const { recordState, recordCanvasRef, setComposeFrame, startClientRecording, stopClientRecording } = useClientRecording({ sessionId, buildId, onRecordingUploaded });
@@ -106,6 +94,20 @@ export function IOSViewer({
 
   const [deepLinkOpen, setDeepLinkOpen] = useState(false);
   const [canvasReady, setCanvasReady] = useState(false);
+  // **Over a picture, the wait overlay waits too.** fps is counted in one-second windows, and a still
+  // H.264 screen sends a keep-alive about every 1.03s, so an empty window turns up every half minute on a
+  // healthy stream (the status card says the same of its own fps). With the screen dimmed behind the
+  // text that blink became loud, so once a picture is up the overlay shows only after the stream has
+  // stayed quiet for `STALL_MS`. Before the first frame it shows at once, as it always did. The clock
+  // starts at the picture, not at mount: a first frame later than `STALL_MS` would otherwise land already
+  // "stalled" and be dimmed until the next fps window.
+  const [stalled, setStalled] = useState(false);
+  if (fps !== 0 && stalled) setStalled(false);
+  useEffect(() => {
+    if (fps !== 0 || !canvasReady) return;
+    const t = setTimeout(() => setStalled(true), STALL_MS);
+    return () => clearTimeout(t);
+  }, [fps, canvasReady]);
   const [decoderUnsupported, setDecoderUnsupported] = useState(false);
   const [isLandscape, setIsLandscape] = useState(false);
   const [keyboardActive, setKeyboardActive] = useState(false);
@@ -816,7 +818,7 @@ export function IOSViewer({
                     unreadable, so the screen is dimmed behind it. Before the first frame the skeleton
                     under it is dark enough already. */}
                 {canvasReady && <div aria-hidden="true" className="absolute inset-0 bg-black/60 bg-screen-shimmer bg-[length:200%_100%] animate-screen-shimmer motion-reduce:animate-none" />}
-                <span className="relative text-sm text-white">Waiting for first frame...</span>
+                <span className="relative text-sm text-white">{canvasReady ? 'Waiting for next frame...' : 'Waiting for first frame...'}</span>
               </div>
             )}
             {chrome.buttons.map((btn, i) => {
