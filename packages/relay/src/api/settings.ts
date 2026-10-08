@@ -36,6 +36,9 @@ export function handleUpdateSettings(
   bb.on('field', (name, val) => { fields[name] = val })
 
   bb.on('file', (_field, stream, info) => {
+    // busboy destroys a file's stream with an error when the body ends inside it, and a stream with no
+    // `'error'` listener throws. The response is `bb`'s own `'error'` handler's job.
+    stream.on('error', () => {})
     const allowed = ['image/png', 'image/jpeg']
     if (!allowed.includes(info.mimeType)) { stream.resume(); return }
     const ext = info.mimeType === 'image/png' ? '.png' : '.jpg'

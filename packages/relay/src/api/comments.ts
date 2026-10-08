@@ -77,6 +77,9 @@ export function handleCreateComment(
   bb.on('field', (name, val) => { fields[name] = val })
 
   bb.on('file', (_field, stream, info) => {
+    // busboy destroys a file's stream with an error when the body ends inside it, and a stream with no
+    // `'error'` listener throws. The response is `bb`'s own `'error'` handler's job.
+    stream.on('error', () => {})
     const allowed = ['image/png', 'image/jpeg', 'image/webp']
     if (!allowed.includes(info.mimeType)) { stream.resume(); return }
     const ext = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp' }[info.mimeType]!

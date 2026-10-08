@@ -575,6 +575,9 @@ export function handleUploadBuild(
   bb.on('field', (name, val) => { fields[name] = val })
 
   bb.on('file', (_field, stream, info) => {
+    // busboy destroys a file's stream with an error when the body ends inside it, and a stream with no
+    // `'error'` listener throws. The response is `bb`'s own `'error'` handler's job.
+    stream.on('error', () => {})
     originalName = info.filename
     const kind = buildFileKind(originalName)
 
