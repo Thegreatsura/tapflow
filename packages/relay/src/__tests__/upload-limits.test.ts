@@ -27,10 +27,10 @@ function multipartBody(boundary: string, parts: { name: string; filename?: strin
   return Buffer.concat(chunks)
 }
 
-function httpPostMultipart(port: number, urlPath: string, body: Buffer, boundary: string, cookie: string): Promise<{ status: number; body: { error?: string } }> {
+function httpPostMultipart(port: number, urlPath: string, body: Buffer, boundary: string, cookie: string, method = 'POST'): Promise<{ status: number; body: { error?: string } }> {
   return new Promise((resolve, reject) => {
     const req = http.request(
-      { hostname: '127.0.0.1', port, path: urlPath, method: 'POST', headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Content-Length': body.length, Cookie: cookie } },
+      { hostname: '127.0.0.1', port, path: urlPath, method, headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Content-Length': body.length, Cookie: cookie } },
       (res) => {
         const chunks: Buffer[] = []
         res.on('data', (c: Buffer) => chunks.push(c))
@@ -131,5 +131,50 @@ describe('upload size-limit handling', () => {
     const commentsDir = path.join(uploadsDir, 'comments')
     const leftover = fs.existsSync(commentsDir) ? fs.readdirSync(commentsDir) : []
     expect(leftover).toEqual([])
+  })
+
+  // Avatar and team logo used to be written straight over the live image, so an upload that failed left
+  // it empty or cut short; and busboy stops at the size limit rather than failing, so an oversized one
+  // was saved truncated. Now staged and renamed into place only when complete.
+  it.each([
+    ['avatar', '/api/v1/profile', 'avatar', path.join('avatars', 'user-1.png')],
+    ['team logo', '/api/v1/settings', 'logo', path.join('team', 'logo.png')],
+  ])('%s: an oversized replacement is refused and leaves the current image as it was', async (_name, route, field, rel) => {
+    const live = path.join(uploadsDir, rel)
+    fs.mkdirSync(path.dirname(live), { recursive: true })
+    fs.writeFileSync(live, 'current-image')
+    const boundary = 'image-limit'
+    const big = Buffer.alloc(2 * 1024 * 1024 + 10, 1)
+    const body = multipartBody(boundary, [{ name: field, filename: 'a.png', contentType: 'image/png', data: big }])
+    const r = await httpPostMultipart(port, route, body, boundary, cookie, 'PATCH')
+    expect(r.status).toBe(400)
+    expect(fs.readFileSync(live, 'utf8')).toBe('current-image')
+    expect(fs.readdirSync(path.dirname(live)).filter((f) => f.endsWith('.part'))).toEqual([])
+  })
+
+  it('avatar: a complete upload replaces the image and leaves nothing staged behind', async () => {
+    const boundary = 'avatar-ok'
+    const body = multipartBody(boundary, [{ name: 'avatar', filename: 'a.png', contentType: 'image/png', data: 'new-image' }])
+    const r = await httpPostMultipart(port, '/api/v1/profile', body, boundary, cookie, 'PATCH')
+    expect(r.status).toBe(200)
+    const dir = path.join(uploadsDir, 'avatars')
+    expect(fs.readFileSync(path.join(dir, 'user-1.png'), 'utf8')).toBe('new-image')
+    expect(fs.readdirSync(dir).filter((f) => f.endsWith('.part'))).toEqual([])
+  })
+
+  // A failed write rejects what the build route awaits in an async listener; uncaught, that ended the relay.
+  it.skipIf(process.platform === 'win32')('빌드: 저장 실패 → 500 응답, 릴레이는 계속 동작', async () => {
+    const buildsDir = path.join(uploadsDir, 'builds')
+    fs.mkdirSync(buildsDir, { recursive: true })
+    fs.chmodSync(buildsDir, 0o500)
+    try {
+      const boundary = 'write-fails'
+      const body = multipartBody(boundary, [{ name: 'file', filename: 'app.apk', contentType: 'application/octet-stream', data: 'apk-bytes' }])
+      const r = await httpPostMultipart(port, '/api/v1/builds', body, boundary, cookie)
+      expect(r.status).toBe(500)
+      expect(fs.readdirSync(buildsDir)).toEqual([])
+    } finally {
+      fs.chmodSync(buildsDir, 0o700)
+    }
   })
 })

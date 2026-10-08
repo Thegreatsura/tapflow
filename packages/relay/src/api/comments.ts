@@ -5,7 +5,7 @@ import busboy from 'busboy'
 import { getDb } from '../db.js'
 import { currentRole, requireAuth, requireBuildAuth } from '../middleware/auth.js'
 import { json } from '../router.js'
-import { unlinkSafe } from '../lib/uploads.js'
+import { pipeUpload, unlinkSafe } from '../lib/uploads.js'
 
 export function handleListComments(req: http.IncomingMessage, res: http.ServerResponse): void {
   const auth = requireAuth(req, res)
@@ -77,6 +77,9 @@ export function handleCreateComment(
   bb.on('field', (name, val) => { fields[name] = val })
 
   bb.on('file', (_field, stream, info) => {
+    // busboy destroys a file's stream with an error when the body ends inside it, and a stream with no
+    // `'error'` listener throws. The response is `bb`'s own `'error'` handler's job.
+    stream.on('error', () => {})
     const allowed = ['image/png', 'image/jpeg', 'image/webp']
     if (!allowed.includes(info.mimeType)) { stream.resume(); return }
     const ext = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp' }[info.mimeType]!
@@ -85,14 +88,9 @@ export function handleCreateComment(
     attachmentMime = info.mimeType
     fs.mkdirSync(path.dirname(attachmentPath), { recursive: true })
 
-    const ws = fs.createWriteStream(attachmentPath)
-    writePromise = new Promise((resolve, reject) => {
-      ws.on('finish', resolve)
-      ws.on('error', reject)
-    })
     // 크기 상한 초과 시 busboy가 스트림을 잘라 보내므로, 잘린 첨부를 저장하면 안 된다.
     stream.on('limit', () => { sizeError = true })
-    stream.pipe(ws)
+    writePromise = pipeUpload(stream, attachmentPath, 'failed comment attachment')
   })
 
   bb.on('finish', async () => {

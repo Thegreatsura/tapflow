@@ -1,5 +1,6 @@
 import http from 'http'
 import fs from 'fs'
+import { pipeUpload } from '../lib/uploads.js'
 import path from 'path'
 import { randomUUID } from 'crypto'
 import busboy from 'busboy'
@@ -33,16 +34,14 @@ export function handleUploadRecording(
 
   const bb = busboy({ headers: req.headers as Record<string, string | string[]> })
   bb.on('file', (_field, fileStream, info) => {
+    // busboy destroys a file's stream with an error when the body ends inside it, and a stream with no
+    // `'error'` listener throws. The response is `bb`'s own `'error'` handler's job.
+    fileStream.on('error', () => {})
     const ext = path.extname(info.filename || '.webm') || '.webm'
     mime = info.mimeType || mime
     filename = `${randomUUID()}-${Date.now()}${ext}`
     filePath = path.join(recordingsDir, filename)
-    const ws = fs.createWriteStream(filePath)
-    fileStream.pipe(ws)
-    writeDone = new Promise<void>((resolve, reject) => {
-      ws.on('finish', resolve)
-      ws.on('error', reject)
-    })
+    writeDone = pipeUpload(fileStream, filePath, 'failed recording upload')
   })
   bb.on('finish', () => {
     if (!writeDone) { res.writeHead(400); res.end('No file'); return }

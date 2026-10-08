@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A failed upload leaves nothing behind.** A build, comment attachment or recording upload that fails no longer leaves a partial file on disk or a file held open. An avatar or team logo upload that fails or is over the 2 MB limit keeps the current image; it used to be overwritten with a broken or truncated one.
+
 - **An iOS device whose frame could not be built is shown anyway.** When the agent cannot build the device frame (a model Xcode has no frame for, a failed render, or a slow first build that ran out of time), the viewer used to sit on its loading placeholder for the whole session while the device ran behind it. It now shows the screen without a frame and says the side buttons (lock, volume) are unavailable for that session. Upgrading the relay is enough; the agent is unchanged.
 
 - **The "waiting for a frame" notice is readable over the device screen.** After a restart or a stalled stream the text sat directly on the last picture; the screen is now dimmed behind it, and it says "Waiting for next frame" there instead of "first frame". It also no longer flickers on for a moment every half minute over a still screen.
@@ -28,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Installing an iOS build no longer freezes the agent.** Unpacking the `.app.zip` or `.tar.gz` and removing the temporary files held the agent's event loop, so on a large build or a busy Mac its other sessions stopped responding and the relay could drop its connection.
 
 ### Security
+
+- **An error on one WebSocket connection or upload no longer affects the relay.** It ends that connection or request only. Upgrading is recommended.
 
 - **A reverse proxy that forgets `X-Forwarded-For` is now flagged.** With `TAPFLOW_TRUSTED_PROXIES` set, a request from a listed proxy without that header is treated as coming from the proxy itself. For a proxy on the relay host that means local, with no sign-in. This is by design, because the host's own agent and CLI connect the same way, but `SECURITY.md` said the opposite. The documentation is corrected. The relay now states the rule at start and warns once when a listed proxy sends `X-Real-IP`, `X-Forwarded-Proto` or similar without `X-Forwarded-For`. Behind a same-host proxy, check that it sends the header, or point it at the tunnel port. Thanks to @jourasharsy, who reported this alongside [GHSA-pq37-jfvf-hhhc](https://github.com/jo-duchan/tapflow/security/advisories/GHSA-pq37-jfvf-hhhc).
 
