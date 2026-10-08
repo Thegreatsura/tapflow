@@ -1,5 +1,18 @@
 # @tapflowio/relay
 
+## 0.27.1
+
+### Patch Changes
+
+- 036c681: An agent that drops off the relay can now be diagnosed afterwards. Relay and agent output lines start with the local time. In `tapflow logs` the relay records agents connecting, an agent's connection closing or being replaced by a new one, and a connection it ended because it stopped answering, with the agent's name and how long since it last answered; it also notes a check that ran late because the relay itself was held up or the machine slept. The agent's "relay disconnected" line now carries the close code, any network error, and how long since the relay last checked on it. In the terminal output, a process whose work was held up for about three seconds or more prints a `[stall]` line with a lower bound on how long, a window for when it began, and whether it was busy or waiting. Under `tapflow start`, where the relay and agents share one process, that line cannot say which of them was held.
+- 4447d2d: The iOS viewer no longer stays on its loading placeholder when the agent could not build the device frame. It shows the screen on its own, at the device's own proportions once the first frame arrives, and says the side buttons (lock, volume) are unavailable for that session. The waiting notice is now readable over a picture already on screen, where it reads "Waiting for next frame": the screen is dimmed behind it, and the text no longer flickers over a still screen.
+- 0d4742a: The relay handles errors on each WebSocket connection and on each uploaded file, so an error in one client's connection or upload ends only that connection or request.
+- c675625: A trusted proxy that leaves out `X-Forwarded-For` is now flagged. A request from an address in `TAPFLOW_TRUSTED_PROXIES` without that header is treated as coming from the proxy itself, and for a proxy on the relay host that means local, which is deliberate because the host's own agent and CLI connect that way. The relay now states that rule at start when the list is set. It also warns once when a listed proxy sends proxy headers such as `X-Real-IP` or `X-Forwarded-Proto` but no `X-Forwarded-For`, which is the usual sign of a misconfigured proxy. `SECURITY.md` previously said such requests were treated as remote and has been corrected. Reported by @jourasharsy as part of GHSA-pq37-jfvf-hhhc.
+- ce820c5: A failed upload no longer leaves a partial file or an open file behind. An avatar or team logo upload that fails or is over the size limit now keeps the current image instead of saving a broken or truncated one.
+- Updated dependencies [036c681]
+  - @tapflowio/agent-core@0.27.1
+  - @tapflowio/protocol@0.27.1
+
 ## 0.27.0
 
 ### Minor Changes
