@@ -110,7 +110,6 @@ describe('MjpegStreamer', () => {
   it('stops capturing once a screenshot fails', async () => {
     const screenshot = vi.fn().mockRejectedValue(new Error('device io not ready'))
     const reader = new MjpegStreamer({ screenshot }, 'dev-1', 10).start().getReader()
-    reader.closed.catch(() => {})
     await expect(reader.read()).rejects.toThrow('device io not ready')
     const calls = screenshot.mock.calls.length
     await new Promise((r) => setTimeout(r, 100))

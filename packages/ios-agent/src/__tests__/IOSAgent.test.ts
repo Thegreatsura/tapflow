@@ -1963,9 +1963,28 @@ describe('IOSAgent', () => {
         await ready
         const before = vi.mocked(simctl.screenshot).mock.calls.length
         await new Promise((r) => setTimeout(r, 800))
-        // Delays 0, 250, 500ms: a handful of tries in 800ms, against hundreds without the backoff.
-        expect(vi.mocked(simctl.screenshot).mock.calls.length - before).toBeLessThanOrEqual(6)
+        // Delays 0, 250, 500ms: a handful of tries in 800ms, against hundreds without the backoff — and at
+        // least two, so a restart that never happens does not pass as a perfect backoff.
+        const tries = vi.mocked(simctl.screenshot).mock.calls.length - before
+        expect(tries).toBeLessThanOrEqual(6)
+        expect(tries).toBeGreaterThanOrEqual(2)
         agent.disconnect(); browser.close()
+      })
+
+      // The delayed restart re-checks before it runs: a disconnect (or shutdown, or new boot) while it waits
+      // must not bring a stream back for a session that is gone.
+      it('drops a pending stream restart when the agent disconnects meanwhile', async () => {
+        const simctl = mockSimctl(false)
+        vi.mocked(simctl.screenshot).mockRejectedValue(new Error('device io not ready'))
+        const { agent, browser } = await joined(simctl)
+        const ready = waitForType(browser, 'device:ready')
+        browser.send(JSON.stringify({ type: 'device:boot', sessionId: agent.sessionId, requestId: 'b', payload: { deviceId: 'dev-1' } }))
+        await ready
+        await new Promise((r) => setTimeout(r, 150)) // past the immediate restart; a 250ms delay is pending
+        agent.disconnect(); browser.close()
+        const atDisconnect = vi.mocked(simctl.screenshot).mock.calls.length
+        await new Promise((r) => setTimeout(r, 700))
+        expect(vi.mocked(simctl.screenshot).mock.calls.length).toBe(atDisconnect)
       })
 
       it('does not answer a boot that a newer boot superseded', async () => {

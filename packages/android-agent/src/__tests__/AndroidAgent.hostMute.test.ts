@@ -16,9 +16,10 @@ vi.mock('../EmulatorLauncher.js', async (orig) => ({
 
 const { AndroidAgent } = await import('../AndroidAgent')
 
+type MuteState = { deviceId: string; audioMuteQemuPid: number | null; bootSeq?: number }
 type HostMute = {
-  startHostMute(state: { deviceId: string; audioMuteQemuPid: number | null }): Promise<void>
-  stopHostMute(state: { deviceId: string; audioMuteQemuPid: number | null }): void
+  startHostMute(state: MuteState): Promise<void>
+  stopHostMute(state: MuteState): void
 }
 const agentFor = () => new AndroidAgent({}, {} as never) as unknown as HostMute
 
@@ -50,5 +51,22 @@ describe('host mute (#341)', () => {
     await started
     expect(launchMuteOnlyTap).toHaveBeenCalledWith('/tmp/audiotap-helper.app', [4242])
     expect(next.audioMuteQemuPid).toBe(4242)
+  })
+
+  // While a start waits for the old stop, the session can be shut down or lose the relay; its cleanup finds
+  // nothing to stop, so a start that went ahead would mute a device nobody holds.
+  it('does not mute after the session moved on while it waited', async () => {
+    let finishStop: () => void = () => {}
+    execFile.mockImplementation((_cmd: string, _args: string[], cb: () => void) => { finishStop = cb })
+    const agent = agentFor()
+    agent.stopHostMute({ deviceId: 'avd:Pixel', audioMuteQemuPid: 4242 })
+    const next: MuteState = { deviceId: 'avd:Pixel', audioMuteQemuPid: null, bootSeq: 1 }
+    const started = agent.startHostMute(next)
+    await new Promise((r) => setTimeout(r, 20))
+    next.bootSeq = 2 // torn down: shutdown, relay loss or a newer boot
+    finishStop()
+    await started
+    expect(launchMuteOnlyTap).not.toHaveBeenCalled()
+    expect(next.audioMuteQemuPid).toBeNull()
   })
 })

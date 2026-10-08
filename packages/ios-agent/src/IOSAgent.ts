@@ -648,9 +648,6 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
 
     const reader = stream.getReader()
     state.streamReader = reader
-    // An errored stream rejects `closed` as well as the pending read. `pump` handles the read; nothing
-    // awaits `closed`, and an unhandled rejection ends the CLI (`process.exit(1)` in cli/src/index.ts).
-    reader.closed.catch(() => { /* surfaced through read() in pump */ })
 
     const threshold = Number(process.env.TAPFLOW_WS_BACKPRESSURE_BYTES) || DEFAULT_BACKPRESSURE_BYTES
     const warnDrop = createRateLimitedDropWarn(logger, state.deviceId)

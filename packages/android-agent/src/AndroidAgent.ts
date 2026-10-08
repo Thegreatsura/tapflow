@@ -1673,8 +1673,11 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     const avdName = state.deviceId.replace(/^avd:/, '')
     const qemuPid = findEmulatorPid(avdName)
     if (!qemuPid) { logger.debug(`host-mute: no qemu pid for ${avdName}`); return }
+    const seq = state.bootSeq
     await this.pendingMuteStops.get(qemuPid)
-    if (state.audioMuteQemuPid != null) return // another start won while this one waited
+    // A shutdown, relay loss or newer boot bumps the seq while this waits; its cleanup found nothing to stop,
+    // so muting now would leave the Mac silent for a device nobody holds.
+    if (state.bootSeq !== seq || state.audioMuteQemuPid != null) return
     try {
       launchMuteOnlyTap(ensureHelperApp(), [qemuPid])
       state.audioMuteQemuPid = qemuPid
