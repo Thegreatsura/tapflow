@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- **An error on one WebSocket connection no longer affects the relay.** It closes that connection only. Upgrading is recommended.
+- **An error on one WebSocket connection or upload no longer affects the relay.** It ends that connection or request only. Upgrading is recommended.
 
 - **A reverse proxy that forgets `X-Forwarded-For` is now flagged.** With `TAPFLOW_TRUSTED_PROXIES` set, a request from a listed proxy without that header is treated as coming from the proxy itself. For a proxy on the relay host that means local, with no sign-in. This is by design, because the host's own agent and CLI connect the same way, but `SECURITY.md` said the opposite. The documentation is corrected. The relay now states the rule at start and warns once when a listed proxy sends `X-Real-IP`, `X-Forwarded-Proto` or similar without `X-Forwarded-For`. Behind a same-host proxy, check that it sends the header, or point it at the tunnel port. Thanks to @jourasharsy, who reported this alongside [GHSA-pq37-jfvf-hhhc](https://github.com/jo-duchan/tapflow/security/advisories/GHSA-pq37-jfvf-hhhc).
 

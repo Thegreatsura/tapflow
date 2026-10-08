@@ -2,4 +2,4 @@
 "@tapflowio/relay": patch
 ---
 
-The relay handles errors on each WebSocket connection, so an error on one client's connection closes only that connection.
+The relay handles errors on each WebSocket connection and on each uploaded file, so an error in one client's connection or upload ends only that connection or request.
