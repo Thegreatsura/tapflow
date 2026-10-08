@@ -207,4 +207,120 @@ describe('RelayServer — WebSocket heartbeat (#313)', () => {
       expect(internals(server).heartbeatTimer).toBeNull()
     })
   })
+
+  // A heartbeat termination used to leave no trace, so an agent drop could not be told apart from a network
+  // loss afterwards. These pin what `tapflow logs` (the `pushLog` buffer) now records.
+  describe('diagnostics', () => {
+    let server: RelayServer
+    type Diag = HeartbeatInternals & {
+      logBuffer: string[]
+      wsRoles: Map<object, 'agent' | 'browser' | 'stream'>
+      agentNames: WeakMap<object, string>
+      lastSweepAt: number
+      noteLateSweep: (now?: number) => void
+    }
+    const diag = (s: RelayServer) => s as unknown as Diag
+
+    beforeEach(async () => { server = new RelayServer({ port: 0 }); await server.start() })
+    afterEach(async () => { await server.stop(); vi.useRealTimers() })
+
+    it('logs an agent it terminates by name, with how long since its last pong', () => {
+      const sock = makeSock()
+      diag(server).wsRoles.set(sock, 'agent')
+      diag(server).agentNames.set(sock, 'mac-mini')
+      diag(server).lastPongAt.set(sock, Date.now() - 52_000)
+      sweep(server, [sock])
+      expect(sock.terminate).toHaveBeenCalledTimes(1)
+      expect(diag(server).logBuffer.join('\n')).toMatch(/heartbeat terminated agent mac-mini — last pong 52s ago/)
+    })
+
+    // A relay waking from sleep finds every socket stale at once; one line per browser tab would push the
+    // agent lines out of a 500-line buffer.
+    it('sums browser and stream terminations into one line per sweep', () => {
+      const socks = [makeSock(), makeSock(), makeSock()]
+      diag(server).wsRoles.set(socks[0], 'browser')
+      diag(server).wsRoles.set(socks[1], 'browser')
+      diag(server).wsRoles.set(socks[2], 'stream')
+      for (const s of socks) setAlive(server, s, false)
+      sweep(server, socks)
+      const lines = diag(server).logBuffer.filter((l) => l.includes('heartbeat terminated'))
+      expect(lines).toHaveLength(1)
+      expect(lines[0]).toMatch(/heartbeat terminated 2 browser, 1 stream socket\(s\)/)
+    })
+
+    it('logs nothing for live sockets', () => {
+      const sock = makeSock()
+      diag(server).wsRoles.set(sock, 'agent')
+      setAlive(server, sock, true)
+      sweep(server, [sock])
+      expect(diag(server).logBuffer.some((l) => l.includes('heartbeat'))).toBe(false)
+    })
+
+    // A sweep that runs late means the relay itself was held (or the machine slept), and the pongs it
+    // judges were never read: its terminations say nothing about the clients.
+    it('notes a sweep that ran more than half an interval late', () => {
+      const base = diag(server).lastSweepAt
+      diag(server).noteLateSweep(base + 30_000)
+      expect(diag(server).logBuffer.some((l) => l.includes('sweep ran'))).toBe(false)
+      diag(server).noteLateSweep(base + 30_000 + 50_000)
+      expect(diag(server).logBuffer.join('\n')).toMatch(/heartbeat sweep ran 20s late — the relay was stalled or the system slept/)
+    })
+
+    const port = () => (server.address() as { port: number }).port
+    const register = async (name: string) => {
+      const ws = new WebSocket(`ws://localhost:${port()}`)
+      await waitForOpen(ws)
+      ws.send(JSON.stringify({ type: 'agent:register', platform: 'ios', agentName: name, devices: [{ id: 'devA', name: 'iPhone A', platform: 'ios', status: 'shutdown' }] }))
+      await waitForMessage(ws) // agent:registered
+      return ws
+    }
+
+    it('records an agent connecting, so a close line is not the last word on it', async () => {
+      const ws = await register('mac-mini')
+      expect(diag(server).logBuffer.join('\n')).toMatch(/agent connected: mac-mini \(ios\)/)
+      ws.close()
+    })
+
+    // A re-registration terminates the old socket; logged as a plain close it would read like a drop of an
+    // agent that is in fact already back.
+    it('says a socket was replaced when the same agent registered again', async () => {
+      const first = await register('mac-mini')
+      const firstClosed = new Promise<void>((r) => first.on('close', () => r()))
+      const second = await register('mac-mini')
+      await firstClosed
+      await vi.waitFor(() => expect(diag(server).logBuffer.join('\n')).toMatch(/agent socket replaced: mac-mini/))
+      expect(diag(server).logBuffer.some((l) => /agent socket closed: mac-mini/.test(l))).toBe(false)
+      second.close()
+    })
+
+    it('does not log a second close line for an agent the sweep just terminated', async () => {
+      const ws = await register('mac-mini')
+      const closed = new Promise<void>((r) => ws.on('close', () => r()))
+      const serverWs = [...diag(server).wss.clients][0]
+      diag(server).lastPongAt.set(serverWs, Date.now() - 10 * 60_000)
+      diag(server).runHeartbeat()
+      await closed
+      await new Promise((r) => setTimeout(r, 50))
+      expect(diag(server).logBuffer.filter((l) => l.includes('mac-mini') && /terminated|closed/.test(l))).toHaveLength(1)
+    })
+
+    it('logs an agent socket closing, with its name and close code', async () => {
+      const ws = new WebSocket(`ws://localhost:${(server.address() as { port: number }).port}`)
+      await waitForOpen(ws)
+      ws.send(JSON.stringify({ type: 'agent:register', platform: 'ios', agentName: 'mac-mini', devices: [{ id: 'devA', name: 'iPhone A', platform: 'ios', status: 'shutdown' }] }))
+      await waitForMessage(ws) // agent:registered
+      ws.close(1001, 'going away')
+      await vi.waitFor(() => expect(diag(server).logBuffer.join('\n')).toMatch(/agent socket closed: mac-mini \(code 1001 going away, last pong \d+s ago\)/))
+    })
+
+    it('logs no agent closes when the relay itself is stopping', async () => {
+      const ws = await register('mac-mini')
+      const closed = new Promise<void>((r) => ws.on('close', () => r()))
+      const buf = diag(server).logBuffer
+      await server.stop()
+      await closed
+      expect(buf.some((l) => l.includes('agent socket closed'))).toBe(false)
+      server = new RelayServer({ port: 0 }); await server.start()
+    })
+  })
 })

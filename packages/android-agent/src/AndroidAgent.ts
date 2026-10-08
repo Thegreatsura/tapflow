@@ -31,6 +31,9 @@ import {
   createRateLimitedDropWarn,
   createThroughputSampler,
   createSleepBlocker,
+  acquireLoopStallWatch,
+  describeRelayLoss,
+  type RelayLoss,
   type SleepBlocker,
   getMachineId,
   isLocalhostWss,
@@ -457,6 +460,10 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
   // Holds a macOS power assertion while connected so the host doesn't idle-throttle the
   // emulator (its software H.264 encoder starves badly when the Mac idles). No-op off macOS.
   private readonly sleepBlocker: SleepBlocker
+  /** What the next "relay disconnected" line reports: when the relay last pinged, and the socket's last error. */
+  private lastPingAt: number | null = null
+  private lastSocketError: string | undefined
+  private releaseStallWatch: (() => void) | null = null
   private relayUrl: string | null = null
   private resourcesTimer: ReturnType<typeof setInterval> | null = null
   private readonly resources = createResourceSampler()
@@ -578,7 +585,18 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
           })
           this.reportResources()
           this.resourcesTimer = setInterval(() => this.reportResources(), 5000)
-          ws.on('close', () => this._scheduleReconnect())
+          this.lastPingAt = null
+          this.lastSocketError = undefined
+          ws.on('ping', () => { this.lastPingAt = Date.now() })
+          // After registration the handshake's `once('error', reject)` lands on a settled promise, so the
+          // code (ETIMEDOUT, ECONNRESET…) was dropped. It is the network half of the disconnect line.
+          ws.on('error', (e: NodeJS.ErrnoException) => { this.lastSocketError = e.code ?? e.message })
+          // `now` is taken here, at the close, not when the warning prints: the cleanup in between can run
+          // synchronous work (Android's host-mute `pkill`) and would inflate the ping age.
+          ws.on('close', (code, reason) => this._scheduleReconnect({
+            code, reason: reason.toString(), errorCode: this.lastSocketError, lastPingAt: this.lastPingAt, now: Date.now(),
+          }))
+          this.releaseStallWatch ??= acquireLoopStallWatch()
           resolve()
         } else {
           clearTimeout(timer)
@@ -659,12 +677,15 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     }
     this.deviceStates.clear()
     this.sleepBlocker.release()
+    this.releaseStallWatch?.()
+    this.releaseStallWatch = null
     this.ws?.close()
     this.ws = null
     this.relayUrl = null
   }
 
-  private _scheduleReconnect(): void {
+  /** `loss` is absent when a reconnect attempt failed: there is no close to describe, only a retry. */
+  private _scheduleReconnect(loss?: RelayLoss): void {
     if (this._stopping) return
     if (this.resourcesTimer) { clearInterval(this.resourcesTimer); this.resourcesTimer = null }
     for (const state of this.deviceStates.values()) {
@@ -683,7 +704,9 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     const delays = this.reconnectDelays
     const delay = delays[Math.min(this._reconnectAttempt, delays.length - 1)]
     this._reconnectAttempt++
-    logger.warn(`relay disconnected — reconnecting in ${delay / 1000}s (attempt ${this._reconnectAttempt})`)
+    logger.warn(loss
+      ? `relay disconnected (${describeRelayLoss(loss)}) — reconnecting in ${delay / 1000}s (attempt ${this._reconnectAttempt})`
+      : `reconnecting in ${delay / 1000}s (attempt ${this._reconnectAttempt})`)
 
     this._reconnectTimer = setTimeout(() => {
       this._reconnectTimer = null

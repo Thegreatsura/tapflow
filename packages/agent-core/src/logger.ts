@@ -14,11 +14,20 @@ function resolveLevel(): number {
   return LEVELS[raw as LogLevel] ?? LEVELS.info;
 }
 
+/** Local wall-clock time as `HH:MM:SS.mmm`, the stamp every line starts with. */
+export function formatClock(d: Date): string {
+  const p = (n: number, w = 2) => String(n).padStart(w, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
+}
+
+// Local time before the prefix: an agent drop could not be ordered against the boot and install around it
+// while no line carried a time. Before rather than after, so `[prefix] msg` stays a substring.
 function print(fn: (...args: unknown[]) => void, prefix: string, msg: string, meta: unknown): void {
+  const line = `${formatClock(new Date())} [${prefix}] ${msg}`;
   if (meta !== undefined) {
-    fn(`[${prefix}] ${msg}`, meta);
+    fn(line, meta);
   } else {
-    fn(`[${prefix}] ${msg}`);
+    fn(line);
   }
 }
 

@@ -116,6 +116,8 @@ interface IOSAgentInternals {
   _reconnectTimer: ReturnType<typeof setTimeout> | null
   _reconnectAttempt: number
   _scheduleReconnect(): void
+  lastPingAt: number | null
+  lastSocketError: string | undefined
   deviceStates: Map<string, { booted: boolean; deviceId: string }>
 }
 const internals = (agent: IOSAgent): IOSAgentInternals => agent as unknown as IOSAgentInternals
@@ -3325,6 +3327,43 @@ describe('IOSAgent', () => {
       expect(internals(agent)._reconnectTimer).toBeNull()
       expect(internals(agent)._reconnectAttempt).toBe(0)
 
+      agent.disconnect()
+    })
+
+    // The close code alone cannot say who ended the connection; the line carries it with the time since the
+    // relay's last ping so a stalled agent and a lost network read differently afterwards.
+    it('logs the close code and ping age when the relay connection drops', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const agent = new IOSAgent({ reconnectDelays: [60_000] }, mockSimctl())
+      await agent.connect(`ws://localhost:${port}`)
+      internals(agent).ws!.terminate()
+      await vi.waitFor(() => {
+        const lines = warn.mock.calls.map((c) => String(c[0]))
+        expect(lines.some((l) => /relay disconnected \(code 1006, (no ping received|last ping \d+s ago)\) — reconnecting in 60s/.test(l))).toBe(true)
+      })
+      agent.disconnect()
+    })
+
+    // The ping age and the socket error are what separate a stalled agent from a lost network, so both are
+    // pinned, and so is the reset: a second socket must not report the first one's last ping.
+    it('reports the relay ping and socket error of the socket that closed, not an earlier one', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const agent = new IOSAgent({ reconnectDelays: [0] }, mockSimctl())
+      await agent.connect(`ws://localhost:${port}`)
+      const first = internals(agent).ws!
+      first.emit('ping', Buffer.alloc(0))
+      first.emit('error', Object.assign(new Error('reset'), { code: 'ECONNRESET' }))
+      first.terminate()
+      const lines = () => warn.mock.calls.map((c) => String(c[0]))
+      await vi.waitFor(() => expect(lines().some((l) => /relay disconnected \(code 1006, error ECONNRESET, last ping \d+s ago\)/.test(l))).toBe(true))
+      await vi.waitFor(() => {
+        const ws = internals(agent).ws
+        expect(ws && ws !== first && ws.readyState === WebSocket.OPEN).toBe(true)
+      }, { timeout: 2000 })
+      // Read from this agent, not from console lines: other tests' agents still reconnecting in the
+      // background print "no ping received" too, which made a line match pass with the reset deleted.
+      expect(internals(agent).lastPingAt).toBeNull()
+      expect(internals(agent).lastSocketError).toBeUndefined()
       agent.disconnect()
     })
 
