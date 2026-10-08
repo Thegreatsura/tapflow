@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Relay and agent output lines start with the local time** (`HH:MM:SS.mmm`), so a disconnect can be put in order against what happened around it. `tapflow logs` keeps its UTC timestamps. If your log collector adds its own time, lines now carry two.
 
+### Fixed
+
+- **Installing an iOS build no longer freezes the agent.** Unpacking the `.app.zip` or `.tar.gz` and removing the temporary files held the agent's event loop, so on a large build or a busy Mac its other sessions stopped responding and the relay could drop its connection.
+
 ### Security
 
 - **The MCP server is on `@modelcontextprotocol/sdk` 1.31.0.** The SDK's OAuth client could send credentials to an authorization server the MCP server chose ([GHSA-6qxp-vccf-f47h](https://github.com/advisories/GHSA-6qxp-vccf-f47h)). tapflow's MCP server never uses that client, so it was not affected, but the update clears the warning for anyone auditing their install.
