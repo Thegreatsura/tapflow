@@ -1028,7 +1028,7 @@ export class RelayServer {
     logger.warn(
       `A request from a trusted proxy (TAPFLOW_TRUSTED_PROXIES) carried ${header} but no X-Forwarded-For. ` +
       'Without that header the relay cannot see the real client, so it treats the request as coming from the ' +
-      'proxy itself, which counts as local (unauthenticated) for a proxy on this host. Configure the proxy to ' +
+      'proxy itself: local, and so unauthenticated, when that address is loopback. Configure the proxy to ' +
       'send X-Forwarded-For, or point it at the tunnel port instead (TAPFLOW_TUNNEL_PORT, default 4001).'
     )
     this.warnedTrustedProxyWithoutXff = true
