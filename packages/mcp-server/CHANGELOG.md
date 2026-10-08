@@ -1,5 +1,16 @@
 # @tapflowio/mcp-server
 
+## 0.27.1
+
+### Patch Changes
+
+- 65f486b: The MCP server depends on `@modelcontextprotocol/sdk` 1.31.0, which fixes an OAuth client that could send credentials to an authorization server the MCP server chose ([GHSA-6qxp-vccf-f47h](https://github.com/advisories/GHSA-6qxp-vccf-f47h)). tapflow's MCP server uses only the SDK's server and stdio transport, never its OAuth client, so it was not affected; the update clears the warning for anyone auditing their install.
+
+  Backfills: #931
+
+  - @tapflowio/flow-runner@0.27.1
+  - @tapflowio/protocol@0.27.1
+
 ## 0.27.0
 
 ### Patch Changes

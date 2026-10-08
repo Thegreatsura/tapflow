@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.1] - 2026-10-09
+
 ### Added
 
 - **An agent that drops off the relay can be diagnosed afterwards.** `tapflow logs` now records agents connecting, an agent's connection closing or being replaced, and the relay ending a connection that stopped answering, with the agent's name and how long since it last answered, and notes when the relay's own check ran late because the relay was held up or the machine slept. The agent's "relay disconnected" line gives the close code, any network error, and how long since the relay last checked on it. In the terminal output, a process held up for about three seconds or more prints a `[stall]` line saying for at least how long and whether it was busy or waiting; under `tapflow start` the relay and agents share that line.
@@ -969,7 +971,8 @@ found out by waiting.
 
 - Automatic `tapflow.config.json` creation as a side effect of `tapflow start` / `tapflow relay start`.
 
-[Unreleased]: https://github.com/jo-duchan/tapflow/compare/v0.27.0...HEAD
+[Unreleased]: https://github.com/jo-duchan/tapflow/compare/v0.27.1...HEAD
+[0.27.1]: https://github.com/jo-duchan/tapflow/compare/v0.27.0...v0.27.1
 [0.27.0]: https://github.com/jo-duchan/tapflow/compare/v0.26.1...v0.27.0
 [0.26.1]: https://github.com/jo-duchan/tapflow/compare/v0.26.0...v0.26.1
 [0.26.0]: https://github.com/jo-duchan/tapflow/compare/v0.25.0...v0.26.0

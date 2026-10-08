@@ -1,5 +1,16 @@
 # @tapflowio/android-agent
 
+## 0.27.1
+
+### Patch Changes
+
+- ff34894: The agents hold up better when a device misbehaves. An iOS screen stream that keeps ending before its first frame — a simulator shut down from outside, or one still starting — is restarted with a growing delay (up to 5s) instead of in a tight loop, and a stream that ended in an error no longer risks ending the agent when the session is torn down. A reconnect to the relay no longer waits forever on a stuck `simctl list`: the attempt gives up after 10 seconds and tries again. On Android, stopping the host-speaker mute no longer blocks the agent, and a quick re-boot of the same emulator cannot cancel its own new mute.
+- 036c681: An agent that drops off the relay can now be diagnosed afterwards. Relay and agent output lines start with the local time. In `tapflow logs` the relay records agents connecting, an agent's connection closing or being replaced by a new one, and a connection it ended because it stopped answering, with the agent's name and how long since it last answered; it also notes a check that ran late because the relay itself was held up or the machine slept. The agent's "relay disconnected" line now carries the close code, any network error, and how long since the relay last checked on it. In the terminal output, a process whose work was held up for about three seconds or more prints a `[stall]` line with a lower bound on how long, a window for when it began, and whether it was busy or waiting. Under `tapflow start`, where the relay and agents share one process, that line cannot say which of them was held.
+- Updated dependencies [036c681]
+  - @tapflowio/agent-core@0.27.1
+  - @tapflowio/audiotap-helper@0.3.11
+  - @tapflowio/protocol@0.27.1
+
 ## 0.27.0
 
 ### Patch Changes
