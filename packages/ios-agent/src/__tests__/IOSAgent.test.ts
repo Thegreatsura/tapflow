@@ -96,6 +96,7 @@ import crypto from 'crypto'
 import { WebSocket, WebSocketServer } from 'ws'
 import { RelayServer, initDb, closeDb, getDb } from '@tapflowio/relay'
 import { IOSAgent, leanSupported, streamRestartPlan } from '../IOSAgent'
+import type { DeviceChromeLoader, ChromeData } from '../DeviceChromeLoader'
 import { ScreenCaptureStreamer } from '../ScreenCaptureStreamer'
 import { AudioCaptureStreamer } from '../AudioCaptureStreamer'
 import { launchAudioHelper } from '@tapflowio/audiotap-helper'
@@ -1985,6 +1986,37 @@ describe('IOSAgent', () => {
         const atDisconnect = vi.mocked(simctl.screenshot).mock.calls.length
         await new Promise((r) => setTimeout(r, 700))
         expect(vi.mocked(simctl.screenshot).mock.calls.length).toBe(atDisconnect)
+      })
+
+      // The chrome load is awaited now, and a newer boot can land during it. The stale load must neither be
+      // sent nor stored: the button path reads `loadedChrome`, and a slow old load finishing after a fast new
+      // one would put the wrong device's buttons under the tester's clicks.
+      it('drops a chrome load that a newer boot overtook', async () => {
+        const chromeOf = (tag: string) => ({ framePng: tag } as unknown as ChromeData)
+        let releaseFirst: (c: ChromeData) => void = () => {}
+        const load = vi.fn()
+          .mockImplementationOnce(() => new Promise<ChromeData>((r) => { releaseFirst = r }))
+          .mockImplementation(async () => chromeOf('NEW'))
+        const agent = new IOSAgent({ intervalMs: 50, chromeLoader: { load } as unknown as DeviceChromeLoader }, mockSimctl(false))
+        await agent.connect(`ws://localhost:${port}`)
+        const browser = new WebSocket(`ws://localhost:${port}`)
+        await waitForOpen(browser)
+        browser.send(JSON.stringify({ type: 'session:start', sessionId: agent.sessionId }))
+        await waitForType(browser, 'session:joined')
+        const chromes: string[] = []
+        browser.on('message', (raw) => { try { const m = JSON.parse(raw.toString()); if (m.type === 'session:chrome') chromes.push(m.payload.framePng) } catch { /* binary */ } })
+
+        browser.send(JSON.stringify({ type: 'device:boot', sessionId: agent.sessionId, requestId: 'old', payload: { deviceId: 'dev-1' } }))
+        await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1))
+        const ready = waitForType(browser, 'device:ready')
+        browser.send(JSON.stringify({ type: 'device:boot', sessionId: agent.sessionId, requestId: 'new', payload: { deviceId: 'dev-1' } }))
+        expect((await ready)['requestId']).toBe('new')
+        releaseFirst(chromeOf('OLD'))
+        await new Promise((r) => setTimeout(r, 100))
+        expect(chromes).toEqual(['NEW'])
+        const states = [...(agent as unknown as { deviceStates: Map<string, { loadedChrome: ChromeData | null }> }).deviceStates.values()]
+        expect(states[0].loadedChrome).toEqual(chromeOf('NEW'))
+        agent.disconnect(); browser.close()
       })
 
       it('does not answer a boot that a newer boot superseded', async () => {

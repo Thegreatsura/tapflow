@@ -429,8 +429,14 @@ Keyboard injection uses `IndigoHIDMessageForKeyboardArbitrary(usage, op)`.
 dropped the profile keys). Match on `displayType`, never the first entry: the same list carries `tvOut`,
 `carPlay` and a 7680×4320 `scene`. No measured install carries both (Xcode 26.6 ships a
 `capabilities.plist` without `displays`), so the order changes nothing today; the profile goes first so
-Xcode ≤26 keeps its path. With no size, `load()` returns `null` and the device shows no bezel —
-nothing reports it.
+Xcode ≤26 keeps its path. With no size, `load()` resolves `null`, and the dashboard then shows **no device at
+all** — it mounts the iOS viewer only once chrome arrives, so the tester sees a skeleton with `device:ready`
+already received. Nothing reports it.
+
+**Loading is asynchronous and bounded** (it was `execFileSync` throughout and froze the agent for seconds on a
+cold cache). Every tool runs through one runner with a per-call timeout and a whole-load budget; renders write
+unique script files and rename their PNG into place, so concurrent loads cannot swap geometry or cache a
+half-written image; results are kept per device type for the process; a failure, or a load that skipped a button, is not kept.
 
 **Button layout**: `PhoneComposite.pdf` contains no physical buttons. Buttons are separate PDF assets; placement data is in `chrome.json`'s `inputs[]`.
 
