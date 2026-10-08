@@ -82,6 +82,17 @@ const config: Config = {
         'display-sm': '-0.6px',
         'body-sm':    '-0.28px',
       },
+      // The dim over a device screen waiting for its next frame: a band of light sweeping across, like a
+      // skeleton, so it reads as "loading" rather than as a frozen picture.
+      backgroundImage: {
+        'screen-shimmer': 'linear-gradient(100deg, transparent 30%, rgba(255,255,255,0.08) 50%, transparent 70%)',
+      },
+      keyframes: {
+        'screen-shimmer': { from: { backgroundPosition: '150% 0' }, to: { backgroundPosition: '-50% 0' } },
+      },
+      animation: {
+        'screen-shimmer': 'screen-shimmer 1.6s linear infinite',
+      },
       zIndex: {
         /* Layer tokens — use these instead of raw z-{n} for semantic stacking.
          * sidebar(10) < tooltip(100) < overlay(200) < modal(300) */

@@ -31,6 +31,9 @@ interface SimulatorInfoCardProps {
   /** The relay is holding this session open while its agent is gone (#426). Outranks every other
    *  status: the rest describe a device this viewer cannot currently reach. */
   agentAway?: boolean;
+  /** A fact about this session that does not change, shown under the status. Outside the live region:
+   *  it is not a transition, and announcing it would only repeat what is on screen. */
+  note?: string;
 }
 
 function getStatusText(props: SimulatorInfoCardProps): string | null {
@@ -158,6 +161,10 @@ export function SimulatorInfoCard(props: SimulatorInfoCardProps) {
         <p className="text-[12px] text-muted-foreground leading-relaxed break-words">{statusText}</p>
       )}
       </div>
+
+      {props.note && (
+        <p className="text-[12px] text-muted-foreground leading-relaxed break-words">{props.note}</p>
+      )}
 
       <PerformanceModeNotice open={noticeOpen} onOpenChange={handleNoticeOpenChange} />
     </div>

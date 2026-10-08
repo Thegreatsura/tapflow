@@ -24,6 +24,7 @@ import type { PerfHook } from '@/components/perf/types';
 import { useClipboardBridge, isBridgedChord, type ClipboardMessageHandler } from '@/hooks/useClipboardBridge';
 import { toast } from 'sonner';
 import { roundedClipMask } from '@/lib/roundedClipMask';
+import { isFramelessChrome } from '@/lib/framelessChrome';
 
 const CURSOR_RING_R = 13;
 const CURSOR_DOT_R = 8;
@@ -65,6 +66,9 @@ interface IOSViewerProps {
   /** The toolbar's restart button, so `DeviceViewer` can put focus back on it after a restart. */
   restartButtonRef: MutableRefObject<HTMLButtonElement | null>;
   perfHookRef?: MutableRefObject<PerfHook>;
+  /** Told the size the stream arrives at, so a viewer with no chrome from the agent can take the
+   *  device's real aspect (see `framelessChrome`). */
+  onStreamSize?: (size: { width: number; height: number }) => void;
 }
 
 export function IOSViewer({
@@ -74,7 +78,7 @@ export function IOSViewer({
   binaryFrameHandlerRef, clipboardHandlerRef, clipboardSupported, networkHandlerRef, networkSupported, onRecordingUploaded,
   swKeyboardVisible, swKeyboardPending, onKbdToggle,
   rebootPending, onReboot, restartButtonRef,
-  perfHookRef,
+  perfHookRef, onStreamSize,
 }: IOSViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -128,6 +132,25 @@ export function IOSViewer({
   }, [chrome.framePng])
 
   // ── Decoder + frame routing (shared render pipeline) ──────────────────────
+  // The decoder's surface sits over the canvas, so it takes the canvas's place — when the decoder starts,
+  // and again whenever the chrome changes. The second is not hypothetical: a viewer that opened with no
+  // chrome from the agent (`framelessChrome`) is handed the real one if it arrives, and the surface would
+  // otherwise stay covering the whole canvas, frame included.
+  const decoderSurfaceRef = useRef<HTMLElement | null>(null)
+  const placeSurface = (surface: HTMLElement) => {
+    const c = canvasRef.current
+    if (!c) return
+    surface.style.left = c.style.left
+    surface.style.top = c.style.top
+    surface.style.width = c.style.width
+    surface.style.height = c.style.height
+    surface.style.borderRadius = c.style.borderRadius
+    surface.style.maskImage = c.style.maskImage
+  }
+  useLayoutEffect(() => {
+    if (decoderSurfaceRef.current) placeSurface(decoderSurfaceRef.current)
+  }, [chrome])
+
   // useDecoderStream owns decoder selection (+ the DEV ?decoder= override) and decode→present
   // perf tracking — same wiring as AndroidViewer. iOS-specific bits stay here: the H.264
   // surface mounts over the device chrome (mirrored to canvasRef for recording/screenshot),
@@ -141,6 +164,7 @@ export function IOSViewer({
       const canvas = canvasRef.current
       if (canvas && (canvas.width !== size.width || canvas.height !== size.height)) {
         canvas.width = size.width; canvas.height = size.height
+        onStreamSize?.({ width: size.width, height: size.height })
         if (!chromeRef.current) {
           const rc = recordCanvasRef.current
           if (rc) { rc.width = size.width; rc.height = size.height }
@@ -152,16 +176,9 @@ export function IOSViewer({
       // Display the decoder surface directly over the chrome; the canvas stays behind,
       // mirrored, so the existing recording/screenshot paths (which read canvasRef) keep working.
       const surface = d.surface
-      const c = canvasRef.current
       surface.style.position = 'absolute'
-      if (c) {
-        surface.style.left = c.style.left
-        surface.style.top = c.style.top
-        surface.style.width = c.style.width
-        surface.style.height = c.style.height
-        surface.style.borderRadius = c.style.borderRadius
-        surface.style.maskImage = c.style.maskImage
-      }
+      placeSurface(surface)
+      decoderSurfaceRef.current = surface
       surface.style.objectFit = 'fill'
       surface.style.zIndex = '3'
       surface.style.pointerEvents = 'none'
@@ -176,7 +193,10 @@ export function IOSViewer({
         raf = requestAnimationFrame(blit)
       }
       raf = requestAnimationFrame(blit)
-      return () => { if (raf !== null) cancelAnimationFrame(raf) }
+      return () => {
+        if (raf !== null) cancelAnimationFrame(raf)
+        if (decoderSurfaceRef.current === surface) decoderSurfaceRef.current = null
+      }
     },
     onJpegFrame: (data) => {
       const recvAt = performance.now()
@@ -194,6 +214,7 @@ export function IOSViewer({
           if (!canvas || !ctx) { bitmap.close(); return }
           if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
             canvas.width = bitmap.width; canvas.height = bitmap.height
+            onStreamSize?.({ width: bitmap.width, height: bitmap.height })
             if (!chromeRef.current) {
               const rc = recordCanvasRef.current
               if (rc) { rc.width = bitmap.width; rc.height = bitmap.height }
@@ -586,6 +607,15 @@ export function IOSViewer({
   const screenPctH = (chrome.screenRect.height / chrome.compositeHeight) * 100;
   const cssCornerRadius = Math.round((chrome.screenCornerRadius / 2) * displayScale);
   const clipMask = cssCornerRadius > 0 ? roundedClipMask(navigator.userAgent) : undefined;
+  // **Where the screen is, said once.** The canvas takes these, and so does the box below that holds
+  // what is drawn over the screen, which clips to the same corners — so nothing inside it is placed or
+  // rounded on its own.
+  const screenBox = {
+    left: `${screenPctLeft}%`, top: `${screenPctTop}%`,
+    width: `${screenPctW}%`, height: `${screenPctH}%`,
+    borderRadius: cssCornerRadius > 0 ? `${cssCornerRadius}px` : undefined,
+    maskImage: clipMask,
+  };
   const box = { width: chrome.compositeWidth, height: chrome.compositeHeight };
   const targets = buttonTargets(chrome.buttons, box);
   const titles = buttonTitles(chrome.buttons, box, isLandscape, formFactor);
@@ -732,20 +762,15 @@ export function IOSViewer({
               ref={canvasRef}
               style={{
                 position: 'absolute', zIndex: 3,
-                left: `${screenPctLeft}%`, top: `${screenPctTop}%`,
-                width: `${screenPctW}%`, height: `${screenPctH}%`,
-                borderRadius: cssCornerRadius > 0 ? `${cssCornerRadius}px` : undefined,
-                maskImage: clipMask,
+                ...screenBox,
                 backgroundColor: '#010101', cursor: 'none',
                 visibility: canvasReady ? 'visible' : 'hidden',
               }}
             />
             {!canvasReady && (
-              <div className="absolute animate-pulse bg-zinc-700" style={{
-                zIndex: 3, left: `${screenPctLeft}%`, top: `${screenPctTop}%`,
-                width: `${screenPctW}%`, height: `${screenPctH}%`,
-                borderRadius: cssCornerRadius > 0 ? `${cssCornerRadius}px` : undefined,
-              }} />
+              <div className="absolute overflow-hidden" style={{ zIndex: 3, ...screenBox }}>
+                <div className="absolute inset-0 animate-pulse bg-zinc-700" />
+              </div>
             )}
             {pinchHint && (() => {
               const screenLeft = screenPctLeft / 100; const screenTop = screenPctTop / 100
@@ -771,12 +796,12 @@ export function IOSViewer({
               )
             })()}
             {joined && fps === 0 && (
-              <div style={{
-                position: 'absolute', zIndex: 8, left: `${screenPctLeft}%`, top: `${screenPctTop}%`,
-                width: `${screenPctW}%`, height: `${screenPctH}%`,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none',
-              }}>
-                <span style={{ color: 'white', fontSize: '0.875rem' }}>Waiting for first frame...</span>
+              <div data-testid="screen-waiting" className="absolute overflow-hidden pointer-events-none flex items-center justify-center" style={{ zIndex: 8, ...screenBox }}>
+                {/* Over a picture already on screen — a restart, a stalled stream — white text alone was
+                    unreadable, so the screen is dimmed behind it. Before the first frame the skeleton
+                    under it is dark enough already. */}
+                {canvasReady && <div aria-hidden="true" className="absolute inset-0 bg-black/60 bg-screen-shimmer bg-[length:200%_100%] animate-screen-shimmer motion-reduce:animate-none" />}
+                <span className="relative text-sm text-white">Waiting for first frame...</span>
               </div>
             )}
             {chrome.buttons.map((btn, i) => {
@@ -871,6 +896,9 @@ export function IOSViewer({
           installing={installing} installError={installError}
           decoderUnsupported={decoderUnsupported}
           keyboardActive={keyboardActive}
+          note={isFramelessChrome(chrome)
+            ? "The device frame couldn't be loaded, so its side buttons (lock, volume) are unavailable this session."
+            : undefined}
         />
       </div>
     </div>

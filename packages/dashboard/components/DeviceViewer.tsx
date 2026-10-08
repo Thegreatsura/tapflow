@@ -1,6 +1,7 @@
 'use client';
 
 import { skeletonSize } from '@/lib/deviceSkeleton';
+import { framelessChrome } from '@/lib/framelessChrome';
 import type { BrowserToRelay, FormFactor, SessionTerminatedReason } from '@tapflowio/protocol'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useRelay } from '@/hooks/useRelay';
@@ -86,6 +87,13 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
   const [agentAway, setAgentAway] = useState(false);
   const [deviceReady, setDeviceReady] = useState(false);
   const [chrome, setChrome] = useState<ChromeData | AndroidChrome | null>(null);
+  // The size the stream actually arrives at, reported by the iOS viewer. Only read when the agent sent
+  // no chrome, to give the frameless viewer the device's real aspect. Not cleared on a re-boot: a session
+  // is one device, and its screen does not change size.
+  const [streamSize, setStreamSize] = useState<{ width: number; height: number } | null>(null);
+  const onStreamSize = (size: { width: number; height: number }) => {
+    setStreamSize((prev) => (prev && prev.width === size.width && prev.height === size.height ? prev : size));
+  };
   // Postures the device offers, ordered most closed → most open by the protocol's contract, so the
   // control renders in that order without knowing any platform's vocabulary. Empty for a device
   // with one fixed screen, which is how the control knows to stay hidden.
@@ -536,8 +544,20 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
   }, [connected, send, sessionId]);
 
   // Derive platform from chrome payload shape
-  const iosChrome = chrome !== null && 'framePng' in chrome ? chrome as ChromeData : null;
+  const sentIosChrome = chrome !== null && 'framePng' in chrome ? chrome as ChromeData : null;
   const androidChrome = chrome !== null && !('framePng' in chrome) ? chrome as AndroidChrome : null;
+  // **No chrome by `device:ready` means none is coming for this boot.** The iOS agent sends
+  // `session:chrome` before `device:ready` on every path, and so does the relay's replay to a re-joining
+  // viewer. An agent that could not build one sends nothing, and the viewer below mounts only with
+  // chrome — so the stream ran behind a skeleton for the whole session. Show the screen alone instead.
+  // Sized like the skeleton until the first frame says otherwise.
+  //
+  // `platform` is the build's, and reads 'ios' until the build loads; `!androidChrome` covers that
+  // window, since an Android agent always sends its chrome before ready.
+  const framelessSize = streamSize ?? { width: skeletonSize(formFactor, platform).width * 2, height: skeletonSize(formFactor, platform).height * 2 };
+  const iosChrome = sentIosChrome ?? (deviceReady && platform === 'ios' && !androidChrome
+    ? framelessChrome(framelessSize.width, framelessSize.height)
+    : null);
 
   /**
    * **The toggle gets a budget, because two agent paths answer nothing at all.**
@@ -739,7 +759,7 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
 
   return (
     <>
-      {iosChrome && <IOSViewer {...commonProps} chrome={iosChrome} formFactor={formFactor} perfHookRef={devPerfHookRef} />}
+      {iosChrome && <IOSViewer {...commonProps} chrome={iosChrome} formFactor={formFactor} perfHookRef={devPerfHookRef} onStreamSize={onStreamSize} />}
       {androidChrome && <AndroidViewer {...commonProps} androidButtons={androidChrome.buttons} screenWidth={androidChrome.screenWidth} screenHeight={androidChrome.screenHeight} cornerRadius={androidChrome.cornerRadius} postures={postures} streamRotation={androidChrome.streamRotation} perfHookRef={devPerfHookRef} />}
       {import.meta.env.DEV && perfMode && perfVisible && (
         <>
