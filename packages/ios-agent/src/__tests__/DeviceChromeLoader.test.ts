@@ -75,13 +75,13 @@ describe('screenSizeFromDeviceType', () => {
 // and a runner answering the tools the loader calls. Every external call goes through the runner, so these
 // tests see each one — the synchronous `execFileSync` calls they replaced froze the whole agent.
 describe('DeviceChromeLoader.load', () => {
-  function fixture(opts: { types?: object[]; swift?: ChromeRunner } = {}) {
+  function fixture(opts: { types?: object[]; swift?: ChromeRunner; cacheDir?: string } = {}) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tapflow-chrome-'))
     const res = path.join(root, 'chrome', 'phone.devicechrome', 'Contents', 'Resources')
     fs.mkdirSync(res, { recursive: true })
     fs.writeFileSync(path.join(res, 'chrome.json'), JSON.stringify({ images: { sizing: { leftWidth: 10, rightWidth: 10, topHeight: 10, bottomHeight: 10 } } }))
     fs.writeFileSync(path.join(res, 'PhoneComposite.pdf'), '')
-    const cacheDir = path.join(root, 'cache'); fs.mkdirSync(cacheDir)
+    const cacheDir = opts.cacheDir ?? path.join(root, 'cache'); fs.mkdirSync(cacheDir, { recursive: true })
     const calls: string[][] = []
     const run: ChromeRunner = async (cmd, args, timeoutMs, signal) => {
       calls.push([cmd, ...args])
@@ -149,9 +149,27 @@ describe('DeviceChromeLoader.load', () => {
   it('gives each render its own script file', async () => {
     const seen: string[] = []
     const record: ChromeRunner = async (_c, args) => { seen.push(args[0]); fs.writeFileSync(args[args.length - 1], 'PNG'); return Buffer.alloc(0) }
-    const a = fixture({ swift: record, types: [{ identifier: 'T', modelIdentifier: 'M' }] })
-    const b = fixture({ swift: record, types: [{ identifier: 'T', modelIdentifier: 'M' }] })
+    // One cache directory, as on a real Mac where every load shares $TMPDIR.
+    const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tapflow-chrome-shared-'))
+    const a = fixture({ swift: record, cacheDir, types: [{ identifier: 'T', modelIdentifier: 'M' }] })
+    const b = fixture({ swift: record, cacheDir, types: [{ identifier: 'T', modelIdentifier: 'M' }] })
     await Promise.all([a.loader.load('T'), b.loader.load('T')])
     expect(new Set(seen).size).toBe(seen.length)
+  })
+
+  // A render killed half-way used to leave a truncated PNG at the cache path, and the mtime check then served
+  // it on every later boot.
+  it('never leaves a half-written image at the cache path', async () => {
+    const dies: ChromeRunner = async (_c, args) => { fs.writeFileSync(args[args.length - 1], 'PN'); throw new Error('killed') }
+    const { loader, cacheDir } = fixture({ swift: dies })
+    expect(await loader.load('T')).toBeNull()
+    expect(fs.existsSync(path.join(cacheDir, 'tapflow-frame-v3-phone.png'))).toBe(false)
+  })
+
+  it('lists device types once for the process, not once per load', async () => {
+    const { loader, calls } = fixture({ types: [{ identifier: 'T', modelIdentifier: 'M' }, { identifier: 'T2', modelIdentifier: 'M' }] })
+    await loader.load('T')
+    await loader.load('T2')
+    expect(calls.filter((c) => c[0] === 'xcrun')).toHaveLength(1)
   })
 })
