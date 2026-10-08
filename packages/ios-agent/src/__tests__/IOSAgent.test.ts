@@ -334,15 +334,16 @@ describe('IOSAgent', () => {
     // the hold measurable — a 1 ms interval keeps ticking only if the extraction is asynchronous.
     describe('extraction off the event loop', () => {
       const realUnzip = spawnSync('/bin/sh', ['-c', 'command -v unzip']).stdout.toString().trim()
-      let savedPath: string | undefined
-      afterEach(() => { process.env.PATH = savedPath })
-
-      const withPath = (dir: string) => { savedPath = process.env.PATH; process.env.PATH = `${dir}:${savedPath}` }
+      const originalPath = process.env.PATH
+      afterEach(() => {
+        if (originalPath === undefined) delete process.env.PATH
+        else process.env.PATH = originalPath
+      })
 
       it('keeps the event loop running while the archive extracts', async () => {
         const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'tapflow-slow-unzip-'))
         fs.writeFileSync(path.join(bin, 'unzip'), `#!/bin/sh\nsleep 0.3\nexec "${realUnzip}" "$@"\n`, { mode: 0o755 })
-        withPath(bin)
+        process.env.PATH = `${bin}:${originalPath ?? ''}`
         const archive = makeSimAppArchive('SlowApp', '.app.zip')
         const simctl = mockSimctl()
         let ticks = 0
@@ -360,7 +361,6 @@ describe('IOSAgent', () => {
 
       it('still reports a missing extractor as a failure to run it, not a bad archive', async () => {
         const archive = makeSimAppArchive('NoTool', '.app.zip')
-        savedPath = process.env.PATH
         process.env.PATH = fs.mkdtempSync(path.join(os.tmpdir(), 'tapflow-empty-path-'))
         const err = await (new IOSAgent({}, mockSimctl()) as unknown as WithInstallBuild)
           .installBuild('dev-1', archive).catch((e: unknown) => e)

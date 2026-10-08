@@ -2264,7 +2264,10 @@ function runExtractor(cmd: string, args: string[]): Promise<{ error?: Error; sta
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { stdio: ['ignore', 'ignore', 'pipe'] })
     let stderr = ''
-    child.stderr?.on('data', (chunk: Buffer) => { if (stderr.length < 64 * 1024) stderr += chunk.toString() })
+    // Decoded by the stream, not per chunk: a chunk boundary inside a multibyte character (a Korean file
+    // name in unzip's message) would otherwise turn into replacement characters.
+    child.stderr?.setEncoding('utf8')
+    child.stderr?.on('data', (chunk: string) => { if (stderr.length < 64 * 1024) stderr += chunk })
     child.once('error', (error) => resolve({ error, status: null, stderr }))
     child.once('close', (status) => resolve({ status, stderr }))
   })
