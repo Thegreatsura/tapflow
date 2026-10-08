@@ -127,6 +127,10 @@ describe('proxiedWithoutForwardedFor', () => {
     expect(proxiedWithoutForwardedFor('::ffff:127.0.0.1', { 'x-forwarded-proto': 'https' }, proxies)).toBe('x-forwarded-proto')
   })
 
+  it.each(['forwarded', 'x-forwarded-host', 'via'])('names %s too', (header) => {
+    expect(proxiedWithoutForwardedFor('127.0.0.1', { [header]: 'proxy-value' }, proxies)).toBe(header)
+  })
+
   // The agent's and the CLI's shape. Paired with the case above: the same request plus one header warns.
   it('says nothing about a request with no proxy header, as this host\'s agent sends', () => {
     expect(proxiedWithoutForwardedFor('127.0.0.1', { host: '127.0.0.1:4000', 'user-agent': 'node' }, proxies)).toBeNull()
