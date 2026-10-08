@@ -98,6 +98,9 @@ import { KEY_CODE_MAP, MODIFIER_BITS } from './KeyCodeMap.js'
 // long enough to keep `ps` overhead negligible.
 const AUDIO_POLL_MS = 1500
 
+/** Bound on `simctl list` during a reconnect attempt only; see `connectOnce`. */
+const RECONNECT_LIST_TIMEOUT_MS = 10_000
+
 /** Lean mode needs an iOS runtime of 18.5 or later, where launchd honours the host-side overrides
  *  across reboots. tvOS, watchOS and visionOS devices come through the same list and are left alone. */
 export function leanSupported(osVersion: string | undefined): boolean {
@@ -319,13 +322,23 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
   }
 
   async connect(relayUrl: string): Promise<void> {
+    return this.connectOnce(relayUrl)
+  }
+
+  /**
+   * `listTimeoutMs` is set only by the reconnect loop. `simctl list` is left unbounded elsewhere on purpose
+   * (see `SimctlWrapper.listDevices`), but here a hang has a worse outcome than a failure: the attempt never
+   * settles, `_scheduleReconnect` is never reached, and the agent stays offline with nothing in its output
+   * even after CoreSimulator recovers. A bounded attempt fails and the loop tries again.
+   */
+  private async connectOnce(relayUrl: string, listTimeoutMs?: number): Promise<void> {
     this._stopping = false
     // Paired with the `dispose()` in `disconnect()`. This method is public and reuses the network, so
     // without it a reconnect leaves the liveness watcher off for good — see `SimulatorNetwork.resume`.
     this.network.resume()
     if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null }
     this.relayUrl = relayUrl
-    const allDevices = await this.simctl.listDevices()
+    const allDevices = await this.simctl.listDevices(listTimeoutMs)
     this.revertLeftoverLean(allDevices)
     const devices = this.deviceFilter
       ? allDevices.filter((d) => d.name === this.deviceFilter || d.id === this.deviceFilter)
@@ -414,7 +427,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
           // code (ETIMEDOUT, ECONNRESET…) was dropped. It is the network half of the disconnect line.
           ws.on('error', (e: NodeJS.ErrnoException) => { this.lastSocketError = e.code ?? e.message })
           // `now` is taken here, at the close, not when the warning prints: the cleanup in between can run
-          // synchronous work (Android's host-mute `pkill`) and would inflate the ping age.
+          // work that holds the event loop and would inflate the ping age.
           ws.on('close', (code, reason) => this._scheduleReconnect({
             code, reason: reason.toString(), errorCode: this.lastSocketError, lastPingAt: this.lastPingAt, now: Date.now(),
           }))
@@ -528,7 +541,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     this._reconnectTimer = setTimeout(() => {
       this._reconnectTimer = null
       if (this._stopping || !this.relayUrl) return
-      this.connect(this.relayUrl).then(() => {
+      this.connectOnce(this.relayUrl, RECONNECT_LIST_TIMEOUT_MS).then(() => {
         this._reconnectAttempt = 0
         logger.info('reconnected to relay')
       }).catch((e) => {
@@ -565,7 +578,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     void this.network.forget(state.deviceId).catch((e: unknown) => {
       logger.warn('could not clear the network rule for a retired device:', (e as Error).message)
     })
-    void state.streamReader?.cancel()
+    state.streamReader?.cancel().catch(() => { /* an errored stream rejects cancel(); unhandled, it ends the CLI */ })
     state.streamReader = null
     state.captureStreamer = null // reader.cancel() kills the helper proc; drop the ref so a stale requestKeyframe() no-ops
     if (state.audioPoll) { clearInterval(state.audioPoll); state.audioPoll = null }
@@ -608,7 +621,9 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     })
   }
 
-  private startBinaryStream(state: DeviceState, streamWs: WebSocket): void {
+  /** `failures` counts the frameless runs before this one; only the restart in `pump` passes it, so a new
+   *  boot starts from zero without any state to reset. */
+  private startBinaryStream(state: DeviceState, streamWs: WebSocket, failures = 0): void {
     // H.264 is the default; opt out per-agent with TAPFLOW_IOS_CODEC=jpeg. It also needs
     // a browser that reported it can decode it (device:boot acceptH264) — otherwise JPEG.
     // Only on the ScreenCaptureStreamer path — the MjpegStreamer fallback is always JPEG, and now
@@ -633,6 +648,9 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
 
     const reader = stream.getReader()
     state.streamReader = reader
+    // An errored stream rejects `closed` as well as the pending read. `pump` handles the read; nothing
+    // awaits `closed`, and an unhandled rejection ends the CLI (`process.exit(1)` in cli/src/index.ts).
+    reader.closed.catch(() => { /* surfaced through read() in pump */ })
 
     const threshold = Number(process.env.TAPFLOW_WS_BACKPRESSURE_BYTES) || DEFAULT_BACKPRESSURE_BYTES
     const warnDrop = createRateLimitedDropWarn(logger, state.deviceId)
@@ -659,10 +677,12 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     const onWantKeyframe = () => { const now = Date.now(); if (now - lastIdrReq >= 500) { lastIdrReq = now; state.captureStreamer?.requestKeyframe() } }
 
     const pump = async () => {
+      let delivered = false
       try {
         while (true) {
           const { value, done } = await reader.read()
           if (done) break
+          delivered = true
           // Declare reorder=0 on the keyframe SPS so every decoder (WebCodecs, MSE,
           // WASM) emits frames immediately instead of buffering the level's max DPB
           // (~8 frames ≈ 250ms). Keyframe-only (SPS lives there); no-op otherwise.
@@ -678,7 +698,22 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
       }
       if (metricsTimer) clearInterval(metricsTimer)
       if (state.streamReader === reader && streamWs.readyState === WebSocket.OPEN) {
-        this.startBinaryStream(state, streamWs)
+        const next = streamRestartPlan(failures, delivered)
+        if (next.failures === 2) {
+          logger.warn(`screen stream for ${state.deviceId} keeps ending before its first frame — backing off restarts`)
+        }
+        // Re-checked after the delay: a new boot, a shutdown, a relay loss or disconnect() all swap or clear
+        // the reader, or close the socket, in the meantime.
+        const restart = (): void => {
+          if (this._stopping || state.streamReader !== reader || streamWs.readyState !== WebSocket.OPEN) return
+          try {
+            this.startBinaryStream(state, streamWs, next.failures)
+          } catch (e) {
+            logger.error(`screen stream for ${state.deviceId} could not restart: ${e instanceof Error ? e.message : String(e)}`)
+          }
+        }
+        if (next.delayMs === 0) restart()
+        else setTimeout(restart, next.delayMs).unref()
       }
     }
 
@@ -766,7 +801,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     // superseded was gone as well. The caller then waited out the very deadline this change exists to
     // end. `finally` is what stops `bootAbandon` outliving the boot that would have read it.
     try {
-      void state.streamReader?.cancel()
+      state.streamReader?.cancel().catch(() => { /* an errored stream rejects cancel(); unhandled, it ends the CLI */ })
       state.streamReader = null
       state.captureStreamer = null // reader.cancel() kills the helper proc; drop the ref so a stale requestKeyframe() no-ops
       state.touchHelper?.stop()
@@ -1003,7 +1038,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     void this.network.forget(deviceId).catch((e: unknown) => {
       logger.warn('could not clear the network rule for a shut-down device:', (e as Error).message)
     })
-    void state.streamReader?.cancel()
+    state.streamReader?.cancel().catch(() => { /* an errored stream rejects cancel(); unhandled, it ends the CLI */ })
     state.streamReader = null
     state.captureStreamer = null // reader.cancel() kills the helper proc; drop the ref so a stale requestKeyframe() no-ops
     state.touchHelper?.stop()
@@ -2271,4 +2306,16 @@ function runExtractor(cmd: string, args: string[]): Promise<{ error?: Error; sta
     child.once('error', (error) => resolve({ error, status: null, stderr }))
     child.once('close', (status) => resolve({ status, stderr }))
   })
+}
+
+/**
+ * When to restart a screen stream that just ended. Only a run that delivered a frame resets the count — not
+ * how long it lasted: the helper retries `device.io` and its ports for up to ~10s before it gives up, so a
+ * duration rule would call every first-boot failure healthy. A simulator shut down from outside makes the
+ * helper exit at once, which without this was a restart loop at full speed.
+ */
+export function streamRestartPlan(previousFailures: number, deliveredFrame: boolean): { failures: number; delayMs: number } {
+  if (deliveredFrame) return { failures: 0, delayMs: 0 }
+  const failures = previousFailures + 1
+  return { failures, delayMs: failures <= 1 ? 0 : Math.min(250 * 2 ** (failures - 2), 5000) }
 }

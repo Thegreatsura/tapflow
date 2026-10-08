@@ -44,7 +44,7 @@ import {
   CODEC_AUDIO,
   sendAudioYieldingToVideo,
 } from '@tapflowio/agent-core/utils'
-import { execFileSync } from 'child_process'
+import { execFile } from 'child_process'
 import { AdbWrapper } from './AdbWrapper.js'
 import { EmulatorLauncher, findEmulatorPid, probeEmulator, stopEmulatorProcess } from './EmulatorLauncher.js'
 import { ensureHelperApp, launchMuteOnlyTap, isAudioSupported } from '@tapflowio/audiotap-helper'
@@ -460,6 +460,9 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
   // Holds a macOS power assertion while connected so the host doesn't idle-throttle the
   // emulator (its software H.264 encoder starves badly when the Mac idles). No-op off macOS.
   private readonly sleepBlocker: SleepBlocker
+  /** Host-mute helpers being stopped, by qemu pid. A re-boot of the same emulator keeps its qemu pid, and
+   *  `pkill` matches by it, so a new mute must wait for the old stop or the stop would kill it. */
+  private readonly pendingMuteStops = new Map<number, Promise<void>>()
   /** What the next "relay disconnected" line reports: when the relay last pinged, and the socket's last error. */
   private lastPingAt: number | null = null
   private lastSocketError: string | undefined
@@ -592,7 +595,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
           // code (ETIMEDOUT, ECONNRESET…) was dropped. It is the network half of the disconnect line.
           ws.on('error', (e: NodeJS.ErrnoException) => { this.lastSocketError = e.code ?? e.message })
           // `now` is taken here, at the close, not when the warning prints: the cleanup in between can run
-          // synchronous work (Android's host-mute `pkill`) and would inflate the ping age.
+          // work that holds the event loop and would inflate the ping age.
           ws.on('close', (code, reason) => this._scheduleReconnect({
             code, reason: reason.toString(), errorCode: this.lastSocketError, lastPingAt: this.lastPingAt, now: Date.now(),
           }))
@@ -1656,7 +1659,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
       const audio = client.streamAudio()
       state.emulatorAudio = audio
       void this.pumpAudio(state, streamWs, audio)
-      this.startHostMute(state) // #341: silence the emulator's host (agent Mac) output — iOS parity
+      void this.startHostMute(state) // #341: silence the emulator's host (agent Mac) output — iOS parity
     }
   }
 
@@ -1664,12 +1667,14 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
   // host-output-only mute). On macOS 14.2+ we hold a mute-only Core Audio process tap on the
   // emulator's qemu pid so its host output is silenced while gRPC keeps capturing for the browser —
   // matching iOS's muteBehavior=.muted. Below 14.2 / non-macOS: no-op (fall back to the Mac's volume).
-  private startHostMute(state: DeviceState): void {
+  private async startHostMute(state: DeviceState): Promise<void> {
     if (!isAudioSupported()) return
     if (state.audioMuteQemuPid != null) return // already muting this session (e.g. a stream restart)
     const avdName = state.deviceId.replace(/^avd:/, '')
     const qemuPid = findEmulatorPid(avdName)
     if (!qemuPid) { logger.debug(`host-mute: no qemu pid for ${avdName}`); return }
+    await this.pendingMuteStops.get(qemuPid)
+    if (state.audioMuteQemuPid != null) return // another start won while this one waited
     try {
       launchMuteOnlyTap(ensureHelperApp(), [qemuPid])
       state.audioMuteQemuPid = qemuPid
@@ -1681,10 +1686,16 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
 
   // Stop muting on teardown so the emulator is audible again if the operator uses it directly. The
   // mute helper also self-exits when qemu dies, so this only matters when the emulator outlives us.
+  // Async: this runs on device cleanup and on every relay loss, and a synchronous `pkill` held the event
+  // loop each time. A start for the same qemu pid waits for it (`pendingMuteStops`).
   private stopHostMute(state: DeviceState): void {
-    if (state.audioMuteQemuPid == null) return
-    try { execFileSync('pkill', ['-f', `audiotap-helper.*--mute-only ${state.audioMuteQemuPid}$`], { stdio: 'ignore' }) } catch { /* already gone */ }
+    const pid = state.audioMuteQemuPid
+    if (pid == null) return
     state.audioMuteQemuPid = null
+    const stop = new Promise<void>((resolve) => {
+      execFile('pkill', ['-f', `audiotap-helper.*--mute-only ${pid}$`], () => resolve()) // non-zero: already gone
+    }).finally(() => { if (this.pendingMuteStops.get(pid) === stop) this.pendingMuteStops.delete(pid) })
+    this.pendingMuteStops.set(pid, stop)
   }
 
   // Forward raw-PCM audio frames to the relay on the shared stream socket. Uses the yielding sender,

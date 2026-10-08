@@ -95,7 +95,7 @@ vi.mock('../SimProcessTree', () => ({
 import crypto from 'crypto'
 import { WebSocket, WebSocketServer } from 'ws'
 import { RelayServer, initDb, closeDb, getDb } from '@tapflowio/relay'
-import { IOSAgent, leanSupported } from '../IOSAgent'
+import { IOSAgent, leanSupported, streamRestartPlan } from '../IOSAgent'
 import { ScreenCaptureStreamer } from '../ScreenCaptureStreamer'
 import { AudioCaptureStreamer } from '../AudioCaptureStreamer'
 import { launchAudioHelper } from '@tapflowio/audiotap-helper'
@@ -1952,6 +1952,22 @@ describe('IOSAgent', () => {
         agent.disconnect(); browser.close()
       })
 
+      // A helper that ends without a frame used to be restarted at once, forever: a simulator shut down
+      // from outside makes it exit immediately, and every round reloads CoreSimulator at full speed.
+      it('backs off restarting a screen stream that keeps ending without a frame', async () => {
+        const simctl = mockSimctl(false)
+        vi.mocked(simctl.screenshot).mockRejectedValue(new Error('device io not ready'))
+        const { agent, browser } = await joined(simctl)
+        const ready = waitForType(browser, 'device:ready')
+        browser.send(JSON.stringify({ type: 'device:boot', sessionId: agent.sessionId, requestId: 'b', payload: { deviceId: 'dev-1' } }))
+        await ready
+        const before = vi.mocked(simctl.screenshot).mock.calls.length
+        await new Promise((r) => setTimeout(r, 800))
+        // Delays 0, 250, 500ms: a handful of tries in 800ms, against hundreds without the backoff.
+        expect(vi.mocked(simctl.screenshot).mock.calls.length - before).toBeLessThanOrEqual(6)
+        agent.disconnect(); browser.close()
+      })
+
       it('does not answer a boot that a newer boot superseded', async () => {
         // `bootSeq` makes a superseded boot return silently, and the correlator is what lets a caller
         // see that: exactly one `device:ready` arrives and it carries the newer id. A correlator read
@@ -3408,6 +3424,23 @@ describe('IOSAgent', () => {
       agent.disconnect()
     })
 
+    // An unbounded `simctl list` on a reconnect could hang the attempt for good — never settling, never
+    // retrying. First connect stays unbounded, as `SimctlWrapper.listDevices` documents.
+    it('bounds simctl list only on a reconnect attempt', async () => {
+      const simctl = mockSimctl()
+      const agent = new IOSAgent({ reconnectDelays: [0] }, simctl)
+      await agent.connect(`ws://localhost:${port}`)
+      expect(vi.mocked(simctl.listDevices).mock.calls[0]).toEqual([undefined])
+      const first = internals(agent).ws!
+      first.terminate()
+      await vi.waitFor(() => {
+        const ws = internals(agent).ws
+        expect(ws && ws !== first && ws.readyState === WebSocket.OPEN).toBe(true)
+      }, { timeout: 2000 })
+      expect(vi.mocked(simctl.listDevices).mock.calls.some((c) => c[0] === 10_000)).toBe(true)
+      agent.disconnect()
+    })
+
     it('reconnects automatically when connection drops and relay is available', async () => {
       const agent = new IOSAgent({ reconnectDelays: [0] }, mockSimctl())
       await agent.connect(`ws://localhost:${port}`)
@@ -4374,5 +4407,21 @@ describe('IOSAgent', () => {
         agent.disconnect()
       })
     })
+  })
+})
+
+describe('streamRestartPlan', () => {
+  // Reset only on a delivered frame, not on how long a run lasted: the helper retries device.io and its
+  // ports for up to ~10s before giving up, so a duration rule would read every first-boot failure as a
+  // healthy run and never back off.
+  it('restarts the first frameless end at once, then backs off 250ms doubling to 5s', () => {
+    expect(streamRestartPlan(0, false)).toEqual({ failures: 1, delayMs: 0 })
+    expect(streamRestartPlan(1, false)).toEqual({ failures: 2, delayMs: 250 })
+    expect(streamRestartPlan(2, false)).toEqual({ failures: 3, delayMs: 500 })
+    expect(streamRestartPlan(20, false)).toEqual({ failures: 21, delayMs: 5000 })
+  })
+
+  it('resets after a run that delivered a frame, so a mid-session crash restarts at once', () => {
+    expect(streamRestartPlan(7, true)).toEqual({ failures: 0, delayMs: 0 })
   })
 })
