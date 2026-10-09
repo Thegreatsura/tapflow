@@ -299,7 +299,14 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm --filter @tapflowio/relay test
+      # This job guards POSIX assumptions, not speed. The tests that spawn
+      # unzip/tar or run migrations on a file database sit close to the 5 s
+      # default here, and on a slow runner the whole suite runs 2-4x slower:
+      # three first-attempt failures in 100 runs, all timeouts, all green on
+      # rerun. The retry covers the tail that even 30 s missed (migration 014
+      # already has its own 30 s and still timed out twice). Windows only, so a
+      # real slowdown still fails on macOS and Linux.
+      - run: pnpm --filter @tapflowio/relay exec vitest run --testTimeout=30000 --retry=1
 
   # **The Swift the job above cannot touch — named for the language, not for today's one suite.**
   #
