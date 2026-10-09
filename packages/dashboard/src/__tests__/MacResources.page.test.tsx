@@ -6,6 +6,11 @@ import { BreadcrumbProvider } from '@/hooks/useBreadcrumb'
 import { MacResources } from '@/src/pages/MacResources'
 import { withQuery } from './withQuery'
 import { HISTORY_POLL_MS, flowIntervalMs, type Range } from '@/lib/resource-chart'
+import { SKELETON_DELAY_MS } from '@/hooks/useShownAfter'
+
+/** Skeleton bars on screen — laid out but `invisible` ones hold space without being seen. */
+const visibleBars = () => [...document.querySelectorAll('.animate-pulse')].filter((el) => !el.closest('.invisible'))
+const allBars = () => document.querySelectorAll('.animate-pulse')
 import type { AgentResources, BrowserInbound, SessionInfo } from '@/lib/types'
 
 // The page is where the chart's inputs change over time — the clock, the history, the live report — and
@@ -278,6 +283,29 @@ describe('the axis flows with time', () => {
     expect(resourceCalls).toHaveLength(1)
     await advance(1)
     expect(resourceCalls, 'the rest of the interval never came due').toHaveLength(2)
+  })
+
+  it('draws two chart skeletons while history loads, only after the delay', async () => {
+    const slow = deferred()
+    respond = () => slow.promise
+    await mount()
+    expect(screen.getByText('Loading…')).toHaveClass('sr-only')
+    expect(visibleBars()).toHaveLength(0)
+    // Two cards' worth of space is held from the start, so the page does not collapse during the wait.
+    expect(allBars()).toHaveLength(6)
+    await act(async () => { await vi.advanceTimersByTimeAsync(SKELETON_DELAY_MS) })
+    // Dot, title and plot in each of the two cards.
+    expect(visibleBars()).toHaveLength(6)
+  })
+
+  it('keeps the skeleton up when the range changes during a load, rather than blanking it', async () => {
+    // The skeleton is the same for every range, so a second wait would only blink it off and on.
+    respond = () => deferred().promise
+    await mount()
+    await act(async () => { await vi.advanceTimersByTimeAsync(SKELETON_DELAY_MS) })
+    expect(visibleBars()).toHaveLength(6)
+    await selectRange('6h')
+    expect(visibleBars()).toHaveLength(6)
   })
 
   it('loads at once on return if hiding the tab cut the first load short', async () => {

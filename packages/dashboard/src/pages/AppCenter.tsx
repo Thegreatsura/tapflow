@@ -11,9 +11,11 @@ import {
 import { UploadBuildDialog } from '@/components/UploadBuildDialog'
 import { AppSidebar } from '@/components/app-center/AppSidebar'
 import { ReleaseAccordion } from '@/components/app-center/ReleaseAccordion'
+import { ReleaseListSkeleton } from '@/components/app-center/ReleaseListSkeleton'
 import { getApps, getBuilds, updateBuildStatus, scheduleBuildDeletion, cancelBuildDeletion, groupByRelease, queryKeys, ForbiddenError } from '@/lib/queries'
 import type { Build } from '@/lib/types'
 import { useFocusAfterSwap } from '@/hooks/useFocusAfterSwap'
+import { SKELETON_DELAY_MS, useShownAfter } from '@/hooks/useShownAfter'
 import { useReleaseDisclosure } from '@/hooks/useReleaseDisclosure'
 import { useAuth } from '@/hooks/useAuth'
 import { buildRowName, describeDeletionCountdown } from '@/lib/build-format'
@@ -453,6 +455,9 @@ export function AppCenter() {
   // region lands on the search box above it.
   const searchRef = useRef<HTMLInputElement>(null)
   const swapRegion = useFocusAfterSwap<HTMLDivElement>(view, searchRef)
+  // Not keyed on the app: the skeleton looks the same for every app, so switching from one loading
+  // app to another keeps it up rather than blanking it for another wait.
+  const showSkeleton = useShownAfter(view === 'loading', SKELETON_DELAY_MS)
   const errorTitleId = useId()
   const errorHintId = useId()
   const emptyTitleId = useId()
@@ -578,7 +583,12 @@ export function AppCenter() {
             </Button>
           </div>
         ) : view === 'loading' ? (
-          <p id={loadingId} className="text-sm text-muted-foreground">Loading…</p>
+          /* The text stays, for a screen reader only: the search box is described by it, and the
+             skeleton beside it says nothing to one. */
+          <div className="flex flex-col">
+            <p id={loadingId} className="sr-only">Loading…</p>
+            {showSkeleton && <ReleaseListSkeleton />}
+          </div>
         ) : view === 'empty' ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center">
             <Package className="w-8 h-8 text-muted-foreground/40" />

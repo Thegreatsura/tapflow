@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Dashboard pages show the shape of what is loading.** App Center's build list, Mac Resources' charts, and the Team and Tokens tables draw a skeleton of their content while it loads, instead of a "Loading…" line. A load that answers within a quarter second shows nothing, so a fast relay does not flicker.
+
 ## [0.27.1] - 2026-10-09
 
 ### Added
