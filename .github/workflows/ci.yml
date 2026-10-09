@@ -303,10 +303,13 @@ jobs:
       # unzip/tar or run migrations on a file database sit close to the 5 s
       # default here, and on a slow runner the whole suite runs 2-4x slower:
       # three first-attempt failures in 100 runs, all timeouts, all green on
-      # rerun. The retry covers the tail that even 30 s missed (migration 014
-      # already has its own 30 s and still timed out twice). Windows only, so a
-      # real slowdown still fails on macOS and Linux.
-      - run: pnpm --filter @tapflowio/relay exec vitest run --testTimeout=30000 --retry=1
+      # rerun. hookTimeout too: most files run every migration on a file
+      # database in beforeAll, ~6 s here against a 10 s default, and a failed
+      # beforeAll is not retried. Migration 014 sets its own 30 s, which these
+      # flags do not raise, and ran 55-65 s on the slow runners; for it the
+      # retry is best effort. Windows only: the Linux `test` job still runs the
+      # suite with the defaults and no retry.
+      - run: pnpm --filter @tapflowio/relay exec vitest run --testTimeout=30000 --hookTimeout=30000 --retry=1
 
   # **The Swift the job above cannot touch — named for the language, not for today's one suite.**
   #
