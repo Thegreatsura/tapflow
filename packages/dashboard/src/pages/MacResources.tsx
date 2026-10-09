@@ -5,6 +5,8 @@ import { useRelay } from '@/hooks/useRelay'
 import { useBreadcrumb } from '@/hooks/useBreadcrumb'
 import { useDocumentVisible } from '@/hooks/useDocumentVisible'
 import { useFlowingNow } from '@/hooks/useFlowingNow'
+import { SKELETON_DELAY_MS, useShownAfter } from '@/hooks/useShownAfter'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Monitor } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { scaleTime, scaleLinear } from '@visx/scale'
@@ -144,6 +146,8 @@ export function MacResources() {
   // A first load that failed settles on the empty state rather than loading forever.
   const loaded = history.data !== undefined || history.isError
   const loading = historyKey !== null && !loaded
+  // Keyed by a string, not `historyKey`: a fresh array each render would restart the wait every time.
+  const showSkeleton = useShownAfter(loading, SKELETON_DELAY_MS, `${selectedAgent}:${range}`)
   const chartData = (history.data ?? []).map((p) => ({
     time: p.recorded_at,
     cpu: roundPercent(p.cpu_percent),
@@ -214,7 +218,15 @@ export function MacResources() {
             </div>
 
             {loading ? (
-              <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">Loading…</div>
+              <div className="flex flex-col gap-6">
+                <p className="sr-only">Loading…</p>
+                {showSkeleton && (
+                  <>
+                    <ChartCardSkeleton />
+                    <ChartCardSkeleton />
+                  </>
+                )}
+              </div>
             ) : chartData.length === 0 ? (
               // The live head does not stand in for an empty history: a single point draws no line, and the
               // first stored row is at most a minute away.
@@ -271,6 +283,19 @@ const LABEL_HALF_PX = 20
 // The fade at each end of the time axis. Wider than half a label, so a label crossing an edge is already faint
 // before the mask starts cutting it.
 const AXIS_FADE_PX = 40
+
+/** `ChartCard`'s frame with the title and plot as bars, so the page keeps its height while history loads. */
+function ChartCardSkeleton() {
+  return (
+    <div className="rounded-lg border p-4 flex flex-col gap-3" aria-hidden>
+      <div className="flex items-center gap-2">
+        <Skeleton className="h-2.5 w-2.5 rounded-full" />
+        <Skeleton className="h-4 w-12" />
+      </div>
+      <Skeleton className="h-[220px] w-full" />
+    </div>
+  )
+}
 
 function ChartCard({
   title,

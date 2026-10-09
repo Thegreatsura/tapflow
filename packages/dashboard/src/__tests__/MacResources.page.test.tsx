@@ -6,6 +6,7 @@ import { BreadcrumbProvider } from '@/hooks/useBreadcrumb'
 import { MacResources } from '@/src/pages/MacResources'
 import { withQuery } from './withQuery'
 import { HISTORY_POLL_MS, flowIntervalMs, type Range } from '@/lib/resource-chart'
+import { SKELETON_DELAY_MS } from '@/hooks/useShownAfter'
 import type { AgentResources, BrowserInbound, SessionInfo } from '@/lib/types'
 
 // The page is where the chart's inputs change over time — the clock, the history, the live report — and
@@ -278,6 +279,17 @@ describe('the axis flows with time', () => {
     expect(resourceCalls).toHaveLength(1)
     await advance(1)
     expect(resourceCalls, 'the rest of the interval never came due').toHaveLength(2)
+  })
+
+  it('draws two chart skeletons while history loads, only after the delay', async () => {
+    const slow = deferred()
+    respond = () => slow.promise
+    await mount()
+    expect(screen.getByText('Loading…')).toHaveClass('sr-only')
+    expect(document.querySelectorAll('.animate-pulse')).toHaveLength(0)
+    await act(async () => { await vi.advanceTimersByTimeAsync(SKELETON_DELAY_MS) })
+    // Dot, title and plot in each of the two cards.
+    expect(document.querySelectorAll('.animate-pulse')).toHaveLength(6)
   })
 
   it('loads at once on return if hiding the tab cut the first load short', async () => {

@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getRecordings, queryKeys } from '@/lib/queries';
 import { Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { Recording } from '@/lib/types';
+import { useShownAfter } from '@/hooks/useShownAfter';
 
 interface Props {
   buildId: number;
@@ -32,23 +32,6 @@ function formatExpiry(iso: string): { label: string; urgent: boolean } {
   if (h < 1) return { label: '< 1 hour left', urgent: true };
   if (h < 24) return { label: `Expires in ${h}h`, urgent: h < 6 };
   return { label: `Expires in ${Math.floor(h / 24)}d`, urgent: false };
-}
-
-/**
- * True once `active` has held for `ms` — so a loading line appears only for a load slow enough to
- * notice, not as a flash on one that takes a few milliseconds. Set from the timer's callback, never
- * synchronously in the effect.
- */
-function useShownAfter(active: boolean, ms: number, load: unknown): boolean {
-  const [elapsed, setElapsed] = useState(false);
-  useEffect(() => {
-    if (!active) return;
-    const t = setTimeout(() => setElapsed(true), ms);
-    // Reset on the way out, so the next load waits its own `ms`. `load` names which load this is:
-    // switching build keeps `active` true throughout, so without it the timer would never restart.
-    return () => { clearTimeout(t); setElapsed(false); };
-  }, [active, ms, load]);
-  return active && elapsed;
 }
 
 export function RecordingsList({ buildId }: Props) {

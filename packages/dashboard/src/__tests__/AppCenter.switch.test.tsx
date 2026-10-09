@@ -826,6 +826,20 @@ describe('App Center — focus survives the list being swapped out (#829)', () =
     await screen.findByText('uploader-1')
   })
 
+  it('draws release-shaped skeletons for a slow load and keeps the loading text for a screen reader', async () => {
+    const slow = deferred<Build[]>()
+    getBuilds.mockReturnValueOnce(slow.promise)
+    renderAppCenter()
+
+    const text = await screen.findByText('Loading…')
+    expect(text).toHaveClass('sr-only')
+    await waitFor(() => expect(document.querySelectorAll('.animate-pulse').length).toBeGreaterThan(0))
+
+    slow.resolve([build(1, '1.0.0')])
+    await screen.findByText('uploader-1')
+    expect(document.querySelectorAll('.animate-pulse')).toHaveLength(0)
+  })
+
   it('leaves focus in the search box when that is where it was', async () => {
     // The tester is typing. Pulling the caret out of the field because the answer to what they typed
     // failed would be the defect aimed the other way.
