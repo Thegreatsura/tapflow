@@ -221,12 +221,14 @@ export function MacResources() {
             {loading ? (
               <div className="flex flex-col gap-6">
                 <p className="sr-only">Loading…</p>
-                {showSkeleton && (
-                  <>
-                    <ChartCardSkeleton />
-                    <ChartCardSkeleton />
-                  </>
-                )}
+                {/* Laid out from the first frame and only revealed after the delay, so switching from
+                    drawn charts to an uncached range or Mac keeps the page's height (and scroll)
+                    instead of collapsing to nothing for the wait. `invisible` would hide the text
+                    above from a screen reader too, which is why that stays outside. */}
+                <div className={showSkeleton ? 'flex flex-col gap-6' : 'flex flex-col gap-6 invisible'}>
+                  <ChartCardSkeleton />
+                  <ChartCardSkeleton />
+                </div>
               </div>
             ) : chartData.length === 0 ? (
               // The live head does not stand in for an empty history: a single point draws no line, and the
