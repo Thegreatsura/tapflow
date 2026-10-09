@@ -292,6 +292,16 @@ describe('the axis flows with time', () => {
     expect(document.querySelectorAll('.animate-pulse')).toHaveLength(6)
   })
 
+  it('keeps the skeleton up when the range changes during a load, rather than blanking it', async () => {
+    // The skeleton is the same for every range, so a second wait would only blink it off and on.
+    respond = () => deferred().promise
+    await mount()
+    await act(async () => { await vi.advanceTimersByTimeAsync(SKELETON_DELAY_MS) })
+    expect(document.querySelectorAll('.animate-pulse')).toHaveLength(6)
+    await selectRange('6h')
+    expect(document.querySelectorAll('.animate-pulse')).toHaveLength(6)
+  })
+
   it('loads at once on return if hiding the tab cut the first load short', async () => {
     // A history's age is taken from when a load finished. Taken from when it started, a first load aborted
     // by hiding the tab would count as fresh, and the page would sit on Loading for the rest of the interval.

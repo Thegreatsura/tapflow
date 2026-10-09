@@ -146,8 +146,9 @@ export function MacResources() {
   // A first load that failed settles on the empty state rather than loading forever.
   const loaded = history.data !== undefined || history.isError
   const loading = historyKey !== null && !loaded
-  // Keyed by a string, not `historyKey`: a fresh array each render would restart the wait every time.
-  const showSkeleton = useShownAfter(loading, SKELETON_DELAY_MS, `${selectedAgent}:${range}`)
+  // Not keyed on the Mac or range: the skeleton looks the same for each, so changing either during a
+  // load keeps it up rather than blanking it for another wait.
+  const showSkeleton = useShownAfter(loading, SKELETON_DELAY_MS)
   const chartData = (history.data ?? []).map((p) => ({
     time: p.recorded_at,
     cpu: roundPercent(p.cpu_percent),
@@ -290,7 +291,7 @@ function ChartCardSkeleton() {
     <div className="rounded-lg border p-4 flex flex-col gap-3" aria-hidden>
       <div className="flex items-center gap-2">
         <Skeleton className="h-2.5 w-2.5 rounded-full" />
-        <Skeleton className="h-4 w-12" />
+        <Skeleton className="h-5 w-12" />
       </div>
       <Skeleton className="h-[220px] w-full" />
     </div>

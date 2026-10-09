@@ -47,9 +47,10 @@ const BAR_WIDTHS = ['w-28', 'w-40', 'w-16', 'w-20']
  * screen reader only**: the bars say nothing to one, and this text is what it read before.
  *
  * Nothing visible for the first `SKELETON_DELAY_MS` — a relay on the LAN usually answers sooner, and
- * bars that appear and vanish within a frame read as a flicker. The last column is an icon button in
- * every table using this, so its bar is that button's size, which keeps a skeleton row as tall as a
- * real one.
+ * bars that appear and vanish within a frame read as a flicker. Until then the one row keeps the
+ * height the loading line had, so an answer of "none" does not grow the table. The last column holds
+ * row actions in every table using this (an icon button in Tokens, two text buttons in Team), all
+ * `h-7`, so its bar is that height and a skeleton row is as tall as a real one.
  */
 function SkeletonRows({ colSpan, shown }: { colSpan: number; shown: boolean }) {
   return (
@@ -57,7 +58,7 @@ function SkeletonRows({ colSpan, shown }: { colSpan: number; shown: boolean }) {
       {Array.from({ length: shown ? SKELETON_ROWS : 1 }, (_, row) => (
         <TableRow key={row} className="hover:bg-transparent">
           {Array.from({ length: colSpan }, (_, col) => (
-            <TableCell key={col}>
+            <TableCell key={col} className={shown ? undefined : 'h-20'}>
               {row === 0 && col === 0 && <span className="sr-only">Loading…</span>}
               {shown && (
                 <Skeleton

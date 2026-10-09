@@ -455,8 +455,9 @@ export function AppCenter() {
   // region lands on the search box above it.
   const searchRef = useRef<HTMLInputElement>(null)
   const swapRegion = useFocusAfterSwap<HTMLDivElement>(view, searchRef)
-  // Keyed on the app: switching from one loading app to another restarts the wait.
-  const showSkeleton = useShownAfter(view === 'loading', SKELETON_DELAY_MS, selectedAppId)
+  // Not keyed on the app: the skeleton looks the same for every app, so switching from one loading
+  // app to another keeps it up rather than blanking it for another wait.
+  const showSkeleton = useShownAfter(view === 'loading', SKELETON_DELAY_MS)
   const errorTitleId = useId()
   const errorHintId = useId()
   const emptyTitleId = useId()
