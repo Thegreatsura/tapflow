@@ -46,6 +46,18 @@ This distinction is the moat. Coordinate recording (what Maestro/Appium record p
 - **AI adds value on top**: naming a scenario, suggesting assertions, tidying redundant steps.
 - **AI output is wrapped in a harness.** A generated flow is immediately verified by a deterministic replay — it only lands if it passes. This buys efficiency (AI drafts fast) *and* idempotency (the replay gate pins it down). It is the same discipline we already use in development (adversarial review, schema-checked outputs), brought into the product.
 
+## Always Reviewable: what AI does, a person can see
+
+An agent driving a device, or a flow failing in CI, should not be a black box that reports pass or fail.
+A teammate opens the dashboard and watches the device the agent is driving. A flow run leaves a record
+next to its build: the flow, each step's result, the failure, and whether the product or the environment
+failed. Those records are kept only as long as the build is.
+
+The same records serve the agent. **We build the tool a person uses to understand a run, then hand that
+tool to the AI**. A failure record a person can read is one an agent can read through MCP to repair the
+flow, and it repairs it outside the run, so replay stays deterministic. AI work does not get a separate
+dashboard: the screens and records exist for manual QA first, and are opened to the AI axis.
+
 ## The line we hold
 
 Grow the *naturalness* of the manual-QA → automation transition, not the *count* of automation features. That transition is where tapflow differs most from Appium and traditional test frameworks — and it is worth protecting over any single capability.

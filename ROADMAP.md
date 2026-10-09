@@ -157,6 +157,33 @@ post-launch timing are where it breaks. Hardening is tracked under the
 - [x] `run_flow` MCP tool — agents replay verified flows through the same deterministic engine
 - [ ] **Flow Capture** (the manual↔AI bridge) — a person operates the app in the dashboard; tapflow records the actions as tree-based selectors and drafts a YAML flow, no agent required. Selector-based (via the UI tree), not coordinate recording, so captures stay robust. Blocked on tree fidelity: the selectors have to be trustworthy before capturing them means anything.
 
+### Reviewable automation
+
+What an agent or a flow run does should be something a person can see, and the same record should
+be readable by an agent ([VISION.md](./VISION.md#always-reviewable-what-ai-does-a-person-can-see)).
+Today a device an agent holds shows as "In use" and cannot be opened, and a flow run's result exists
+only as JUnit and screenshots in the CI job. This track ships in two stages. **First make it usable,
+then refine it.** Every step is additive, so a team picks it up by upgrading.
+
+Usable:
+
+- [ ] **AI session page**: watch a device an MCP or flow-runner client is driving, live and read-only,
+  on its own dashboard page. The QA session page stays built for manual testing, and the two share
+  the device view.
+- [ ] **Agent action timeline** on that page. The relay passes the agent's actions to watchers as they
+  happen and does not store them.
+- [ ] **Flow run records**: the flow, per-step results, the failure screenshot, and whether the product
+  or the environment failed. Records attach to the build and are deleted with it.
+- [ ] **Run recording** that works without a browser, as in CI.
+
+Refine:
+
+- [ ] Product vs environment failure shown first on a run record.
+- [ ] Selector fix suggestions. When a selector fails, tapflow suggests a YAML patch built from the UI
+  tree at that moment, with no LLM involved.
+- [ ] Run records readable through MCP, so an agent can repair a failed flow and replay it
+  deterministically.
+
 ---
 
 ## Phase 5+ / Not yet scheduled
