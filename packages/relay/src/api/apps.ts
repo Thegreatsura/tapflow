@@ -43,9 +43,17 @@ export async function handleCreateApp(
     return json(res, 400, { error: 'platform is required' })
   }
 
-  const result = getDb()
+  // Migration 007 dropped UNIQUE(bundle_id_key, platform) to be enforced here, and it never was. Same
+  // key and same platform value, as the constraint was — 'both' beside an 'ios' row is still accepted.
+  // better-sqlite3 is synchronous, so no request can insert between this check and the INSERT.
+  const db = getDb()
+  const bundleIdKey = body.bundle_id_key.trim()
+  if (db.prepare('SELECT 1 FROM apps WHERE bundle_id_key = ? AND platform = ?').get(bundleIdKey, platform)) {
+    return json(res, 409, { error: 'App with this bundle ID and platform already exists' })
+  }
+  const result = db
     .prepare('INSERT INTO apps (name, bundle_id_key, platform) VALUES (?, ?, ?)')
-    .run(body.name.trim(), body.bundle_id_key.trim(), platform)
+    .run(body.name.trim(), bundleIdKey, platform)
   json(res, 201, { id: result.lastInsertRowid, ok: true })
 }
 
