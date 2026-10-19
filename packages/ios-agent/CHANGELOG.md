@@ -1,5 +1,21 @@
 # @tapflowio/ios-agent
 
+## 0.28.0
+
+### Patch Changes
+
+- 63ec021: The published packages carry the license texts they need. `tapflow` includes `LICENSE`, which `files` already listed but which was missing from the package directory. `@tapflowio/android-agent` and `@tapflowio/ios-agent` add `LICENSE-APACHE-2.0` and a `NOTICE` for the Apache-2.0 code they ship: scrcpy-server and the Android Emulator's `emulator_controller.proto` in the Android agent, logic derived from baguette in the iOS agent.
+- 03fa46f: Booting an iOS simulator that is already running stops the audio capture its last boot started before starting a new one. Each re-boot used to leave an `audiotap-helper` process and a 1.5 s poll behind.
+- 8e304d6: UI tree frames are clipped to the screen and an element wholly off it is left out, as on Android, so a screen with content scrolled or animated off it no longer makes flow-runner and the MCP server refuse the whole tree (`invalid response shape`). The far edge is rounded down, so `x + width` never passes 1.
+- e59056e: Each iOS simulator gets its own UI-tree runner, so reading one device no longer stops another device's runner. The runner picks a free port itself, announces it, and answers `/health` with a token the agent passed, so a runner left on a port by another agent is never read from. The built runner is rebuilt when its sources or Xcode change. `tapflow agent start` and `tapflow start` disconnect their agents on `SIGTERM` as they do on Ctrl+C, so no runner outlives it.
+- 0c32562: The iOS agent starts its UI-tree runner as soon as a device a flow runner or MCP client booted is ready, instead of on the first tree query, so the first selector step after a boot no longer spends the runner's 8–9 s cold start inside its timeout. The relay tells the agent who is booting by adding `automation` to the forwarded `device:boot`; a dashboard boot is not warmed. A runner killed from outside, or left without its simulator when the simulator was shut down outside tapflow, is now replaced on the next query instead of being asked again until xcodebuild exits.
+- Updated dependencies [9b68ce4]
+- Updated dependencies [d17a75f]
+- Updated dependencies [acaf4dc]
+  - @tapflowio/protocol@0.28.0
+  - @tapflowio/agent-core@0.28.0
+  - @tapflowio/audiotap-helper@0.3.12
+
 ## 0.27.1
 
 ### Patch Changes

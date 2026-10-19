@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-10-20
+
 ### Added
 
 - **See what the coding agent does while you watch it.** The watch page of an AI session lists, beside the device, each tap, swipe, key, button, typing, app launch and install, cleared app data and opened link as it happens, and shows a blue cursor on the device that stays at the last tap and glides to the next. A flow run through `run_flow` or `tapflow flow run` adds each step's name as it starts. Typing shows only how many characters, and an opened link, a character key and the text a step types are never shown: everyone signed in can watch. Nothing is stored, so the list starts when the page opens. See [Watch the device a coding agent drives](https://www.tapflow.dev/automation/mcp-server#watch-the-device).
@@ -1032,7 +1034,8 @@ found out by waiting.
 
 - Automatic `tapflow.config.json` creation as a side effect of `tapflow start` / `tapflow relay start`.
 
-[Unreleased]: https://github.com/jo-duchan/tapflow/compare/v0.27.1...HEAD
+[Unreleased]: https://github.com/jo-duchan/tapflow/compare/v0.28.0...HEAD
+[0.28.0]: https://github.com/jo-duchan/tapflow/compare/v0.27.1...v0.28.0
 [0.27.1]: https://github.com/jo-duchan/tapflow/compare/v0.27.0...v0.27.1
 [0.27.0]: https://github.com/jo-duchan/tapflow/compare/v0.26.1...v0.27.0
 [0.26.1]: https://github.com/jo-duchan/tapflow/compare/v0.26.0...v0.26.1

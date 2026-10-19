@@ -1,5 +1,14 @@
 # @tapflowio/agent-core
 
+## 0.28.0
+
+### Patch Changes
+
+- Updated dependencies [9b68ce4]
+- Updated dependencies [d17a75f]
+- Updated dependencies [acaf4dc]
+  - @tapflowio/protocol@0.28.0
+
 ## 0.27.1
 
 ### Patch Changes
