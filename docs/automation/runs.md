@@ -21,7 +21,7 @@ A run is recorded when the runner has a token. See [Recording runs](#recording) 
 
 The list shows 25 runs a page, newest first; **Newer** and **Older** below it move between pages.
 
-The **Runs** button on a build row in App Center lists that build's flow runs only. The filters are part of the address, so a filtered list is a link you can share.
+The filters are part of the address, so a filtered list is a link you can share.
 
 ### A run's page {#run-detail}
 
