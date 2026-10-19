@@ -28,7 +28,14 @@ const INDEX_HTML = resolve(DASHBOARD_DIST, 'index.html')
 // compiler on**, as the previous note asked, it produces 187,809 B — so 182,000 fails it with
 // 5.8 kB to spare, slightly more than the 5.1 kB the old pair had. Before raising this again,
 // rebuild with that config and check it still fails.
-const FIRST_LOAD_BROTLI_BUDGET = 182_000
+//
+// 2026-10-19, Dependabot's 32-update group (#1001): 191,000 against 183,011 B, 8 kB of room again.
+// main was already at 181,432 B, 568 B under the old budget; the group adds 1,579 B, nearly all of it
+// to the entry chunk (+1,510 B) rather than vendor-react (+64 B). The Radix minors it carries (dialog
+// 1.1 → 1.3, scroll-area 1.2 → 1.4, tooltip 1.2 → 1.4, select, slot) are the likely source; that is
+// not measured per package. The eager split, rebuilt on that group's dependencies, is 200,957 B, so
+// 191,000 still fails it with 10 kB to spare.
+const FIRST_LOAD_BROTLI_BUDGET = 191_000
 const MAX_RAW_JS_CHUNK_SIZE = 500_000
 
 function buildDashboardDist() {
