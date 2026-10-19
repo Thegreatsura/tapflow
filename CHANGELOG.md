@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A build upload whose file part has no file name is refused with 400, not answered 500.** A multipart upload that sent its file as `application/octet-stream` without a `filename` failed with a server error; it now gets the same "Only .app.zip / .tar.gz (iOS) or .apk (Android) files allowed" answer as any other unsupported file.
 - **Adding an app whose bundle ID is taken is refused.** In App Center, **+ Add App** with a bundle ID that an existing app already has now shows "App with this bundle ID already exists" and adds nothing, whatever platform you pick. It used to create a second app, and builds uploaded without choosing an app, as CI does, never reach it: they go to the first app, which becomes **Both** when a build for the other platform arrives. For an app on iOS and Android, add it once with **Both**. Apps already duplicated are left as they are. To remove the extra one, delete it in **Settings → Default → Apps**, which deletes the builds uploaded to it too.
 
 - **Platform badges say iOS, not Ios.** App Center's build rows, Settings → Apps and the QA session's "No agents available" line now name the platform `iOS`, `Android` or `Both`.
