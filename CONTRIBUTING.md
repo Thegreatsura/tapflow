@@ -86,6 +86,29 @@ tapflow is built with coding agents, and AI-assisted contributions are welcome. 
 - Releases are driven by [changesets](https://github.com/changesets/changesets). A tag push triggers GitHub Actions → npm publish + GitHub Release. Merging to main does not auto-publish.
 - Never publish with raw `npm publish` — it does not rewrite `workspace:*` dependencies between packages; the changesets → pnpm publish path does.
 
+### Docs follow releases
+
+tapflow.dev deploys from the `docs-production` branch, not from `main`. This takes effect from the
+first release after the change, when the branch is created and Vercel's production branch is
+switched to it (`/release` §11). A self-hosted user runs what npm published, and main's docs
+describe features that have not been published yet. The last step of `.github/workflows/release.yml`
+moves `docs-production` to each new stable release. Prereleases and backports leave it where it is
+(`scripts/docs-production.mjs`). Every push to `main` still builds a Vercel Preview, so unreleased
+docs can be checked there.
+
+**A docs fix for something already released can go out before the next release.** Merge it to `main`
+first, then cherry-pick that commit onto `docs-production` and push. Read the diff before pushing:
+that push deploys tapflow.dev, so it must not carry a page about an unreleased feature. The next
+release replaces the branch's files with the tagged commit's, so the fix survives only if it merged
+to `main` before that commit. A fix merged later, while a release is being cut, is cherry-picked
+again after the release. Do not push `main` itself to `docs-production`, since that publishes every
+unreleased page at once. The branch holds no `.github/workflows`, so if the commit touches a workflow,
+drop those paths before committing: `git cherry-pick -n <sha>`, then
+`git rm -r -f -q --ignore-unmatch .github/workflows`, then `git commit -C <sha>`. A plain cherry-pick
+is not enough, because a commit that only adds a workflow file applies without a conflict and is
+committed with it. Otherwise the next release's push would remove those files again, and GitHub
+refuses that from the release workflow's token.
+
 ### Publishing the Docker image from a fork
 
 If you are publishing a fork of tapflow to a custom Docker registry namespace, you need two repository secrets set up in GitHub:

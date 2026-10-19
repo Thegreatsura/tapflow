@@ -162,6 +162,12 @@ model: claude-opus-5
 - **STOP** — 태그 push는 즉시 npm 발행을 유발하는 되돌리기 어려운 작업이다. 사용자 확인 후 진행한다.
 - `git push origin vX.Y.Z`
 - 워크플로우가 처리하는 것: `pnpm build` → `changeset publish`(공개 패키지 전부, 단일 경로) → GitHub Release 생성. changesets publish는 위상 정렬 없이 동시 발행하므로, 신규 패키지가 있으면 위 7번의 seed publish 전제를 반드시 지킨다.
+- 같은 워크플로의 마지막 단계가 최신 stable 태그의 트리(워크플로 파일 제외)를 `docs-production`에 fast-forward로 push한다. 로그에 `move`가 찍혔는지,
+  tapflow.dev가 새 버전 문서로 바뀌었는지 확인한다(Vercel production 배포는 1~2분). `skip:`이면 이유가 같이 찍힌다.
+  - **최초 1회:** 이 단계가 처음 돌면 `docs-production` 브랜치가 생긴다. 그 Preview 배포를 확인한 뒤 사용자가
+    Vercel 프로젝트의 Production Branch를 `main` → `docs-production`으로 바꾸고 Redeploy한다. 이어서 브랜치에
+    삭제 금지 ruleset(bypass 없음)을 만든다. 끝나면 이 하위 항목과, CONTRIBUTING "Docs follow releases"·
+    `docs/AGENTS.md`의 "첫 릴리스 전까지" 단서를 지운다.
 - npm 인증은 **GitHub OIDC(trusted publishing)** 로 동작한다 — NPM_TOKEN 등 별도 토큰이 필요 없다.
 - **발행 확인은 폴링이고, 레지스트리를 직접 읽는다.** v0.20.0에서 예전 확인 셋이 **전부 참이면서 릴리즈는
   설치 불가**였다. 워크플로우 로그는 9개 전부 `published successfully`라고 말했고, 그 시점에 둘은 13분 뒤에야
