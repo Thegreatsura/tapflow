@@ -1,5 +1,19 @@
 # @tapflowio/android-agent
 
+## 0.28.0
+
+### Patch Changes
+
+- 1314039: The Android agent reads the UI tree with `bin/tapflow-uidump.jar` (run through `app_process`, using the device's own uiautomator classes) instead of `uiautomator dump`, so a screen that never goes idle no longer fails with `could not get idle state`: the idle wait is bounded at a second and not fatal. A still screen reads in 1.3 s instead of 2.05 s (emulator). `uiautomator dump` remains the fallback for an image without those classes.
+- 63ec021: The published packages carry the license texts they need. `tapflow` includes `LICENSE`, which `files` already listed but which was missing from the package directory. `@tapflowio/android-agent` and `@tapflowio/ios-agent` add `LICENSE-APACHE-2.0` and a `NOTICE` for the Apache-2.0 code they ship: scrcpy-server and the Android Emulator's `emulator_controller.proto` in the Android agent, logic derived from baguette in the iOS agent.
+- e4b34fd: `launchApp` waits until the app's UI-tree structure (role, label, id of each element) holds still for a second, where 0.27.1 ended as soon as the app's process started. An app that draws its own splash is therefore not taken as ready on the splash, and a screen with no tree elements (a game, a canvas) moves on after a second; a screen that never holds still moves on 3 s after its first read. The Android agent launches with the launcher's intent through `am start -W` (bounded at 10 s, `monkey` as the fallback), so its launch reply comes after the app's first frame, or once that 10 s bound runs out. The `launch_app` MCP tool says that returning does not mean the screen is up.
+- Updated dependencies [9b68ce4]
+- Updated dependencies [d17a75f]
+- Updated dependencies [acaf4dc]
+  - @tapflowio/protocol@0.28.0
+  - @tapflowio/agent-core@0.28.0
+  - @tapflowio/audiotap-helper@0.3.12
+
 ## 0.27.1
 
 ### Patch Changes

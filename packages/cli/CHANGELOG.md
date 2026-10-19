@@ -1,5 +1,65 @@
 # tapflow
 
+## 0.28.0
+
+### Minor Changes
+
+- 708fb82: `tapflow flow run` records each run on the relay (`/api/v1/runs`) when it has a token: flows, steps, failure screenshots, device, build and CI context (provider, branch, commit, link to the CI run). Recording never changes the result or exit code; `--no-record` turns it off. A cancelled run leaves its session and exits 130 (SIGINT) or 143 (SIGTERM). `RelayClient.clientId` is now readable, so a run record can name its runner.
+- 1f4ace9: A recorded `tapflow flow run` now sends each flow's video to the relay beside the run record, cut from the device stream the runner already receives; a run's page on the dashboard plays it. Video never changes a run's result: it has its own queue, a refused or slow video call prints one line and the record carries on, and at the end of a run the record is sent first. The runner asks iOS agents for H.264 while recording. flow-runner exports `VideoTap`, `RelayClient.setStreamListener`, a `bootDevice` option `acceptH264`, and an engine option `onStep`.
+- 56f42c4: `tapflow token set` stores the token the MCP server and `tapflow flow run` read from `~/.config/tapflow/credentials.json`, from a hidden prompt or stdin, after checking it with the relay; it is stored for `--relay`, else `TAPFLOW_RELAY_URL`, else `ws://localhost:4000` — the clients' own default. `tapflow token status` lists the relays with a stored token and whether each still works, without printing tokens. A refused token's message names the command. flow-runner exports `writeCredential` (atomic, other relays kept, symlinked or foreign-owned files refused), `listCredentials`, `CredentialFileError` and `PAT_PATTERN`.
+- 9b10eb4: Dashboard: a watch page (`/automation/sessions/<id>`) shows, read-only, the device an AI client is driving; it is reached through the link below, and the QA session's device list says which AI client holds a device. `connect_device` returns `watchUrl`, and `tapflow flow run` prints it outside CI. The relay sends `watchUrl` only when it knows an address teammates can open (a tunnel or `relay.url`); otherwise the client builds the link from the relay address it dialled.
+- 70f73ea: Dashboard: a Flow Runs page (`/automation/runs`), listed in the sidebar once a run is recorded, lists `tapflow flow run`'s records, opening on CI runs, filterable by source, status, flow name and build; a run's page shows each flow's steps, failure message and screenshot, separates app failures from environment problems, and offers **Watch the device** while the run is in progress. The relay's `flow` filter now matches part of a name, ignoring the case of ASCII letters. `tapflow flow run` prints the run's page link when it ends, outside CI.
+- ce73d00: A recorded `tapflow flow run` now keeps the screen each passed flow ended on, as the evidence that it passed, and the dashboard's Flow Runs page shows it under the flow. The flow runner's engine takes `captureLastScreen` and returns `lastScreenshot`; it is off by default, so MCP's `run_flow` is unchanged.
+- e54cf56: A `tapOn` that matches nothing or several elements carries up to three suggested lines on its failed step (`StepResult.suggestions`), each verified to tap exactly one element on the screen it failed on. `tapflow flow run` prints them as `try:` lines and records them; the relay stores them whole (an over-long one is dropped, never cut) and the run page shows them with a copy button; `get_run` passes them to an agent. Not for `assertVisible`. An input field is suggested by its `id`, never its label.
+- a25002d: The MCP server and `tapflow flow run` read their token from `--token`, then `TAPFLOW_TOKEN`, then a credentials file (`~/.config/tapflow/credentials.json`, `XDG_CONFIG_HOME` or `TAPFLOW_TOKEN_FILE`) keyed by relay origin. A token the relay refuses is re-read from the file and retried once, and the MCP server reconnects with a rotated token on its next tool call, so replacing a token no longer means re-registering the server. The MCP server no longer requires a token to start: the relay decides, and a refused connection exits naming the relay and the fix. Every 401 says which relay refused which token and how to fix it. flow-runner exports `resolveToken`, `fetchWithToken`, `tokenRefusal` and `TokenSource`; `RelayClient` also takes a `TokenSource`.
+
+### Patch Changes
+
+- 63ec021: The published packages carry the license texts they need. `tapflow` includes `LICENSE`, which `files` already listed but which was missing from the package directory. `@tapflowio/android-agent` and `@tapflowio/ios-agent` add `LICENSE-APACHE-2.0` and a `NOTICE` for the Apache-2.0 code they ship: scrcpy-server and the Android Emulator's `emulator_controller.proto` in the Android agent, logic derived from baguette in the iOS agent.
+- 7f39641: `tapflow doctor` and `tapflow setup ios` find an Xcode that is not at `/Applications/Xcode.app`: the one `xcode-select -p` points into, then `/Applications/Xcode.app`, then the first `/Applications/Xcode*.app` with a `Contents/Developer`. A bundle named after its version, as `xcodes` installs it (`Xcode-27.0.0.app`), was reported as not installed, and `setup ios` tried to re-select `/Applications/Xcode.app`. On a Mac where no Xcode has been selected yet, `doctor` now says to select the one it found rather than running `xcodebuild`, which would raise the Command Line Tools install dialog. When the Xcode it found is already selected and still fails, it suggests accepting the licence and running first launch instead of selecting it again.
+- 9b68ce4: `session:start` takes `stream: false` from a client that does not read the device stream, and the relay then sends that holder no frames (video or audio); watchers are unaffected. The MCP server always joins this way, and the flow runner does when no stream listener is set before joining (`tapflow flow run` without video recording). An older relay drops the key and keeps sending.
+- e59056e: Each iOS simulator gets its own UI-tree runner, so reading one device no longer stops another device's runner. The runner picks a free port itself, announces it, and answers `/health` with a token the agent passed, so a runner left on a port by another agent is never read from. The built runner is rebuilt when its sources or Xcode change. `tapflow agent start` and `tapflow start` disconnect their agents on `SIGTERM` as they do on Ctrl+C, so no runner outlives it.
+- f0ef61f: `tapflow setup ios` no longer says Xcode can only be installed from the App Store. It still opens the App Store, and also names https://developer.apple.com/xcode/.
+- acaf4dc: A session's watchers get `watch:action`: what its holder did, built by the relay from the input and app commands it passed on (tap or swipe at the gesture's end, key with character keys unnamed, button on release, typing as a character count, launch, install, clear-state, open-url without the URL) and from the holder's optional `session:activity` label. flow-runner exports `activityLabel(step)`, a step's name with typed text, URLs and character keys left out, and `onStep` carries it on a step's start; `RelayClient.activity` sends it. `tapflow flow run` and the MCP server's `run_flow` send one per step. The watch page lists the last 100 and marks taps and swipes on the device.
+- Updated dependencies [1314039]
+- Updated dependencies [708fb82]
+- Updated dependencies [1f4ace9]
+- Updated dependencies [63ec021]
+- Updated dependencies [56f42c4]
+- Updated dependencies [9b10eb4]
+- Updated dependencies [bc20841]
+- Updated dependencies [c3887a3]
+- Updated dependencies [be7a7cd]
+- Updated dependencies [399a5ae]
+- Updated dependencies [81aebb6]
+- Updated dependencies [0a191c6]
+- Updated dependencies [d9ec399]
+- Updated dependencies [70f73ea]
+- Updated dependencies [6f9b9b4]
+- Updated dependencies [6f3b8a8]
+- Updated dependencies [ce73d00]
+- Updated dependencies [aba23d1]
+- Updated dependencies [9b68ce4]
+- Updated dependencies [03fa46f]
+- Updated dependencies [8e304d6]
+- Updated dependencies [e59056e]
+- Updated dependencies [0c32562]
+- Updated dependencies [e4b34fd]
+- Updated dependencies [ccdbe40]
+- Updated dependencies [b057ec2]
+- Updated dependencies [3c01784]
+- Updated dependencies [d17a75f]
+- Updated dependencies [0344864]
+- Updated dependencies [e54cf56]
+- Updated dependencies [0cb1d82]
+- Updated dependencies [a25002d]
+- Updated dependencies [acaf4dc]
+  - @tapflowio/android-agent@0.28.0
+  - @tapflowio/flow-runner@0.28.0
+  - @tapflowio/ios-agent@0.28.0
+  - @tapflowio/relay@0.28.0
+  - @tapflowio/agent-core@0.28.0
+
 ## 0.27.1
 
 ### Patch Changes

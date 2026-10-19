@@ -1,5 +1,13 @@
 # @tapflowio/protocol
 
+## 0.28.0
+
+### Minor Changes
+
+- 9b68ce4: `session:start` takes `stream: false` from a client that does not read the device stream, and the relay then sends that holder no frames (video or audio); watchers are unaffected. The MCP server always joins this way, and the flow runner does when no stream listener is set before joining (`tapflow flow run` without video recording). An older relay drops the key and keeps sending.
+- d17a75f: Watch a session an AI client is driving, read-only. `session:start` gains an optional `clientKind` (`dashboard`, `mcp`, `flow-runner`), which the MCP server and the flow runner now send. A session held by an AI client can be watched by a signed-in teammate through the new `watch:start` / `watch:stop`, answered by `watch:started` / `watch:refused` and followed by `watch:holder-left` / `watch:ended`. The device list names the AI client driving a device (`holder`), and an AI holder's `session:joined` carries `watchUrl`. All additive: an older client is simply not watchable, and an older relay ignores the new messages.
+- acaf4dc: A session's watchers get `watch:action`: what its holder did, built by the relay from the input and app commands it passed on (tap or swipe at the gesture's end, key with character keys unnamed, button on release, typing as a character count, launch, install, clear-state, open-url without the URL) and from the holder's optional `session:activity` label. flow-runner exports `activityLabel(step)`, a step's name with typed text, URLs and character keys left out, and `onStep` carries it on a step's start; `RelayClient.activity` sends it. `tapflow flow run` and the MCP server's `run_flow` send one per step. The watch page lists the last 100 and marks taps and swipes on the device.
+
 ## 0.27.1
 
 ## 0.27.0

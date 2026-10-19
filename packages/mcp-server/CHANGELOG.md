@@ -1,5 +1,36 @@
 # @tapflowio/mcp-server
 
+## 0.28.0
+
+### Minor Changes
+
+- 9b10eb4: Dashboard: a watch page (`/automation/sessions/<id>`) shows, read-only, the device an AI client is driving; it is reached through the link below, and the QA session's device list says which AI client holds a device. `connect_device` returns `watchUrl`, and `tapflow flow run` prints it outside CI. The relay sends `watchUrl` only when it knows an address teammates can open (a tunnel or `relay.url`); otherwise the client builds the link from the relay address it dialled.
+- 03632b7: `list_runs` and `get_run` read the run records `tapflow flow run` leaves on the relay. `get_run` returns each failed flow's steps (a passed flow's step count), failure message, failure kind and file path, and the screenshot of each failed flow (up to 4) as an image, so a coding agent can repair a failed flow and replay it with `run_flow`. Read-only; needs a `view`-scope token.
+- d17a75f: Watch a session an AI client is driving, read-only. `session:start` gains an optional `clientKind` (`dashboard`, `mcp`, `flow-runner`), which the MCP server and the flow runner now send. A session held by an AI client can be watched by a signed-in teammate through the new `watch:start` / `watch:stop`, answered by `watch:started` / `watch:refused` and followed by `watch:holder-left` / `watch:ended`. The device list names the AI client driving a device (`holder`), and an AI holder's `session:joined` carries `watchUrl`. All additive: an older client is simply not watchable, and an older relay ignores the new messages.
+- a25002d: The MCP server and `tapflow flow run` read their token from `--token`, then `TAPFLOW_TOKEN`, then a credentials file (`~/.config/tapflow/credentials.json`, `XDG_CONFIG_HOME` or `TAPFLOW_TOKEN_FILE`) keyed by relay origin. A token the relay refuses is re-read from the file and retried once, and the MCP server reconnects with a rotated token on its next tool call, so replacing a token no longer means re-registering the server. The MCP server no longer requires a token to start: the relay decides, and a refused connection exits naming the relay and the fix. Every 401 says which relay refused which token and how to fix it. flow-runner exports `resolveToken`, `fetchWithToken`, `tokenRefusal` and `TokenSource`; `RelayClient` also takes a `TokenSource`.
+
+### Patch Changes
+
+- 9b68ce4: `session:start` takes `stream: false` from a client that does not read the device stream, and the relay then sends that holder no frames (video or audio); watchers are unaffected. The MCP server always joins this way, and the flow runner does when no stream listener is set before joining (`tapflow flow run` without video recording). An older relay drops the key and keeps sending.
+- e4b34fd: `launchApp` waits until the app's UI-tree structure (role, label, id of each element) holds still for a second, where 0.27.1 ended as soon as the app's process started. An app that draws its own splash is therefore not taken as ready on the splash, and a screen with no tree elements (a game, a canvas) moves on after a second; a screen that never holds still moves on 3 s after its first read. The Android agent launches with the launcher's intent through `am start -W` (bounded at 10 s, `monkey` as the fallback), so its launch reply comes after the app's first frame, or once that 10 s bound runs out. The `launch_app` MCP tool says that returning does not mean the screen is up.
+- e54cf56: A `tapOn` that matches nothing or several elements carries up to three suggested lines on its failed step (`StepResult.suggestions`), each verified to tap exactly one element on the screen it failed on. `tapflow flow run` prints them as `try:` lines and records them; the relay stores them whole (an over-long one is dropped, never cut) and the run page shows them with a copy button; `get_run` passes them to an agent. Not for `assertVisible`. An input field is suggested by its `id`, never its label.
+- acaf4dc: A session's watchers get `watch:action`: what its holder did, built by the relay from the input and app commands it passed on (tap or swipe at the gesture's end, key with character keys unnamed, button on release, typing as a character count, launch, install, clear-state, open-url without the URL) and from the holder's optional `session:activity` label. flow-runner exports `activityLabel(step)`, a step's name with typed text, URLs and character keys left out, and `onStep` carries it on a step's start; `RelayClient.activity` sends it. `tapflow flow run` and the MCP server's `run_flow` send one per step. The watch page lists the last 100 and marks taps and swipes on the device.
+- Updated dependencies [708fb82]
+- Updated dependencies [1f4ace9]
+- Updated dependencies [56f42c4]
+- Updated dependencies [9b10eb4]
+- Updated dependencies [ce73d00]
+- Updated dependencies [aba23d1]
+- Updated dependencies [9b68ce4]
+- Updated dependencies [e4b34fd]
+- Updated dependencies [d17a75f]
+- Updated dependencies [e54cf56]
+- Updated dependencies [0cb1d82]
+- Updated dependencies [a25002d]
+- Updated dependencies [acaf4dc]
+  - @tapflowio/flow-runner@0.28.0
+  - @tapflowio/protocol@0.28.0
+
 ## 0.27.1
 
 ### Patch Changes

@@ -101,7 +101,7 @@ model: claude-opus-5
     [ -n "$sec" ] || continue
     found=$((found + 1))
     printf '%s\n' "$sec" \
-      | grep -nEi "\byet\b|for now|still to come|(iOS|Android) follows|when it lands|nothing (is )?visible|not on screen|no agent|nothing reads" \
+      | grep -nEi "\byet\b|for now|still to come|(iOS|Android) follows|when it lands|nothing (is )?visible|not on screen|no agent|nothing reads|(next|later|future) releases?|will (write|read|use|play|show|send)" \
       | sed "s|^|$f: |"
   done
   [ "$found" -ge 5 ] || { echo "only $found changelog(s) carried a $ver section — the sweep read almost nothing"; exit 1; }
@@ -120,6 +120,10 @@ model: claude-opus-5
   넓힌 `\byet\b`는 v0.20.0에서 11건을 물어오고 그중 진짜는 1건이지만, 그 1건("Nothing reads that file
   yet")은 좁은 패턴도 CodeRabbit도 못 찾은 다섯 번째였다. 나머지 10건은 "a device nobody has heard from
   yet"처럼 기기 상태를 말하는 정상 문장이다. **울타리가 아니라 바닥이고**, 비용은 문단 열 개를 읽는 것이다.
+
+  **미래형 예고도 같은 거짓말이다.** v0.28.0에서 "the dashboard will play it in a later release"와 "will read them in
+  the next releases" 네 문장이 이 패턴을 빠져나갔고, CodeRabbit이 찾았다. 같은 사이클에 그 기능이 들어오면
+  승격과 함께 거짓이 되는 문장이라 `(next|later|future) release`와 `will (write|read|use|play|show|send)`를 더했다.
 
   **패키지별 CHANGELOG를 빼먹지 않는다.** v0.20.0 준비 때 루트만 고쳤고, CodeRabbit이 패키지 쪽에서 같은
   결함을 4건 찾았다. 이어서 훑으니 **6개 패키지에 8곳**이었다 — changeset 하나가 패키지 셋을 지목하면 같은
