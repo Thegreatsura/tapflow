@@ -581,7 +581,9 @@ export function handleUploadBuild(
     // busboy destroys a file's stream with an error when the body ends inside it, and a stream with no
     // `'error'` listener throws. The response is `bb`'s own `'error'` handler's job.
     stream.on('error', () => {})
-    originalName = info.filename
+    // No filename when busboy took the part for a file only by its `application/octet-stream` type. An empty
+    // name is an unknown kind, so it is refused below like any other unsupported file.
+    originalName = info.filename ?? ''
     const kind = buildFileKind(originalName)
 
     if (kind === 'ipa') {
