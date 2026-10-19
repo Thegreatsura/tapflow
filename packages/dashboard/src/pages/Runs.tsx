@@ -29,7 +29,7 @@ const NEWEST = 'newest'
 /**
  * **What `tapflow flow run` did, for the whole team.** CI runs by default: those are the tests the team handed to
  * automation, while a local run is someone making a test and is one click away. The filters live in the URL, so a
- * filtered list is a link to send — App Center's build row links here with `?build=`.
+ * filtered list is a link to send — a run's page links here with `?build=` for the same build's other runs.
  */
 export function Runs() {
   const [params, setParams] = useSearchParams()
