@@ -111,7 +111,11 @@ describe('release.yml wiring', () => {
     expect(step.indexOf('git fetch --tags --force origin')).toBeGreaterThan(-1)
     expect(step.indexOf('git fetch --tags --force origin')).toBeLessThan(step.indexOf('node scripts/docs-production.mjs'))
     expect(step).toMatch(/if \[ "\$decision" = move \]/)
-    expect(step).toContain('node scripts/docs-production.mjs --commit')
+    // The branch is read before the tags: the other order lets a newer run's push land in between
+    // and be taken as this run's parent, which fast-forwards the site back.
+    expect(step.indexOf('git fetch origin refs/heads/docs-production')).toBeGreaterThan(-1)
+    expect(step.indexOf('git fetch origin refs/heads/docs-production')).toBeLessThan(step.indexOf('git fetch --tags --force origin'))
+    expect(step).toContain('node scripts/docs-production.mjs --commit "$GITHUB_REF_NAME" $parent')
     expect(step).toContain('git push origin "$commit:refs/heads/docs-production"')
     expect(step).not.toMatch(/push[^\n]*--force|push[^\n]*\+\$/)
   })

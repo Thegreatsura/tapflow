@@ -102,7 +102,9 @@ that push deploys tapflow.dev, so it must not carry a page about an unreleased f
 release replaces the branch's files with the tagged commit's, so the fix survives only if it merged
 to `main` before that commit. A fix merged later, while a release is being cut, is cherry-picked
 again after the release. Do not push `main` itself to `docs-production`, since that publishes every
-unreleased page at once.
+unreleased page at once. The branch holds no `.github/workflows`, so if the commit changes a workflow,
+drop those paths while cherry-picking (`git rm -r --cached .github/workflows`). Otherwise the next
+release's push would remove them again, and GitHub refuses that from the release workflow's token.
 
 ### Publishing the Docker image from a fork
 

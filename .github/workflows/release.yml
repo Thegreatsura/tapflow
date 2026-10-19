@@ -60,20 +60,21 @@ jobs:
       #
       # Tags are fetched again because the checkout is minutes old by now: a patch tagged meanwhile
       # must make this run skip, not roll the site back. The push is a fast-forward, so if another
-      # run moved the branch after the fetch it is rejected rather than overwritten.
+      # run moved the branch after it was read, the push is rejected rather than overwritten.
       # Hotfix procedure: CONTRIBUTING.md, "Docs follow releases".
       - name: Point docs-production at this release
         if: ${{ !cancelled() && steps.publish.outcome == 'success' }}
         run: |
+          # The branch is read before the tags, so a run that moves it after this point makes this
+          # push a non-fast-forward. No parent only on the first release, when the branch does not
+          # exist yet; a fetch that failed for another reason yields a parentless commit too, and the
+          # push rejects that the same way.
+          parent=
+          if git fetch origin refs/heads/docs-production; then parent=$(git rev-parse FETCH_HEAD); fi
           git fetch --tags --force origin
           decision=$(node scripts/docs-production.mjs "$GITHUB_REF_NAME")
           echo "$decision"
           if [ "$decision" = move ]; then
-            # No parent only on the first release, when the branch does not exist yet. A fetch that
-            # failed for another reason yields a parentless commit too, and the push rejects that as
-            # a non-fast-forward.
-            parent=
-            if git fetch origin refs/heads/docs-production; then parent=$(git rev-parse FETCH_HEAD); fi
             commit=$(node scripts/docs-production.mjs --commit "$GITHUB_REF_NAME" $parent)
             git push origin "$commit:refs/heads/docs-production"
           fi
