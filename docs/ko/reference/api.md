@@ -267,7 +267,7 @@ Body (JSON):
 
 ### `POST /api/v1/apps`
 
-앱을 수동으로 생성합니다. **Admin, Developer, QA** 권한이 필요합니다. Viewer는 `403`을 받습니다.
+앱을 수동으로 생성합니다. **Admin, Developer, QA** 권한이 필요합니다. Viewer는 `403`을 받습니다. 같은 `bundle_id_key`인 앱이 이미 있으면 플랫폼과 관계없이 `409`를 받습니다. iOS와 Android 양쪽에서 쓰는 앱은 `both`로 한 번만 만드세요.
 
 ```
 Body (JSON):

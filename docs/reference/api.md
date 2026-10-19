@@ -267,7 +267,7 @@ Return all apps. Each app includes a summary of its latest build.
 
 ### `POST /api/v1/apps`
 
-Create an app manually. Requires the **Admin, Developer or QA** role. A Viewer gets `403`.
+Create an app manually. Requires the **Admin, Developer or QA** role. A Viewer gets `403`. If an app with the same `bundle_id_key` already exists, on any platform, you get `409`. Create an app for iOS and Android once, with `both`.
 
 ```
 Body (JSON):
