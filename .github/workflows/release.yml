@@ -53,16 +53,27 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
 
       # tapflow.dev deploys from `docs-production`, not main, so the site describes what npm serves
-      # rather than what main is about to ship. Only the newest stable tag moves it — the script says
-      # why. Last, and gated on publish rather than on every step before it: once the packages are out
-      # the docs should follow even if the GitHub Release step failed. The push is forced because a
-      # docs hotfix cherry-picked onto the branch between releases is already on main, so the tag
-      # contains it. Hotfix procedure: CONTRIBUTING.md, "Docs follow releases".
+      # rather than what main is about to ship. Only the newest stable tag moves it, and the commit
+      # pushed is the tag's tree without workflow files — `scripts/docs-production.mjs` says why for
+      # both. Last, and gated on publish rather than on every step before it: once the packages are
+      # out the docs should follow even if the GitHub Release step failed.
+      #
+      # Tags are fetched again because the checkout is minutes old by now: a patch tagged meanwhile
+      # must make this run skip, not roll the site back. The push is a fast-forward, so if another
+      # run moved the branch after the fetch it is rejected rather than overwritten.
+      # Hotfix procedure: CONTRIBUTING.md, "Docs follow releases".
       - name: Point docs-production at this release
         if: ${{ !cancelled() && steps.publish.outcome == 'success' }}
         run: |
+          git fetch --tags --force origin
           decision=$(node scripts/docs-production.mjs "$GITHUB_REF_NAME")
           echo "$decision"
           if [ "$decision" = move ]; then
-            git push --force origin "$(git rev-parse "$GITHUB_REF_NAME^{commit}"):refs/heads/docs-production"
+            # No parent only on the first release, when the branch does not exist yet. A fetch that
+            # failed for another reason yields a parentless commit too, and the push rejects that as
+            # a non-fast-forward.
+            parent=
+            if git fetch origin refs/heads/docs-production; then parent=$(git rev-parse FETCH_HEAD); fi
+            commit=$(node scripts/docs-production.mjs --commit "$GITHUB_REF_NAME" $parent)
+            git push origin "$commit:refs/heads/docs-production"
           fi

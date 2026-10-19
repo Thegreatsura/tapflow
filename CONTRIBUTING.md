@@ -88,17 +88,21 @@ tapflow is built with coding agents, and AI-assisted contributions are welcome. 
 
 ### Docs follow releases
 
-tapflow.dev deploys from the `docs-production` branch, not from `main`. A self-hosted user runs what
-npm published, and main's docs describe features that have not been published yet. The last step of
-`.github/workflows/release.yml` force-pushes each new stable release tag to `docs-production`.
-Prereleases and backports leave it where it is (`scripts/docs-production.mjs`). Every push to `main`
-still builds a Vercel Preview, which is where unreleased docs can be read.
+tapflow.dev deploys from the `docs-production` branch, not from `main`. This takes effect from the
+first release after the change, when the branch is created and Vercel's production branch is
+switched to it (`/release` §11). A self-hosted user runs what npm published, and main's docs
+describe features that have not been published yet. The last step of `.github/workflows/release.yml`
+moves `docs-production` to each new stable release. Prereleases and backports leave it where it is
+(`scripts/docs-production.mjs`). Every push to `main` still builds a Vercel Preview, so unreleased
+docs can be checked there.
 
 **A docs fix for something already released can go out before the next release.** Merge it to `main`
 first, then cherry-pick that commit onto `docs-production` and push. Read the diff before pushing:
 that push deploys tapflow.dev, so it must not carry a page about an unreleased feature. The next
-release's force-push does not lose the fix, because the fix is already on `main`. Do not push
-`main` itself to `docs-production`, since that publishes every unreleased page at once.
+release replaces the branch's files with the tagged commit's, so the fix survives only if it merged
+to `main` before that commit. A fix merged later, while a release is being cut, is cherry-picked
+again after the release. Do not push `main` itself to `docs-production`, since that publishes every
+unreleased page at once.
 
 ### Publishing the Docker image from a fork
 

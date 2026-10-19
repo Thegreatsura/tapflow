@@ -4,11 +4,13 @@
 // (`contributing/test-and-guard-coverage.md` rule 2): "does not move" is also what a function that
 // never moves reports. The workflow wiring is checked too, because a correct decision that no step
 // acts on — or that runs before publish — is the same silence.
-import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'fs'
+import { describe, it, expect, afterAll } from 'vitest'
+import { execFileSync } from 'child_process'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
-import { docsProductionDecision } from '../docs-production.mjs'
+import { docsProductionCommit, docsProductionDecision } from '../docs-production.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 
@@ -41,6 +43,55 @@ describe('docsProductionDecision', () => {
   })
 })
 
+describe('docsProductionCommit', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'docs-production-test-'))
+  const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.com' }
+  const git = (...args) => execFileSync('git', args, { cwd: dir, env, encoding: 'utf8' }).trim()
+  const write = (path, text) => {
+    mkdirSync(dirname(join(dir, path)), { recursive: true })
+    writeFileSync(join(dir, path), text)
+  }
+  const files = (commit) => git('ls-tree', '-r', '--name-only', commit).split('\n')
+
+  git('init', '-q')
+  write('docs/index.md', 'one')
+  write('.github/workflows/release.yml', 'on: push')
+  write('.github/pull_request_template.md', 'template')
+  git('add', '.')
+  git('commit', '-qm', 'one')
+  git('tag', 'v0.1.0')
+  write('docs/index.md', 'two')
+  write('.github/workflows/release.yml', 'on: tag')
+  git('commit', '-qam', 'two')
+  git('tag', 'v0.2.0')
+
+  it('carries the tag tree without the workflow files, and nothing else is dropped', () => {
+    const first = docsProductionCommit({ tag: 'v0.1.0', cwd: dir })
+    expect(files(first)).toEqual(['.github/pull_request_template.md', 'docs/index.md'])
+    expect(git('show', `${first}:docs/index.md`)).toBe('one')
+    expect(git('rev-list', '--parents', '-n1', first).split(' ')).toHaveLength(1)
+  })
+
+  it('stacks on the given parent, so the push is a fast-forward', () => {
+    const first = docsProductionCommit({ tag: 'v0.1.0', cwd: dir })
+    const second = docsProductionCommit({ tag: 'v0.2.0', parent: first, cwd: dir })
+    expect(git('rev-parse', `${second}^`)).toBe(first)
+    expect(git('show', `${second}:docs/index.md`)).toBe('two')
+    expect(files(second)).not.toContain('.github/workflows/release.yml')
+    // The positive half of the line above: the source tag does carry the file being dropped.
+    expect(files('v0.2.0')).toContain('.github/workflows/release.yml')
+  })
+
+  it('leaves the checkout\'s index alone', () => {
+    write('docs/staged.md', 'staged')
+    git('add', 'docs/staged.md')
+    docsProductionCommit({ tag: 'v0.1.0', cwd: dir })
+    expect(git('diff', '--cached', '--name-only')).toBe('docs/staged.md')
+  })
+
+  afterAll(() => rmSync(dir, { recursive: true, force: true }))
+})
+
 describe('release.yml wiring', () => {
   const yml = readFileSync(join(ROOT, '.github', 'workflows', 'release.yml'), 'utf8')
   const publishAt = yml.indexOf('id: publish')
@@ -49,12 +100,18 @@ describe('release.yml wiring', () => {
   it('asks the script, after the publish step, and only when publish succeeded', () => {
     expect(publishAt).toBeGreaterThan(-1)
     expect(docsAt).toBeGreaterThan(publishAt)
-    expect(yml).toContain("steps.publish.outcome == 'success'")
+    // The whole expression: without `!cancelled()` the implicit `success()` skips this step whenever
+    // the GitHub Release step fails, after the packages are already out.
+    expect(yml).toContain("if: ${{ !cancelled() && steps.publish.outcome == 'success' }}")
   })
 
-  it('pushes the tagged commit to docs-production only on `move`', () => {
+  it('refetches tags before deciding, and pushes the built commit without --force only on `move`', () => {
     const step = yml.slice(yml.lastIndexOf('- name:', docsAt))
+    expect(step.indexOf('git fetch --tags --force origin')).toBeGreaterThan(-1)
+    expect(step.indexOf('git fetch --tags --force origin')).toBeLessThan(step.indexOf('node scripts/docs-production.mjs'))
     expect(step).toMatch(/if \[ "\$decision" = move \]/)
-    expect(step).toContain(':refs/heads/docs-production')
+    expect(step).toContain('node scripts/docs-production.mjs --commit')
+    expect(step).toContain('git push origin "$commit:refs/heads/docs-production"')
+    expect(step).not.toMatch(/push[^\n]*--force|push[^\n]*\+\$/)
   })
 })
