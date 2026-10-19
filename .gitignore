@@ -30,6 +30,7 @@ tapflow.config.json
 .playwright-mcp/
 *.png
 !docs/public/*.png
+!packages/dashboard/public/*.png
 
 # vscode
 .vscode
