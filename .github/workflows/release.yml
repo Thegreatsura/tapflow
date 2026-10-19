@@ -40,6 +40,7 @@ jobs:
       # to real versions. Never publish these packages with raw `npm publish`:
       # it keeps the literal workspace:* and ships an uninstallable tarball.
       - name: Publish packages
+        id: publish
         run: pnpm changeset publish --no-git-tag
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -50,3 +51,18 @@ jobs:
           # Tags with a prerelease identifier (e.g. v0.8.0-next.1) are marked as
           # pre-release so GitHub keeps "Latest" on the newest stable release.
           prerelease: ${{ contains(github.ref_name, '-') }}
+
+      # tapflow.dev deploys from `docs-production`, not main, so the site describes what npm serves
+      # rather than what main is about to ship. Only the newest stable tag moves it — the script says
+      # why. Last, and gated on publish rather than on every step before it: once the packages are out
+      # the docs should follow even if the GitHub Release step failed. The push is forced because a
+      # docs hotfix cherry-picked onto the branch between releases is already on main, so the tag
+      # contains it. Hotfix procedure: CONTRIBUTING.md, "Docs follow releases".
+      - name: Point docs-production at this release
+        if: ${{ !cancelled() && steps.publish.outcome == 'success' }}
+        run: |
+          decision=$(node scripts/docs-production.mjs "$GITHUB_REF_NAME")
+          echo "$decision"
+          if [ "$decision" = move ]; then
+            git push --force origin "$(git rev-parse "$GITHUB_REF_NAME^{commit}"):refs/heads/docs-production"
+          fi

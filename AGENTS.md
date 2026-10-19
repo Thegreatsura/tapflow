@@ -49,6 +49,9 @@ For the product direction and philosophy behind these — Manual First, Flow Cap
     Enforced by the PreToolUse hook `.claude/hooks/pr-merge-guard.sh`, which blocks `gh pr merge` and
     `gh pr review` in command position. It does not cover the `gh api` and git plumbing equivalents:
     same threat model, a cooperative agent rather than an adversary.
+  - **A push to `docs-production` is a production deploy of tapflow.dev.** Confirm before every one.
+    The only manual push is a docs hotfix: a commit already on `main`, cherry-picked, with its diff
+    checked for pages about unreleased features — procedure in CONTRIBUTING, "Docs follow releases".
   - **Avoid breaking changes.** If unavoidable, report to the user and get approval before proceeding. Breaking change scope: public API / interface signature changes, DB schema changes, WebSocket message protocol changes, CLI command / flag changes.
 
 ---
