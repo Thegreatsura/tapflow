@@ -23,12 +23,14 @@ import {
 import { useAuth } from '@/hooks/useAuth'
 import { maySeeSettingsPage } from '@/lib/settingsAccess'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { getSettings, queryKeys } from '@/lib/queries'
+import { getSettings, hasAnyRun, queryKeys } from '@/lib/queries'
 import { UserAvatar } from '@/components/UserAvatar'
+
+const FLOW_RUNS_HREF = '/automation/runs'
 
 const navItems = [
   { label: 'App Center', href: '/app-center', icon: LayoutGrid },
-  { label: 'Flow Runs', href: '/automation/runs', icon: SquarePlay },
+  { label: 'Flow Runs', href: FLOW_RUNS_HREF, icon: SquarePlay },
   { label: 'Mac Resources', href: '/mac-resources', icon: Monitor },
 ]
 
@@ -55,6 +57,13 @@ export function AppSidebar() {
   const logoUrl = settings?.logo_url ?? null
   const teamName = settings?.team_name || 'tapflow'
   const queryClient = useQueryClient()
+  // Flow Runs is listed once a run exists. Runs come only from `tapflow flow run`, so until a team records one
+  // the page is an empty list beside the manual path; it appears on the first run. Also listed while a run
+  // page is open (reached from a printed link) and when the relay could not be asked, since a failure is not
+  // "no runs". While the answer is pending it stays out, so it is added once rather than flickering away.
+  const anyRun = useQuery({ queryKey: queryKeys.anyRun, queryFn: ({ signal }) => hasAnyRun(signal) })
+  const showFlowRuns = anyRun.data === true || anyRun.isError || pathname.startsWith(FLOW_RUNS_HREF)
+  const visibleNavItems = navItems.filter((item) => item.href !== FLOW_RUNS_HREF || showFlowRuns)
 
   async function handleLogout() {
     await fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'include' })
@@ -77,7 +86,7 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navItems.map((item) => (
+              {visibleNavItems.map((item) => (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton asChild isActive={pathname.startsWith(item.href)} tooltip={item.label}>
                     <Link to={item.href}>
