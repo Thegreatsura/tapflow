@@ -28,7 +28,7 @@ export const queryKeys = {
   run: (id: string) => ['runs', 'detail', id] as const,
   /** A flow's video, loaded when someone asks to play it. */
   runVideo: (id: string, idx: number) => ['runs', 'video', id, idx] as const,
-  /** Whether the relay holds any run at all — under `runs`, so whatever refreshes runs refreshes it. */
+  /** Whether the relay holds any run at all. Refreshed on mount and window focus: runs are written by the CLI, never by a dashboard mutation. */
   anyRun: ['runs', 'any'] as const,
 }
 
