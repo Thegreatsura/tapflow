@@ -371,7 +371,7 @@ export default withMermaid(defineConfig({
     ],
     // A 1200×630 banner made for link previews. Not demo-thumbnail.png: that one is 1920×1080, the video's
     // poster and the npm README's image, and a crawler crops it.
-    ['meta', { property: 'og:image', content: `${SITE}/og-image.png` }],
+    ['meta', { property: 'og:image', content: `${SITE}/og-image.jpg` }],
     ['meta', { property: 'og:image:width', content: '1200' }],
     ['meta', { property: 'og:image:height', content: '630' }],
     ['meta', { property: 'og:image:alt', content: 'tapflow' }],
@@ -385,7 +385,7 @@ export default withMermaid(defineConfig({
           'Open-source, self-hosted alternative to Appetize and BrowserStack App Live. Run iOS & Android simulators in the browser — no data leaving your network.',
       },
     ],
-    ['meta', { name: 'twitter:image', content: `${SITE}/og-image.png` }],
+    ['meta', { name: 'twitter:image', content: `${SITE}/og-image.jpg` }],
   ],
 
   markdown: {

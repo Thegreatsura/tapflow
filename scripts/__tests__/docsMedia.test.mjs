@@ -9,7 +9,7 @@
 // Images are not covered. `docs/public/demo-thumbnail.png` stays at the root on purpose:
 // `packages/cli/README.md` (published to npm) loads it through raw.githubusercontent.com, which no
 // Vercel redirect can reach, and the introduction page uses it as the demo video's poster.
-// `docs/public/og-image.png`, the link-preview banner, stays at the root for the same reason: crawlers
+// `docs/public/og-image.jpg`, the link-preview banner, stays at the root for the same reason: crawlers
 // and chat apps have cached its URL.
 //
 // The absence assertion is paired (`contributing/test-and-guard-coverage.md` rule 2): the fixture
