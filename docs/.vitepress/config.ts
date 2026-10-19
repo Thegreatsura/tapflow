@@ -374,7 +374,7 @@ export default withMermaid(defineConfig({
     ['meta', { property: 'og:image', content: `${SITE}/og-image.jpg` }],
     ['meta', { property: 'og:image:width', content: '1200' }],
     ['meta', { property: 'og:image:height', content: '630' }],
-    ['meta', { property: 'og:image:alt', content: 'tapflow' }],
+    ['meta', { property: 'og:image:alt', content: 'The tapflow logo on a blue gradient' }],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
     ['meta', { name: 'twitter:title', content: 'tapflow — Self-hosted simulator streaming for your whole team' }],
     [
