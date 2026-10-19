@@ -135,7 +135,7 @@ export async function createApp(data: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   })
-  if (res.status === 409) return { error: 'App with this bundle ID and platform already exists' }
+  if (res.status === 409) return { error: 'App with this bundle ID already exists' }
   if (!res.ok) return null
   return res.json()
 }

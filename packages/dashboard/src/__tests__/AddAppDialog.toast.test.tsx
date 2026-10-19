@@ -37,13 +37,13 @@ describe('AddAppDialog — toast feedback', () => {
 
   it('TC17: 중복(409) 에러는 폼 안에 표시하고 toast는 미호출', async () => {
     vi.spyOn(queries, 'createApp').mockResolvedValue({
-      error: 'App with this bundle ID and platform already exists',
+      error: 'App with this bundle ID already exists',
     })
     render(<AddAppDialog onSuccess={vi.fn()} canWrite />)
     await openAndFill()
     await userEvent.click(screen.getByRole('button', { name: /create app/i }))
     await waitFor(() =>
-      screen.getByText('App with this bundle ID and platform already exists'),
+      screen.getByText('App with this bundle ID already exists'),
     )
     expect(toast.success).not.toHaveBeenCalled()
     expect(toast.error).not.toHaveBeenCalled()

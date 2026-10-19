@@ -240,6 +240,9 @@ export function routeUploadToApp(
     if (app.platform !== 'both' && app.platform !== platform) {
       db.prepare('UPDATE apps SET platform = ? WHERE id = ?').run('both', appId)
     }
+    // Sets the key without asking whether another row holds it, so it relies on there being no row with
+    // an empty key to reach: POST /apps requires one and upsertApp always supplies one. A way to create an
+    // app without a bundle ID would reopen a second row per key here (see POST /apps' 409 in apps.ts).
     if (!app.bundle_id_key && bundleId !== null) {
       db.prepare('UPDATE apps SET bundle_id_key = ? WHERE id = ?').run(bundleId, appId)
     }

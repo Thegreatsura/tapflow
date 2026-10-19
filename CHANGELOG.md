@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Adding an app whose bundle ID is taken is refused.** In App Center, **+ Add App** with a bundle ID that an existing app already has now shows "App with this bundle ID already exists" and adds nothing, whatever platform you pick. It used to create a second app, and builds uploaded without choosing an app, as CI does, never reach it: they go to the first app, which becomes **Both** when a build for the other platform arrives. For an app on iOS and Android, add it once with **Both**. Apps already duplicated are left as they are. To remove the extra one, delete it in **Settings → Default → Apps**, which deletes the builds uploaded to it too.
+
 - **Platform badges say iOS, not Ios.** App Center's build rows, Settings → Apps and the QA session's "No agents available" line now name the platform `iOS`, `Android` or `Both`.
 
 - **Long dashboard pages no longer scroll the whole window.** On Settings → Default and other long forms the window grew a second scrollbar and the header could scroll out of view, because a screen-reader-only status line near the bottom of a form was stretching the page. Only the page area scrolls now.
