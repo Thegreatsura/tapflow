@@ -92,8 +92,8 @@ tapflow.dev deploys from the `docs-production` branch, not from `main`, since v0
 describe features that have not been published yet. The last step of `.github/workflows/release.yml`
 moves `docs-production` to each new stable release. Prereleases and backports leave it where it is
 (`scripts/docs-production.mjs`). The branch cannot be deleted, by anyone: the `protect-docs-production`
-ruleset has no bypass. Every push to `main` still builds a Vercel Preview, so unreleased
-docs can be checked there.
+ruleset has no bypass. A push to `main` that changes `docs/` still builds a Vercel Preview, so
+unreleased docs can be checked there; a push that does not is skipped by the Ignored Build Step.
 
 **A docs fix for something already released can go out before the next release.** Merge it to `main`
 first, then cherry-pick that commit onto `docs-production` and push. Read the diff before pushing:
