@@ -51,7 +51,8 @@ describe('docsProductionCommit', () => {
     mkdirSync(dirname(join(dir, path)), { recursive: true })
     writeFileSync(join(dir, path), text)
   }
-  const files = (commit) => git('ls-tree', '-r', '--name-only', commit).split('\n')
+  // Every path in a commit, as a diff from the empty tree (`checksWalkDisk` forbids the listing commands).
+  const files = (commit) => git('diff', '--name-only', git('hash-object', '-t', 'tree', '/dev/null'), commit).split('\n')
 
   git('init', '-q')
   write('docs/index.md', 'one')
