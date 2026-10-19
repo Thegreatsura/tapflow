@@ -15,7 +15,7 @@ description: "대시보드 Flow Runs 페이지에서 tapflow flow run의 실행 
 
 ## 사용 방법 {#how-to-use}
 
-1. 대시보드 왼쪽 사이드바에서 **Flow Runs**를 엽니다. 처음에는 CI 실행만 보입니다.
+1. 대시보드 왼쪽 사이드바에서 **Flow Runs**를 엽니다. 사이드바에는 첫 실행이 기록된 뒤부터 나타나며 처음에는 CI 실행만 보입니다.
 2. 위쪽의 **All** / **CI** / **Local**로 어디서 실행된 기록을 볼지 고릅니다. 상태(**Any status**, **Running**, **Passed**, **Failed**, **Cancelled**)와 플로우 이름으로도 좁힐 수 있습니다. 플로우 이름은 일부만 입력해도 됩니다.
 3. 행을 누르면 그 실행의 상세 화면이 열립니다. Cmd를 누른 채 클릭하면(Windows·Linux는 Ctrl) 새 탭에서 열립니다.
 

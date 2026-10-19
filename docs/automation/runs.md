@@ -15,7 +15,7 @@ A run is recorded when the runner has a token. See [Recording runs](#recording) 
 
 ## How to use {#how-to-use}
 
-1. Open **Flow Runs** in the dashboard's sidebar. It opens on CI runs.
+1. Open **Flow Runs** in the dashboard's sidebar. It is listed there once the first run is recorded, and opens on CI runs.
 2. Pick where the runs came from with **All** / **CI** / **Local** at the top. You can narrow the list by status (**Any status**, **Running**, **Passed**, **Failed**, **Cancelled**) and by flow name; part of a name is enough.
 3. Select a row to open that run. Cmd-click (Ctrl-click on Windows and Linux) opens it in a new tab.
 

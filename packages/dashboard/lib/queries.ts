@@ -28,6 +28,8 @@ export const queryKeys = {
   run: (id: string) => ['runs', 'detail', id] as const,
   /** A flow's video, loaded when someone asks to play it. */
   runVideo: (id: string, idx: number) => ['runs', 'video', id, idx] as const,
+  /** Whether the relay holds any run at all. Refreshed on mount and window focus: runs are written by the CLI, never by a dashboard mutation. */
+  anyRun: ['runs', 'any'] as const,
 }
 
 /**
@@ -240,6 +242,13 @@ function runsSignal(signal?: AbortSignal): AbortSignal {
  * shorter table keeps Newer / Older close — GitHub Actions' run list is 25 too.
  */
 export const RUNS_PAGE_SIZE = 25
+
+/** Whether any run is recorded, from every source. Throws when it cannot be asked — a failure is not "no". */
+export async function hasAnyRun(signal?: AbortSignal): Promise<boolean> {
+  const res = await fetch('/api/v1/runs?limit=1', { credentials: 'include', signal: runsSignal(signal) })
+  if (!res.ok) throw new Error(`GET /api/v1/runs failed with ${res.status}`)
+  return ((await res.json()) as RunPage).items.length > 0
+}
 
 export async function getRuns(filters: RunFilters, cursor: RunCursor, signal?: AbortSignal): Promise<RunPage> {
   const params = new URLSearchParams()
