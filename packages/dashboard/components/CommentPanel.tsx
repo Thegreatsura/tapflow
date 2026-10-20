@@ -59,6 +59,7 @@ export function CommentPanel({ buildId }: Props) {
   const [fileError, setFileError] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
   const bodyRef = useRef<HTMLTextAreaElement>(null)
+  const formRef = useRef<HTMLFormElement>(null)
   const commentRefs = useRef<Record<number, HTMLDivElement | null>>({})
 
   // Read through Query like every other list here (#845); a failure is its own line, not "No comments yet".
@@ -120,8 +121,10 @@ export function CommentPanel({ buildId }: Props) {
       if (!res.ok) throw new Error(String(res.status))
       setBody(''); setFile(null); setFileError(''); load()
       // The field is empty now, so Post becomes disabled and would drop a keyboard user's focus on <body>; the
-      // field is where the next comment starts.
-      bodyRef.current?.focus()
+      // field is where the next comment starts. Only from the composer, though: someone who clicked into the
+      // device while an image uploaded keeps typing there.
+      const active = document.activeElement
+      if (active === document.body || formRef.current?.contains(active)) bodyRef.current?.focus()
     } catch {
       toast.error('Could not post the comment. Try again.')
     } finally {
@@ -215,7 +218,7 @@ export function CommentPanel({ buildId }: Props) {
       </ScrollArea>
 
       <div className="pb-1">
-      <form onSubmit={handleSubmit}>
+      <form ref={formRef} onSubmit={handleSubmit}>
         {/* `rounded-md` (6px), the same as the list above it — `rounded-xl` is 12px and is not on this
           scale at all, so the two boxes in one column disagreed by 6px. DESIGN.md's md is the form radius. */}
       <div className="rounded-md border border-input bg-background ring-offset-background transition-shadow focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">

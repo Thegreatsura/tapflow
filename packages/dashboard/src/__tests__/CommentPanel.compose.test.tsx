@@ -86,6 +86,21 @@ describe('CommentPanel — posting', () => {
     await waitFor(() => expect(field()).toHaveFocus())
     expect(postButton()).toBeDisabled()
   })
+
+  it('leaves focus where it went if it left the composer during the post', async () => {
+    let finish: (v: { ok: boolean }) => void = () => {}
+    post = () => new Promise((r) => { finish = r })
+    const user = await setup()
+    const elsewhere = document.createElement('button')
+    document.body.appendChild(elsewhere)
+    await user.type(field(), 'a note')
+    await user.click(postButton())
+    elsewhere.focus()
+    finish({ ok: true })
+    await waitFor(() => expect(field()).toHaveValue(''))
+    expect(elsewhere).toHaveFocus()
+    elsewhere.remove()
+  })
 })
 
 describe('CommentPanel — picking an image', () => {
