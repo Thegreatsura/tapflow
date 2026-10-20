@@ -244,7 +244,7 @@ their count live in the spec, which the check holds to code. A component without
 | TechLabel | `components/ui/tech-label.tsx` | tone 2 | [tech-label.md](./design/components/tech-label.md) |
 | TabsTrigger | `components/ui/tabs.tsx` | state 4 | [tabs-trigger.md](./design/components/tabs-trigger.md) |
 | SidebarMenuButton | `components/ui/sidebar.tsx` | variant × size × state | [sidebar-menu-button.md](./design/components/sidebar-menu-button.md) |
-| DropdownMenuItem | `components/ui/dropdown-menu.tsx` | state 3 | pending |
+| DropdownMenuItem | `components/ui/dropdown-menu.tsx` | state | [dropdown-menu-item.md](./design/components/dropdown-menu-item.md) |
 | Kbd | `components/ui/kbd.tsx` | — | pending |
 | SearchInput | `components/ui/search-input.tsx` | state 3 × content 2 | pending |
 | TableRow | `components/ui/table.tsx` | type 2 × state 3 | pending |
