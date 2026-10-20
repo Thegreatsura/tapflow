@@ -60,8 +60,8 @@ Each page load starts expanded: the collapsed state is written to a cookie that 
 
 No rail and no collapse. The sidebar is a sheet from the left, 288px wide with a 1px right border (rows 271px),
 opened from the page header's toggle, over a black 80% overlay. It slides in over 500ms and out over 300ms, and has no
-close button: it closes from the overlay or Escape. Rows are the same height. Tooltips never show there. Tapping a row changes the page behind the sheet and leaves
-the sheet open: nothing in `AppSidebar` closes it.
+close button: it closes from the overlay, Escape, or once a link in it is followed or the page changes (the back
+gesture too). Rows are the same height. Tooltips never show there.
 
 ## Properties
 
