@@ -74,7 +74,9 @@ That is left to the designer's color pass, not a value to aim for.
 - **It turns itself off.** Full reset means "erase the next device I pick", once: picking a device turns it back
   off at that moment, whether or not the device then starts. Turning it on again is the only way to ask for another
   erase.
-- **It is not there at all** when the Mac's agent cannot do a full reset. It is hidden, not shown disabled.
+- **It is not there at all** when the selected machine's agent does not advertise full reset (the `full-reset`
+  capability). It is hidden, not shown disabled. Today's iOS and Android agents both advertise it, so in practice it
+  always shows; it hides only for an agent older than the feature or a third-party one.
 - It starts off every time the page opens, and keeps its position when you go back to the Mac list and pick another
   Mac.
 
