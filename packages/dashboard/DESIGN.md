@@ -42,7 +42,7 @@ All color values are defined as CSS variables in `src/index.css`. Tailwind refer
 | `--primary` | `#171717` | `#fafafa` | Primary CTA button, active link |
 | `--primary-foreground` | `#ffffff` | `#171717` | Text on primary surfaces |
 | `--ring` | `#171717` | `#fafafa` | Focus ring |
-| `--sidebar-ring` | `#0070f3` | `#0070f3` | Sidebar focus ring (link blue) |
+| `--sidebar-ring` | `#0076f5` | `#0076f5` | Sidebar focus ring (link blue) |
 
 ### Semantic
 
@@ -188,7 +188,8 @@ Every interactive component uses the same state names. A component spec lists on
 
 - **Pressed is motion, not a state.** Every `<button>` and `[role="button"]` that is not `disabled` shifts down 1px
   while pressed (`translateY(1px)`, 120ms) and keeps its colors, so a pressed variant is drawn only where a
-  component adds one — `SidebarMenuButton` does (`active:bg-sidebar-accent`). The rule is global in `src/index.css`:
+  component adds one. `SidebarMenuButton` adds `active:bg-sidebar-accent`, the same fill as its hover, so it needs no
+  separate pressed drawing; as a link it does not shift. The rule is global in `src/index.css`:
 
   ```css
   button:not([aria-haspopup]):not(:disabled),
@@ -242,7 +243,7 @@ their count live in the spec, which the check holds to code. A component without
 | Tooltip | `components/ui/tooltip.tsx` | — | [tooltip.md](./design/components/tooltip.md) |
 | TechLabel | `components/ui/tech-label.tsx` | tone 2 | [tech-label.md](./design/components/tech-label.md) |
 | TabsTrigger | `components/ui/tabs.tsx` | state 4 | [tabs-trigger.md](./design/components/tabs-trigger.md) |
-| SidebarMenuButton | `components/ui/sidebar.tsx` | variant 2 × size 3 × state 5 | pending |
+| SidebarMenuButton | `components/ui/sidebar.tsx` | variant × size × state | [sidebar-menu-button.md](./design/components/sidebar-menu-button.md) |
 | DropdownMenuItem | `components/ui/dropdown-menu.tsx` | state 3 | pending |
 | Kbd | `components/ui/kbd.tsx` | — | pending |
 | SearchInput | `components/ui/search-input.tsx` | state 3 × content 2 | pending |
