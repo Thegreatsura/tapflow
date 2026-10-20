@@ -28,7 +28,8 @@ and **only the QA session uses it**. Other pages put a plain title there (see "N
 - **Page** — the last item, `font-medium` in `--foreground`. It is not a link.
 - **Separator** — Lucide `ChevronRight`, 14px, `--muted-foreground`. Hidden from assistive technology.
 - **Header** — the bar it sits in is 64px high with a 1px `--border` below and 16px on the sides. From the left: the
-  sidebar toggle, a 16px vertical Separator, then the trail, all 8px apart and vertically centered.
+  sidebar toggle (28px, pulled 4px left, so 12px from the edge), a 16px vertical Separator, then the trail, all 8px
+  apart and vertically centered.
 
 `BreadcrumbEllipsis` (a 36px box with a "more" icon, for collapsing a long trail) is defined and unused. Do not draw
 it.
@@ -50,12 +51,13 @@ For `link` only; `page` and `separator` do not change.
 | Value | Trigger | Looks like | Call sites |
 |-------|---------|------------|-----------:|
 | `default` | — | As `link` above | 1 |
-| `hover` | `hover:` | `--foreground` text, with a 150ms color transition; pointer cursor | 1 |
+| `hover` | `hover:` | `--foreground` text, with the global 120ms button transition (the base `button` rule outranks the link's `transition-colors`); pointer cursor | 1 |
 | `focus` | Keyboard focus | The browser's default focus outline, not the shared ring: no focus style is set | 1 |
 
 - Every link in the QA trail is a `<button>`, not an `<a>`, so it takes the global press motion (DESIGN.md): it
   moves down 1px while pressed. It also cannot be opened in a new tab.
-- Link text on the header is 3.40:1 in light mode and 7.36:1 in dark. Draw it at that value.
+- Link text on the header's `--background` (`#fafafa` / `#171717`) is 3.40:1 in light mode and 7.36:1 in dark. Draw it
+  at that value.
 
 ## Variations at the call site
 
@@ -63,14 +65,15 @@ The QA session's trail grows as you go further in. Draw all three.
 
 | Step | Trail | Beside it |
 |------|-------|-----------|
-| Choosing a Mac | App › **build** | The build's status Badge, 12px after the trail ([badge.md](./badge.md)) |
+| Choosing a Mac | App › **build** | The build's status Badge, when the build has one, 12px after the trail ([badge.md](./badge.md)) |
 | Choosing a device on a Mac | App › build › **Mac** | — |
-| A device is running | App › build › Mac › **device · OS version** | — |
+| A device is booting or running | App › build › Mac › **device · OS version** | — |
 
 - **App** (the app's name) goes to the App Center with that app selected.
 - **build** (`1.4.0 · build 42`) goes back to choosing a Mac; **Mac** goes back to choosing a device on it.
-- **Going back from a running device shuts that device down**, with no confirmation, whichever of the three links is
-  used. The App link leaves the page, which shuts it down too.
+- **Going back from a running device with build or Mac shuts that device down at once**, with no confirmation.
+  The App link leaves the page; the device is then not shut down by the page but by the relay, once its idle
+  timeout runs out (5 minutes by default).
 
 ## Not Breadcrumb
 
@@ -81,9 +84,11 @@ These pages put something else in the same header slot. They are hand-written an
 | Flow Runs, Mac Resources | The page's name, 14px medium, `--foreground` |
 | A flow run | `Flow Runs / <build>`: a link in `--muted-foreground` (`--foreground` on hover), a `/` in `--muted-foreground`, then the build in medium. 6px apart. No chevron |
 | Watching an AI session | `Watching <device>`, 14px medium |
-| Every other page | Nothing: the slot is empty |
+| Every other page | Nothing: the slot is empty. So is the QA session's, until its build has loaded |
 
-Flow run's trail looks like a breadcrumb but uses `/` and 6px gaps, not the chevron and 10px. Draw it as it ships.
+Flow run's trail looks like a breadcrumb but uses `/` and 6px gaps, not the chevron and 10px, and reads
+`Flow Runs / Run` until the run has loaded. Its link is a real link (`<a>`): it can open in a new tab, does not move
+when pressed, and changes color on hover at once, with no transition. Draw it as it ships.
 
 ## Usage
 
