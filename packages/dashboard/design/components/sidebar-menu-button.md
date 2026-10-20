@@ -94,7 +94,7 @@ Light / dark values for the default variant.
 | `hover` | `hover:`, and while pressed (`active:`) | `--sidebar-accent` (`#f5f5f5` / `#212121`) | `--sidebar-accent-foreground` (`#171717` / `#fafafa`), regular |
 | `focus` | `focus-visible:` | None | As `default`, with a 2px `--sidebar-ring` (link blue, `#0076f5`) ring and no offset |
 | `active` | `isActive` (`data-active`) — the page you are on | `--sidebar-accent` | `--sidebar-accent-foreground`, **medium** |
-| `disabled` | `disabled:` / `aria-disabled:` | 50% opacity, no pointer events | — |
+| `disabled` | `disabled:` on a `<button>`, `aria-disabled:` on a link | 50% opacity, no pointer events | — |
 
 - **`active` is the current page, not CSS `:active`.** The prop is `isActive`. Pressing a row looks like hovering it.
 - **`hover` and `active` share a fill.** Only the weight tells the current page from a hovered one, and hovering
@@ -104,13 +104,15 @@ Light / dark values for the default variant.
 - **Pressing does not move it.** A row is a link, so the global 1px press motion (DESIGN.md) does not apply.
 - **The focus ring is the sidebar's own:** blue, no `--background` offset, flush against the row. The group's 8px
   padding leaves room for it in both widths.
-- **`disabled` has no call site.** A link would be disabled with `aria-disabled`, which the same classes cover.
+- **`disabled` has no call site.** A link cannot take `disabled`; it would carry `aria-disabled`, which the same
+  classes dim. That only blocks the pointer: focused, Enter still follows the link, so a disabled link would also
+  need its `href` or navigation removed.
 
 ## Variations at the call site
 
 | Where | Override | Why |
 |-------|----------|-----|
-| Main nav — App Center, Flow Runs, Mac Resources | `isActive` when the path starts with the item's | A build's QA page (`/app-center/build`) keeps App Center current |
+| Main nav — App Center, Flow Runs, Mac Resources | `isActive` when the current path starts with the row's link (`href`) | A build's QA page (`/app-center/build`) keeps App Center current |
 | Settings — Default, Team, Tokens | `isActive` only on the exact path | Team is shown to an Admin, Tokens to Admin, Developer and QA (`lib/settingsAccess.ts`) |
 | Reference — Docs | Never `active`. A plain `<a>` opening tapflow.dev in a new tab | An external page has no current state here. Nothing on the row says it opens a new tab |
 
