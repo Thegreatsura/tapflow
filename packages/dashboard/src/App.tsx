@@ -53,7 +53,7 @@ export function App() {
         </Route>
         <Route path="*" element={suspended(<NotFound />)} />
       </Routes>
-      {/* The wrapper follows next-themes itself, which is why this no longer passes a theme. */}
+      {/* No theme prop: the wrapper reads next-themes itself. */}
       <Toaster position="bottom-right" richColors />
     </BrowserRouter>
     </QueryClientProvider>
