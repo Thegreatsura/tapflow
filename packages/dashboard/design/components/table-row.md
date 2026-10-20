@@ -18,6 +18,7 @@ Settings → Team.
 ## Anatomy
 
 ```
+Flow Runs, 4 of its 6 columns
 ┌───────────────────────────────────────────────────────────┐
 │  Status        Build           Flows passed   Started     │  header row: 48px
 ├───────────────────────────────────────────────────────────┤  1px --border
@@ -64,7 +65,7 @@ Light / dark values, on `--card`.
 - **Only Flow Runs' body rows react to the pointer.** Tokens and Team turn the fill off on theirs
   (`hover:bg-transparent`): nothing happens on a click there, only in the row's own controls.
 - The hover fill is faint: 1.04:1 against `--card` in light mode, 1.06:1 in dark. The row border is 1.19:1 and
-  1.25:1. Header text is 3.54:1 and 7.00:1. Draw them at those values.
+  1.25:1. Header text is 3.54:1 and 7.00:1, and 3.44:1 and 6.61:1 on a hovered header row. Draw them at those values.
 - There is no focus style on a row. A row does not take focus; the controls in it do, each with its own ring.
 
 ## Variations at the call site
@@ -72,12 +73,16 @@ Light / dark values, on `--card`.
 | Where | Override | Why |
 |-------|----------|-----|
 | Flow Runs — a run | `cursor-pointer`; a click anywhere in the row opens the run (⌘ or Ctrl opens it in a new tab) | Opening a run is the one thing to do with it, as in a CI run list. The build name is a link too (medium weight, underline on its own hover, ring on focus), and it is the row's only keyboard stop |
-| Tokens, Team — a token or member | `hover:bg-transparent` | The row is not a target. Its actions are its own controls: Revoke (a 28px red icon button) in Tokens; a 28px role select and two 28px buttons, Reset pwd and Remove, in Team |
-| Every table — no rows | One row across all columns, `hover:bg-transparent`, its cell 80px high (`h-20`), centered `--muted-foreground` text | Empty: the table's own sentence ("No tokens yet."). Failed: "Couldn't load tokens." and an outline small **Try again** button 12px after it |
-| Every table — loading | Nothing for the first 250ms but an empty 80px row; then three rows of `--muted` bars (`rounded-md`, pulsing), 16px high and 112 / 160 / 64 / 80px wide by column, with a 28px square in the last column | Bars shaped like the rows on their way, so a quick answer does not flicker. The last column holds row actions in every table, so its bar matches them |
+| Tokens, Team — a token or member | `hover:bg-transparent` | The row is not a target. Its actions are its own controls: Revoke (a 28px destructive icon button, a red trash icon on a 10% red tint) in Tokens; a 28px role select and two 28px buttons, Reset pwd and Remove, in Team |
+| Every table — no rows | One row across all columns, `hover:bg-transparent`, its cell 80px high (`h-20`), centered `--muted-foreground` text | Empty: the table's own sentence ("No tokens yet."). Failed: "Couldn't load tokens." and an outline **Try again** button, 36px high (`size="sm"`), 12px after it; the cell stays 80px |
+| Every table — loading | Nothing for the first 250ms but an empty 80px row; then three rows of `--muted` bars (`rounded-md`, pulsing), 16px high and 112 / 160 / 64 / 80px wide by column (repeating from 112 in a fifth column), with a 28px square in the last column | Bars shaped like the rows on their way, so a quick answer does not flicker. In Tokens and Team the last column holds the row's actions, so the square matches them and a skeleton row is 60px like a real one. In Flow Runs it is the Duration column, so its skeleton rows are 60px against 54px real rows |
 
 In Flow Runs the `body` cells also carry their own colors: Source and Started are `--muted-foreground`, Flows passed
 and Duration are `TechLabel` (see [tech-label.md](./tech-label.md)), and Status is a Badge ([badge.md](./badge.md)).
+In Tokens, Name is medium weight, Scope is a secondary Badge, Last used is `--muted-foreground`, and Expires is a
+`--muted-foreground` date, `Expired` in `--destructive`, or an outline Badge reading `No expiration`. In Team,
+Nickname is medium weight (`—` when there is none), Email and Joined are `--muted-foreground`, and the role select is
+112px wide. Both put the actions under an empty 40px header cell (`w-10`).
 
 Call-site counts are a snapshot (2026-10-20).
 
