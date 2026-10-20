@@ -53,7 +53,7 @@ That is left to the designer's color pass, not a value to aim for.
 | `focus` | Shared ring (DESIGN.md): 2px `--ring`, 2px `--background` offset, on keyboard focus only | 1 |
 | `disabled` | 50% opacity, `not-allowed` cursor | 0 — defined, never set |
 
-- **No `hover`.** Nothing changes under the pointer beyond the pointer cursor.
+- **No `hover` style.** Under the pointer only the cursor changes; at the Full reset call site the tooltip opens.
 - The track is a `<button>`, so the global press motion (DESIGN.md) applies: it moves down 1px while pressed, and its
   color changes over the global 120ms (the base `button` rule outranks the switch's own `transition-colors`).
 
@@ -68,13 +68,15 @@ That is left to the designer's color pass, not a value to aim for.
 | Part | What it is |
 |------|------------|
 | Label | `Full reset`, the Label component: 14px medium, `--foreground`, one line, before the switch with 8px between; clicking it flips the switch ([label.md](./label.md)) |
-| Row | The group sits at the right end of the filter row (`ml-auto`), beside the search box and the OS select |
+| Row | The group sits at the right end of the filter row (`ml-auto`), beside the search box and, when there are OS versions to filter, the OS select |
 | Tooltip | Over the label and the switch together: `Keep existing data` when off, `Erase all data on the next device you pick` when on |
 
-- **It turns itself off.** Full reset means "erase the next device I pick", once: picking a device starts it with a
-  full erase and puts the switch back to off.
+- **It turns itself off.** Full reset means "erase the next device I pick", once: picking a device turns it back
+  off at that moment, whether or not the device then starts. Turning it on again is the only way to ask for another
+  erase.
 - **It is not there at all** when the Mac's agent cannot do a full reset. It is hidden, not shown disabled.
-- It starts off every time the page opens.
+- It starts off every time the page opens, and keeps its position when you go back to the Mac list and pick another
+  Mac.
 
 ## Usage
 
