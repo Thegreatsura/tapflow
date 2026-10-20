@@ -64,8 +64,7 @@ initial (tracked in #979).
 | `disabled` | 50% opacity, no pointer events (`data-disabled`) | 0 — defined, no item is disabled |
 
 - **`focus` is also hover.** Radix moves focus to the item under the mouse and back to the panel when the mouse
-  leaves, so the mouse and the arrow keys light the same item the same way. There is no separate `hover`, and no
-  highlight under a finger or a pen.
+  leaves, so the mouse and the arrow keys light the same item the same way. There is no separate `hover`.
 - **No focus ring.** The fill is the only focus indicator (`outline-none`); the shared ring is not drawn on an item.
   It is faint: 1.09:1 against the panel in light mode, 1.13:1 in dark.
 - **Pressing does not move it.** An item is `role="menuitem"`, which the global press motion (DESIGN.md) does not
