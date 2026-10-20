@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **The dashboard sidebar closes on a phone once you pick a page.** Below 768px the sidebar opens as a sheet, and following a link in it used to leave the sheet covering the page it had just opened.
+- **The dashboard sidebar closes on a phone once you pick a page or go back.** Below 768px the sidebar opens as a sheet, and following a link in it used to leave the sheet covering the page it had just opened.
 
 ## [0.28.0] - 2026-10-20
 
