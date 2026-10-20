@@ -64,6 +64,8 @@ describe('GET /api/v1/builds?q= matches the text literally', () => {
   it('`_` is one underscore, not any one character', async () => {
     expect(await listVersions(port, cookie, '1_0')).toEqual(['1_0'])
   })
+  // Not a regression: `\` was literal before too. This holds the escape character itself, which an `ESCAPE` clause
+  // without escaping `\` would break.
   it('a backslash is a character, not an escape', async () => {
     expect(await listVersions(port, cookie, 'a\\b')).toEqual(['a\\b'])
     expect(await listVersions(port, cookie, '\\')).toEqual(['a\\b'])
