@@ -31,11 +31,14 @@ tokens.
 ```
 
 - **Box** — 356px wide, 16px padding, 1px border, `--radius` corners (8px), sonner's shadow (`0 4px 12px` black at
-  10%). 54px high with a title; 74px with a one-line description.
+  10%). 54px high with a title; 74px with a one-line description. Title and description wrap, never truncate, and
+  the box grows; the icon stays centered on the whole text block. Several descriptions run to two or three lines
+  (a QA session that ended, an input failure with the agent's message), so draw one of those too.
 - **Icon** — a 16px Lucide icon, in the toast's text color, vertically centered: `CircleCheck` (success), `Info`,
   `TriangleAlert` (warning), `OctagonX` (error), and a spinning `Loader2` while loading. 11px between the icon and
   the text.
-- **Title** — 13px medium on a 19.5px line.
+- **Title** — 13px medium on a 19.5px line. **Set in sonner's system font stack** (`system-ui`: SF Pro on macOS),
+  not the dashboard's Inter.
 - **Description** (optional) — 13px regular under the title, **in the same color as the title** on the colored
   types.
 - **No close button, no action button.** Nothing in the dashboard passes one.
@@ -65,13 +68,19 @@ Call-site counts are a snapshot (2026-10-21): each `toast.<type>()` written in c
 
 ## Behaviour
 
-- **Lifetime** — 4 seconds, paused while the pointer is over the stack. Input-failure toasts on the device viewer stay
-  6 seconds and reuse one `id`, so repeats refresh one toast instead of stacking.
-- **Stack** — newest at the bottom; up to three are visible, the older ones tucked behind it, 14px apart once the
-  pointer spreads the stack.
-- **Motion** — slides up in and fades out. With reduced motion it appears and leaves at once.
-- **Not interactive.** A toast takes no focus and needs no action. The stack is a polite live region; Alt+T moves
-  focus to it.
+- **Lifetime** — 4 seconds, paused while the stack is spread (pointer over it, or Alt+T) and while the browser tab is
+  hidden. `loading` has no timer: it stays until the upload settles, then counts 4 seconds as `success` or `error`.
+  Input-failure toasts on the device viewer stay 6 seconds and reuse one `id`, so repeats refresh one toast instead
+  of stacking.
+- **Stack** — newest at the bottom, up to three visible. Collapsed, each older toast peeks 14px above the one in
+  front, 5% smaller per step, its content hidden and its height matched to the front toast. Spread (pointer over the
+  stack), they sit 14px apart at full size.
+- **Motion** — slides up from below the edge and fades in, 400ms; leaves by sliding back down and fading, 400ms. With
+  reduced motion it appears and leaves at once.
+- **Takes no action and does not move focus when it appears.** Each toast is still a tab stop, with sonner's own
+  focus ring (2px black at 20% around the shadow, not DESIGN.md's `--ring`). Alt+T (Option+T on a Mac) moves focus
+  to the stack and spreads it; Esc folds it. Dragging a toast down or right dismisses it. The stack is a polite live
+  region.
 
 ## Usage
 
