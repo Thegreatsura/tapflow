@@ -12,7 +12,7 @@ interface Props {
   emptyText: string
   onRetry: () => void
   /** One real row's height in px, which the skeleton rows take so the table does not jump when the rows
-   *  arrive. The default is a row of 28px controls (Tokens, Team); a table with shorter rows passes its own. */
+   *  arrive. The default is a row of 28px controls (Tokens, Team); a table whose rows are another height passes its own. */
   rowHeight?: number
 }
 
