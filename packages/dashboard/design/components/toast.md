@@ -37,8 +37,8 @@ tokens.
 - **Icon** — a 16px Lucide icon, in the toast's text color, vertically centered: `CircleCheck` (success), `Info`,
   `TriangleAlert` (warning), `OctagonX` (error), and a spinning `Loader2` while loading. 11px between the icon and
   the text.
-- **Title** — 13px medium on a 19.5px line. **Set in sonner's system font stack** (`system-ui`: SF Pro on macOS),
-  not the dashboard's Inter.
+- **Title** — 13px medium on a 19.5px line, in **Inter**, the dashboard's font, with its `ss01` / `ss02`
+  alternates. The wrapper makes the toaster inherit it; sonner's own default is the system font (#1022).
 - **Description** (optional) — 13px regular under the title, **in the same color as the title** on the colored
   types.
 - **No close button, no action button.** Nothing in the dashboard passes one.
