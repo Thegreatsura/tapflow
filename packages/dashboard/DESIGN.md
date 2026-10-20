@@ -247,7 +247,7 @@ their count live in the spec, which the check holds to code. A component without
 | DropdownMenuItem | `components/ui/dropdown-menu.tsx` | state | [dropdown-menu-item.md](./design/components/dropdown-menu-item.md) |
 | Kbd | `components/ui/kbd.tsx` | context 2 | [kbd.md](./design/components/kbd.md) |
 | SearchInput | `components/ui/search-input.tsx` | state 3 × content 2 | [search-input.md](./design/components/search-input.md) |
-| TableRow | `components/ui/table.tsx` | type 2 × state 3 | pending |
+| TableRow | `components/ui/table.tsx` | type 2 × state 3 | [table-row.md](./design/components/table-row.md) |
 | Textarea | `components/ui/textarea.tsx` | state 3 × content 2 | pending |
 | Breadcrumb | `components/ui/breadcrumb.tsx` | hover 2 | pending |
 | Switch | `components/ui/switch.tsx` | checked 2 × state 3 | pending |
