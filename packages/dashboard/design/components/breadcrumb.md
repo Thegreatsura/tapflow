@@ -25,7 +25,9 @@ and **only the QA session uses it**. Other pages put a plain title there (see "N
 - **List** — one line of `text-sm` (14px on a 20px line), `--muted-foreground`, items and separators 10px apart
   (`sm:gap-2.5`; 6px below 640px, which the dashboard does not draw). A long trail wraps rather than truncating.
 - **Link** — the text alone: no underline, no padding, no fill.
-- **Page** — the last item, `font-medium` in `--foreground`. It is not a link.
+- **Page** — the last item, `font-medium` in `--foreground`. It is not a link you can follow: it takes no focus and
+  does nothing on a click. shadcn's markup still exposes it to assistive technology as a disabled link
+  (`role="link" aria-disabled="true"`) marked `aria-current="page"`.
 - **Separator** — Lucide `ChevronRight`, 14px, `--muted-foreground`. Hidden from assistive technology.
 - **Header** — the bar it sits in is 64px high with a 1px `--border` below and 16px on the sides. From the left: the
   sidebar toggle (28px, pulled 4px left, so 12px from the edge), a 16px vertical Separator, then the trail, all 8px
@@ -56,8 +58,8 @@ For `link` only; `page` and `separator` do not change.
 
 - Every link in the QA trail is a `<button>`, not an `<a>`, so it takes the global press motion (DESIGN.md): it
   moves down 1px while pressed. It also cannot be opened in a new tab.
-- Link text on the header's `--background` (`#fafafa` / `#171717`) is 3.40:1 in light mode and 7.36:1 in dark. Draw it
-  at that value.
+- Link text on the header's `--background` (`#fafafa` / `#171717`) is 3.40:1 in light mode and 7.36:1 in dark. Light mode
+  is under the 4.5:1 that 14px text needs; that is left to the designer's color pass, not a value to aim for.
 
 ## Variations at the call site
 
