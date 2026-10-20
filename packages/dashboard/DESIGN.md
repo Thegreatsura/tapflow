@@ -138,7 +138,7 @@ Default card padding: `p-6` (24px). Dense contexts: `p-4` (16px). Sidebar areas:
 | Tailwind class | Value | Use |
 |----------------|-------|-----|
 | `z-sidebar` | 10 | Sidebar |
-| `z-tooltip` | 100 | Tooltips |
+| `z-tooltip` | 100 | Tooltips — **defined, used nowhere**; Tooltip uses `z-[50]` |
 | `z-overlay` | 200 | Modal dim background — **defined, used nowhere**; Dialog and AlertDialog use `z-50` |
 | `z-modal` | 300 | Modal / dialog content — **defined, used nowhere**; Dialog and AlertDialog use `z-50` |
 
