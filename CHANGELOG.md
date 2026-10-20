@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Leaving a QA session shuts its device down again.** Going to another page with a device running left it running until the relay's idle timeout (5 minutes by default), taken for the rest of the team.
+- **Leaving a QA session now shuts its device down.** Going to another page with a device running left it running, unused, until the relay's idle timeout (5 minutes by default).
 - **The comment box in a QA session recovers from a failed post.** If the relay could not be reached, Post stayed greyed out; if it refused the comment, nothing was said. Either way it now says the comment was not posted and keeps your text. A rejected image no longer leaves the earlier one attached, and the same image can be picked again after posting.
 - **Flow Runs no longer jumps when its runs finish loading.** The placeholder rows shown while waiting were 6px taller than a run, so the table shrank as the runs arrived.
 - **The App Center's version search matches `%` and `_` as typed.** They were read as wildcards, so searching for `%` listed every build and `1_0` also found `1.0.5`.
