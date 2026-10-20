@@ -70,8 +70,8 @@ Call-site counts are a snapshot (2026-10-20).
 | Where | Placeholder · name | What it filters |
 |-------|--------------------|-----------------|
 | QA session — Select device | `Search device…` · "Search devices" | The device list, on every keystroke: names containing the text, ignoring case |
-| App Center — builds | `Search version…` · "Search versions" | The release list, 250ms after typing stops: version names containing the text (the build number is not searched) |
-| Flow Runs | `Flow name` · "Flow name" | The run list, 300ms after typing stops: flow names containing the text, ignoring case. The trimmed text is kept in the page's address |
+| App Center — builds | `Search version…` · "Search versions" | The release list, 250ms after typing stops: version names containing the text, ignoring case for A–Z (the build number is not searched) |
+| Flow Runs | `Flow name` · "Flow name" | The run list, 300ms after typing stops: flow names containing the text, ignoring case for A–Z. The trimmed text is kept in the page's address |
 
 App Center's box is also described by its loading line or the empty-list title, and takes focus when the view below it
 is replaced by a loading or empty view with no control of its own while focus was in the view being replaced (a
