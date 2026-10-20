@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Dashboard notifications are set in the dashboard's font (Inter)** on every system, instead of each operating system's own interface font.
 - **Dashboard notifications use the dashboard's own toast styling** (shadcn's current Toaster). Their icons match the rest of the dashboard, and the "uploading" toast takes the dashboard's popover colors. Success, error, warning and info keep their colored backgrounds.
 
 ### Fixed
