@@ -71,9 +71,8 @@ The QA session's trail grows as you go further in. Draw all three.
 
 - **App** (the app's name) goes to the App Center with that app selected.
 - **build** (`1.4.0 · build 42`) goes back to choosing a Mac; **Mac** goes back to choosing a device on it.
-- **Going back from a running device with build or Mac shuts that device down at once**, with no confirmation.
-  The App link leaves the page; the device is then not shut down by the page but by the relay, once its idle
-  timeout runs out (5 minutes by default).
+- **Going back from a running device shuts that device down at once**, with no confirmation, whichever of the
+  three links is used. The App link does it by leaving the page.
 
 ## Not Breadcrumb
 
