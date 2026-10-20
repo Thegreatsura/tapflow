@@ -1,4 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect } from 'react'
 import { useTheme } from 'next-themes'
 import { LayoutGrid, LogOut, Settings, Users, KeyRound, Monitor, BookOpen, SquarePlay } from 'lucide-react'
 import {
@@ -58,10 +59,14 @@ export function AppSidebar() {
   const logoUrl = settings?.logo_url ?? null
   const teamName = settings?.team_name || 'tapflow'
   const queryClient = useQueryClient()
-  // Below 768px the sidebar is a modal sheet, and a link followed from it changes the page behind it. Nothing
-  // else closes the sheet, so every link in it does; on a wider screen the sheet is already closed.
+  // Below 768px the sidebar is a modal sheet, and a page changed behind it stays covered unless it closes. A
+  // change of path closes it, which covers the phone's back gesture too; a link also closes it on click, since one
+  // to the page already open changes no path. On a wider screen the sheet is already closed.
   const { setOpenMobile } = useSidebar()
   const closeSheet = () => setOpenMobile(false)
+  useEffect(() => {
+    setOpenMobile(false)
+  }, [pathname, setOpenMobile])
   // Flow Runs is listed once a run exists. Runs come only from `tapflow flow run`, so until a team records one
   // the page is an empty list beside the manual path; it appears on the first run. Also listed while a run
   // page is open (reached from a printed link) and when the relay could not be asked, since a failure is not
