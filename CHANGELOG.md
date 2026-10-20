@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Dashboard notifications use the dashboard's own toast styling.** Their icons match the rest of the dashboard, the shadow matches dialogs, and the "uploading" toast follows the dashboard's colors. Success, error, warning and info keep their colored backgrounds.
+- **Dashboard notifications use the dashboard's own toast styling** (shadcn's current Toaster). Their icons match the rest of the dashboard, and the "uploading" toast takes the dashboard's popover colors. Success, error, warning and info keep their colored backgrounds.
 
 ### Fixed
 
