@@ -49,9 +49,9 @@ The sidebar footer's user button: a 28px avatar, then the name (14px medium) ove
 `rounded-md`, 4px padding, `--sidebar-accent` on hover. It has no open style: while the menu is open it shows the
 hover fill only while the mouse is on it. Its focus is the browser's default outline, not the shared ring.
 
-In the collapsed sidebar the trigger is the avatar alone, centered in the 48px rail, and the 224px menu opens from
-the rail's left edge over the page beside it. Draw that frame too. The trigger is then named only by the avatar's
-initial (tracked in #979).
+In the collapsed sidebar the trigger is the avatar alone (the photo, or the initial on its color when there is
+none), centered in the 48px rail, and the 224px menu opens from the rail's left edge over the page beside it. Draw
+that frame too, with both avatars. Without a photo the trigger is then named only by the initial (tracked in #979).
 
 ## Properties
 
