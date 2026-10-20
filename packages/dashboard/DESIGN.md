@@ -153,7 +153,7 @@ Card hierarchy is expressed only through `shadow-card-{n}` tokens. All shadows f
 | 2 | `shadow-card-2` | soft drop + inset | **Default** — settings sections, the release list |
 | 3 | `shadow-card-3` | stacked drop + inset | Not used yet |
 | 4 | `shadow-card-4` | float stack + inset | The single card of an entry screen (Login, Setup, Invite, Reset password) |
-| modal | `shadow-modal` | 3-layer + inset | **Defined, used nowhere.** Overlays use Tailwind shadows instead: `shadow-lg` for Dialog, AlertDialog, Sheet, toasts and the DropdownMenu submenu; `shadow-md` for DropdownMenu and Select content and the MacResources chart tooltip |
+| modal | `shadow-modal` | 3-layer + inset | **Defined, used nowhere.** Overlays use Tailwind shadows instead: `shadow-lg` for Dialog, AlertDialog, Sheet and the DropdownMenu submenu; sonner's own `0 4px 12px` black at 10% for toasts; `shadow-md` for DropdownMenu and Select content and the MacResources chart tooltip |
 
 Apply via the `level` prop on the `Card` component:
 
