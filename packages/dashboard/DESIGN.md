@@ -138,7 +138,7 @@ Default card padding: `p-6` (24px). Dense contexts: `p-4` (16px). Sidebar areas:
 | Tailwind class | Value | Use |
 |----------------|-------|-----|
 | `z-sidebar` | 10 | Sidebar |
-| `z-tooltip` | 100 | Tooltips |
+| `z-tooltip` | 100 | Tooltips — **defined, used nowhere**; Tooltip uses `z-[50]` |
 | `z-overlay` | 200 | Modal dim background — **defined, used nowhere**; Dialog and AlertDialog use `z-50` |
 | `z-modal` | 300 | Modal / dialog content — **defined, used nowhere**; Dialog and AlertDialog use `z-50` |
 
@@ -245,7 +245,7 @@ their count live in the spec, which the check holds to code. A component without
 | TabsTrigger | `components/ui/tabs.tsx` | state 4 | [tabs-trigger.md](./design/components/tabs-trigger.md) |
 | SidebarMenuButton | `components/ui/sidebar.tsx` | variant × size × state | [sidebar-menu-button.md](./design/components/sidebar-menu-button.md) |
 | DropdownMenuItem | `components/ui/dropdown-menu.tsx` | state | [dropdown-menu-item.md](./design/components/dropdown-menu-item.md) |
-| Kbd | `components/ui/kbd.tsx` | — | pending |
+| Kbd | `components/ui/kbd.tsx` | context 2 | [kbd.md](./design/components/kbd.md) |
 | SearchInput | `components/ui/search-input.tsx` | state 3 × content 2 | pending |
 | TableRow | `components/ui/table.tsx` | type 2 × state 3 | pending |
 | Textarea | `components/ui/textarea.tsx` | state 3 × content 2 | pending |
