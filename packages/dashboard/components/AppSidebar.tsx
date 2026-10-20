@@ -12,6 +12,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from '@/components/ui/sidebar'
 import {
   DropdownMenu,
@@ -57,6 +58,10 @@ export function AppSidebar() {
   const logoUrl = settings?.logo_url ?? null
   const teamName = settings?.team_name || 'tapflow'
   const queryClient = useQueryClient()
+  // Below 768px the sidebar is a modal sheet, and a link followed from it changes the page behind it. Nothing
+  // else closes the sheet, so every link in it does; on a wider screen the sheet is already closed.
+  const { setOpenMobile } = useSidebar()
+  const closeSheet = () => setOpenMobile(false)
   // Flow Runs is listed once a run exists. Runs come only from `tapflow flow run`, so until a team records one
   // the page is an empty list beside the manual path; it appears on the first run. Also listed while a run
   // page is open (reached from a printed link) and when the relay could not be asked, since a failure is not
@@ -76,7 +81,7 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="p-2">
-        <Link to="/app-center" className="flex items-center gap-2 p-1">
+        <Link to="/app-center" onClick={closeSheet} className="flex items-center gap-2 p-1">
           <img src={logoUrl ?? defaultLogo} alt="tapflow" className="w-6 h-6 min-w-6 shrink-0" />
           <span className="text-base font-semibold tracking-tight truncate text-sidebar-accent-foreground group-data-[collapsible=icon]:hidden">{teamName}</span>
         </Link>
@@ -89,7 +94,7 @@ export function AppSidebar() {
               {visibleNavItems.map((item) => (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton asChild isActive={pathname.startsWith(item.href)} tooltip={item.label}>
-                    <Link to={item.href}>
+                    <Link to={item.href} onClick={closeSheet}>
                       <item.icon />
                       <span>{item.label}</span>
                     </Link>
@@ -107,7 +112,7 @@ export function AppSidebar() {
               {settingsItems.filter((item) => maySeeSettingsPage(item.href, user?.role)).map((item) => (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton asChild isActive={pathname === item.href} tooltip={item.label}>
-                    <Link to={item.href}>
+                    <Link to={item.href} onClick={closeSheet}>
                       <item.icon />
                       <span>{item.label}</span>
                     </Link>
@@ -125,7 +130,7 @@ export function AppSidebar() {
               {referenceItems.map((item) => (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton asChild tooltip={item.label}>
-                    <a href={item.href} target="_blank" rel="noopener noreferrer">
+                    <a href={item.href} target="_blank" rel="noopener noreferrer" onClick={closeSheet}>
                       <item.icon />
                       <span>{item.label}</span>
                     </a>
@@ -151,7 +156,7 @@ export function AppSidebar() {
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" align="start" className="w-56">
               <DropdownMenuItem asChild>
-                <Link to="/settings/default">
+                <Link to="/settings/default" onClick={closeSheet}>
                   <Settings className="mr-2 h-4 w-4" />
                   Settings
                 </Link>
