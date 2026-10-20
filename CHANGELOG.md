@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The comment box in a QA session recovers from a failed post.** If the relay could not be reached, Post stayed greyed out; if it refused the comment, nothing was said. Either way it now says the comment was not posted and keeps your text. A rejected image no longer leaves the earlier one attached, and the same image can be picked again after posting.
 - **Flow Runs no longer jumps when its runs finish loading.** The placeholder rows shown while waiting were 6px taller than a run, so the table shrank as the runs arrived.
 - **The App Center's version search matches `%` and `_` as typed.** They were read as wildcards, so searching for `%` listed every build and `1_0` also found `1.0.5`.
 - **The dashboard sidebar closes on a phone once you pick a page or go back.** Below 768px the sidebar opens as a sheet, and following a link in it used to leave the sheet covering the page it had just opened.
