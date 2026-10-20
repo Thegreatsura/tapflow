@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A dashboard link shows a preview image.** Pasting a dashboard link into a chat app now shows the tapflow banner, with a title and description, when the app's crawler can reach your relay. The image is served by the relay itself, so nothing is fetched from outside.
 
+### Changed
+
+- **Dashboard notifications use the dashboard's own toast styling.** Their icons match the rest of the dashboard, the shadow matches dialogs, and the "uploading" toast follows the dashboard's colors. Success, error, warning and info keep their colored backgrounds.
+
 ### Fixed
 
 - **Leaving a QA session now shuts its device down.** Going to another page with a device running left it running, unused, until the relay's idle timeout (5 minutes by default).
