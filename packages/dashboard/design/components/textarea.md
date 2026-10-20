@@ -73,15 +73,17 @@ QA session → side panel → Comments. The panel is 320px wide with 4px on each
 |------|----------|-----|
 | Textarea | `min-h-16 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 text-sm` | 64px, not 80px. No border, fill or ring of its own: the composer draws them around the text and the buttons together. No resize handle. 14px at every width |
 | Composer box | `rounded-md border border-input bg-background`, and `focus-within:` the shared ring | The ring shows while focus is anywhere in it: the Textarea, the attach button or the post button, including after a mouse click on a button (`focus-within`, not `focus-visible`). Text sits 12px inside its 1px border |
-| File line | 12px `--muted-foreground` file name; or 12px `--destructive` error (`Only png, jpg, webp allowed`, `Max 5MB`) | Shown only after an image is picked. It sits 4px up into the Textarea's bottom padding (`-mt-1`), with 12px on the sides |
+| File line | 12px `--muted-foreground` file name; or 12px `--destructive` error (`Only png, jpg, webp allowed`, `Max 5MB`) | Shown only after an image is picked. A rejected pick shows only the error and drops the image picked before it. It sits 4px up into the Textarea's bottom padding (`-mt-1`), with 12px on the sides |
 | Footer | Attach: ghost icon button, 28px, 16px `--muted-foreground` image icon, `--accent` fill on hover. Post: primary icon button, 28px, round, 16px up arrow (the code asks for 14px with `h-3.5`; Button's `[&_svg]:size-4` wins), `--primary` at 90% on hover | 8px padding around the row; Post sits at the right end. Each button also draws its own focus ring on keyboard focus, inside the composer's ring |
 
 - **The composer is 110px high**: the 64px Textarea, the 44px footer and the 1px border top and bottom. The file line
   adds 16px, to 126px. Text past the Textarea's 64px scrolls inside it; nothing grows.
-- **Post is disabled** (50%) until there is text that is not just spaces, or an image; and while a post is sending.
+- **Post is disabled** (50%) until there is text that is not just spaces, or an image. While a post is sending it
+  looks the same (50%, `not-allowed` cursor) but stays focusable (`aria-disabled`); pressing it again does nothing.
 - **Enter makes a new line.** Nothing in the Textarea posts; only the post button does.
-- After a successful post the field and the chosen image clear, so it shows its placeholder again. A failed post
-  leaves both as they were and shows nothing.
+- After a successful post the field, the chosen image and any file error clear, so it shows its placeholder again,
+  and focus moves into the field if it was still in the composer. A failed post leaves the text and image as they
+  were, shows the error toast `Could not post the comment. Try again.`, and keeps focus on Post.
 
 ## Usage
 
