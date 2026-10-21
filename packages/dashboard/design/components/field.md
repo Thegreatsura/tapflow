@@ -14,7 +14,7 @@ own: control, hint, message
 [Label](./label.md), one control, and the line under it. Two small components draw that line:
 `components/ui/field-hint.tsx` (`FieldHint`) and `components/ui/field-error.tsx` (`FieldError`). `control`,
 `hint` and `message` below are what the call sites render, not props. Draw the assembly as one component, because
-every form in the dashboard is a stack of them: 32 fields in 11 files.
+every form in the dashboard is a stack of them: 32 fields in 10 files.
 
 shadcn's `components/ui/form.tsx` (`FormItem`, `FormLabel`, `FormMessage`) is in the package and used nowhere.
 Do not draw from it: its error label turns red and its message is medium weight, and neither happens here.
@@ -56,7 +56,7 @@ Use at least 8 characters             line: hint or message, 14px on a 20px line
 | `file` | File drop zone, 96px (below) | 1 |
 
 **Slider** (Flow run videos, Settings). The label row puts the label on the left and the value on the right
-(`1 day`, `30 days`, `20 GB`), 14px regular, figures at fixed width, on one baseline. The gaps are 12px, not 8px
+(`3 days`, `20 GB`), 14px regular, figures at fixed width, on one baseline. The gaps are 12px, not 8px
 (`gap-3`). Track: 6px high, fully rounded, `--muted` (`#f5f5f5` / `#262626`), filled with `--primary` up to the
 thumb. Thumb: a 16px white circle in both themes (`bg-white`, not a token), 1px `--primary` border, Tailwind
 `shadow-sm`. On hover and on keyboard focus a 4px `--ring` halo at 50% appears around the thumb, in place of the
@@ -75,7 +75,7 @@ The edit button sits on the preview's bottom-right corner: 24px circle, `--backg
 saved with the form.
 
 **File drop zone** (Upload build). 96px high, full width, `rounded-md`, a 2px dashed `--border`, centered text
-14px `--muted-foreground`: `Click or drag to upload`, then the chosen file's name. On hover the border turns
+14px `--muted-foreground`: `Click or drag to upload`, replaced by the chosen file's name once one is picked. On hover the border turns
 `--primary`. Click or drop a file on it.
 
 ### `hint`
@@ -83,7 +83,7 @@ saved with the form.
 | Value | Looks like | Call sites |
 |-------|------------|-----------:|
 | `none` | Label and control only | 20 |
-| `inline` | In the label, after the name: `(optional)`, `(png · jpg, max 2MB)`. 12px `--muted-foreground` ([label.md](./label.md)) | 5 |
+| `inline` | In the label, after the name: `(optional)`, `(png · jpg, max 2MB)`. 12px `--muted-foreground` ([label.md](./label.md)). Upload build's `(optional)` is 14px, a code inconsistency: draw 12px | 5 |
 | `below` | `FieldHint` under the control, 14px `--muted-foreground` | 7 |
 
 - The `below` hints: the password rule (`Use at least 8 characters`) on four new-password fields, and a sentence
@@ -107,7 +107,8 @@ saved with the form.
   On a field without a hint the error adds a line, and what is under the field moves down 28px.
 - **13 fields have no error slot**: the Add App dialog's three, Upload build's two, the sliders, the Settings logo
   and avatar, the token's Expiration and Type, the invite page's Nickname, and the App Name rows. Their failures
-  are said elsewhere: in a form message (below) or a toast. The Settings logo and avatar reject a file over 2MB with
+  are said elsewhere: in a form message (below), a toast, or the browser's own required-field bubble (Add App's
+  Name and Bundle ID, not drawn). The Settings logo and avatar reject a file over 2MB with
   the toast `Image must be 2MB or less`, while the invite page's avatar says `Max 2MB for avatar` under the field.
 - The invite dialog's Role field has a slot, but its Select starts on `QA` and has no empty choice, so it never
   shows an error.
@@ -126,6 +127,9 @@ Call-site counts are a snapshot (2026-10-21).
   moves focus to the first invalid field, so that field shows its focus ring beside its error. After that, each
   field checks itself as it changes: its error goes away as soon as the value is valid, and a password field's hint
   comes back.
+- **Two exceptions.** The invite page's avatar shows `Max 2MB for avatar` the moment a file that is too large is
+  picked, before any submit. The Add App dialog does not check its fields itself: an empty Name or Bundle ID is
+  refused by the browser's required-field bubble, which is not drawn.
 - **The submit button does not wait for valid fields.** It is enabled, and pressing it is what shows the errors. It
   is disabled only while the form is sending. Upload build is the exception: its Upload button stays disabled until
   a file is chosen.
@@ -136,25 +140,29 @@ Call-site counts are a snapshot (2026-10-21).
 
 | Form | Between fields | Label to control |
 |------|----------------|------------------|
-| Sign-in, setup, password reset, invite page, Settings, Team and Tokens dialogs | 16px (`gap-4`) | 8px |
+| Sign-in, setup, password reset, invite page, Settings, Team, Tokens and Upload build dialogs | 16px (`gap-4`) | 8px |
 | Add App dialog | 16px | **6px** (`gap-1.5`) |
 | Flow run videos | 24px (`gap-6`) | 12px (slider) |
 | App Name rows (Settings → Apps) | One field per row, rows 32px apart with a 1px `--border` between | 8px |
 
 The Add App dialog's 6px is a code inconsistency, not a second size. Draw 8px.
 
+Three forms split their fields with a 1px `--border` Separator, 16px on each side: Settings → Workspace (between
+Team name and Logo), Settings → Profile (between Nickname and Avatar), and the invite page (between Avatar and the
+password fields).
+
 ### Form message
 
 A form whose submit the relay can refuse has one more `FieldError` after its last field, before the submit button:
 the relay's own message (`Invalid email or password`, `Network error. Please try again.`). It looks the same as a
 field's error, full width, and takes no space until it has text. Then it sits 16px below the last field and 16px
-above the button. It is on the sign-in, setup, password reset, invite and change-password forms, and in the Add App
+above the button (20px on sign-in and setup, whose button adds `mt-1`; a code inconsistency, draw 16px). It is on the sign-in, setup, password reset, invite and change-password forms, and in the Add App
 dialog. On the invite page, when the email is already a member, a `Go to sign in` link follows it, 14px, centered,
 underlined.
 
 ## Not Field
 
-- **A read-only value to copy** (the invite link, a new token, the agent command): a sentence in 14px
+- **A read-only value to copy** (the invite link, the password-reset link, a new token, the agent command, Setup's `tapflow admin init`): a sentence in 14px
   `--muted-foreground` names a read-only Input in 14px monospace below it ([input.md](./input.md)). It is not a
   `Label`, takes no hint or message, and is drawn with the Input.
 - **Full reset** in the QA session: a Label beside a [Switch](./switch.md), in a row, not stacked.
