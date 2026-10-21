@@ -59,4 +59,19 @@ describe.each([
     // The field shows what was saved, not what was typed.
     await waitFor(() => expect((screen.getByLabelText(label) as HTMLInputElement).value).toBe('Jo'))
   })
+
+  it('keeps an edit made while the save was in flight', async () => {
+    let answer!: (r: Response) => void
+    const pending = new Promise<Response>((resolve) => { answer = resolve })
+    const answerGets = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => (init?.method === 'PATCH' ? pending : answerGets(input, init)))
+    await save(label, initial, '  Jo  ')
+    await waitFor(() => expect(patches(url)).toHaveLength(1))
+    const input = screen.getByLabelText(label) as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'Joanna' } })
+    answer(new Response('{}'))
+    await waitFor(() => expect(patches(url)).toHaveLength(1))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(input.value).toBe('Joanna')
+  })
 })
