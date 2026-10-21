@@ -51,8 +51,9 @@ The six colors are DESIGN.md's Avatar Palette (`--avatar-1-bg` … `--avatar-6-f
 - **The color comes from the whole name, not the letter.** `avatarColors(name)` hashes the name to a slot, so
   `duchan` and `dave` share the letter D and get different colors (orange and amber), and one person keeps one color
   everywhere. An empty name is slot 1.
-- The name is the person's nickname, or the part of their email before the `@` when they have none: the relay fills
-  it in, so it is never empty. A nickname of only spaces is saved as it is, and then the circle shows no letter.
+- The name is the person's nickname, or the part of their email before the `@` when they have none; the relay
+  fills that in. A nickname of only spaces is refused since #1025. Before it, one was saved as it was and the circle
+  showed no letter.
   The first account is named `Admin`; an invite link with no email names the person `User`.
 - Dark slots 3 and 4 are under the 4.5:1 that 11.76px text needs; that is left to the designer's color pass, not a
   value to aim for.
@@ -93,8 +94,11 @@ as part of the picker, not as a size of UserAvatar.
 
 - Use UserAvatar wherever a person is shown, and pass their display name so the color matches everywhere else.
 - Do not give it a muted fill or pick a slot by hand: the color is the name's (DESIGN.md, "Avatar Color System").
-- Put the person's name next to it. The avatar alone does not say who it is to someone who does not know the color
-  or the picture.
+- Put the person's name next to it wherever there is room. The avatar alone does not say who it is to someone who
+  does not know the color or the picture.
+- Where only the avatar shows, as in the collapsed sidebar, whatever holds it still has to be named after the
+  person. A picture is named by its alt text, but a letter is named by the letter alone. The account button keeps the
+  name and email visually hidden (#1026); before that, a lettered avatar left it named by its initial.
 
 ## Figma
 
