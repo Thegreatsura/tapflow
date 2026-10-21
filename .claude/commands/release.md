@@ -95,8 +95,10 @@ model: claude-opus-5
   ver=$(node -p "require('./packages/cli/package.json').version")
   prev=$(git describe --tags --abbrev=0 --match 'v*' | sed 's/^v//')
   found=0
+  # `$(0)`, not the usual spelling: this file is a command, and a dollar followed by a digit is
+  # replaced with that argument before anyone reads it. `/release 0.28.1` turned it into `0.28.1`.
   for f in CHANGELOG.md packages/*/CHANGELOG.md; do
-    sec=$(awk -v v="$ver" -v p="$prev" '$0 ~ "^#+ \\[?" v {s=1; next} $0 ~ "^#+ \\[?" p {s=0} s' "$f") \
+    sec=$(awk -v v="$ver" -v p="$prev" '$(0) ~ "^#+ \\[?" v {s=1; next} $(0) ~ "^#+ \\[?" p {s=0} s' "$f") \
       || { echo "could not read $f"; exit 1; }
     [ -n "$sec" ] || continue
     found=$((found + 1))
