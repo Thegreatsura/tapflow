@@ -253,7 +253,7 @@ their count live in the spec, which the check holds to code. A component without
 | Switch | `components/ui/switch.tsx` | checked 2 × state 3 | [switch.md](./design/components/switch.md) |
 | Toast (sonner) | `components/ui/sonner.tsx` (`toast.*()`) | type 5 (4 + loading) | [toast.md](./design/components/toast.md) |
 | Field | assembly pattern — `Label` + control + `FieldHint` / `FieldError` | control 5 × hint 3 × message 3 | [field.md](./design/components/field.md) |
-| UserAvatar | `components/UserAvatar.tsx` | content 7 | pending |
+| UserAvatar | `components/UserAvatar.tsx` | content 7 (image + 6 colors) | [user-avatar.md](./design/components/user-avatar.md) |
 
 Not in this list on purpose: components with no call site, or reachable by no device today (`form.tsx`,
 `avatar.tsx`, `CardFooter`, `Sheet`, `DropdownMenuRadioItem`, and others). Code kept for later is not
@@ -281,16 +281,6 @@ Footer: `UserAvatar` + name/email dropdown (Settings, Log out).
 ```tsx
 <TechLabel>{build.buildNumber}</TechLabel>
 ```
-
-#### UserAvatar
-
-`components/UserAvatar.tsx` — renders the `avatarUrl` image if present, otherwise the first letter of the name with a hash-based color.
-
-```tsx
-<UserAvatar name={user.displayName} avatarUrl={user.avatarUrl} size={28} />
-```
-
-The placeholder color is determined by `avatarColors(name)`.
 
 #### Theme Toggle
 
