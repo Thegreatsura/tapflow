@@ -36,13 +36,13 @@ import { VideoStorageCard } from '@/components/settings/VideoStorageCard'
 
 
 const workspaceSchema = z.object({
-  teamName: z.string().min(1, 'Team name is required'),
+  teamName: z.string().trim().min(1, 'Team name is required'),
   logo: z.instanceof(File).nullable().optional(),
 })
 type WorkspaceData = z.infer<typeof workspaceSchema>
 
 const profileSchema = z.object({
-  displayName: z.string().min(1, 'Display name is required'),
+  displayName: z.string().trim().min(1, 'Display name is required'),
   avatar: z.instanceof(File).nullable().optional(),
 })
 type ProfileData = z.infer<typeof profileSchema>
