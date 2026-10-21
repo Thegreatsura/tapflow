@@ -252,7 +252,7 @@ their count live in the spec, which the check holds to code. A component without
 | Breadcrumb | `components/ui/breadcrumb.tsx` | item 3; state 3 (link only) | [breadcrumb.md](./design/components/breadcrumb.md) |
 | Switch | `components/ui/switch.tsx` | checked 2 × state 3 | [switch.md](./design/components/switch.md) |
 | Toast (sonner) | `components/ui/sonner.tsx` (`toast.*()`) | type 5 (4 + loading) | [toast.md](./design/components/toast.md) |
-| Field | assembly pattern — `Label` + control + error | control 3 × hint 2 × message 2 | pending |
+| Field | assembly pattern — `Label` + control + `FieldHint` / `FieldError` | control 5 × hint 3 × message 3 | [field.md](./design/components/field.md) |
 | UserAvatar | `components/UserAvatar.tsx` | content 7 | pending |
 
 Not in this list on purpose: components with no call site, or reachable by no device today (`form.tsx`,
