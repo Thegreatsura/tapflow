@@ -153,7 +153,7 @@ export function AppSidebar() {
             <DropdownMenuTrigger asChild>
               <button className="flex w-full items-center gap-2.5 rounded-md px-1 py-1 text-left hover:bg-sidebar-accent transition-colors group-data-[collapsible=icon]:justify-center">
                 <UserAvatar name={user.displayName ?? ''} avatarUrl={user.avatarUrl} size={28} />
-                <div className="flex flex-col min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
+                <div className="flex flex-col min-w-0 flex-1 group-data-[collapsible=icon]:sr-only">
                   <span className="text-sm font-medium truncate">{user.displayName}</span>
                   <span className="text-xs text-muted-foreground truncate">{user.email}</span>
                 </div>
