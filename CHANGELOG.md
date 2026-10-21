@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **The account button in the collapsed dashboard sidebar has your name again.** Collapsed to icons it shows only your avatar, and without a picture a screen reader or voice control heard just your initial. Your name and email stay hidden on screen but are now part of the button's name.
+- **The account button in the collapsed dashboard sidebar is named after you.** Collapsed to icons it shows only your avatar, and without a picture a screen reader announced just your initial, and voice control could not reach it by your name. Your name and email stay hidden on screen but are now part of the button's name.
 - **Leaving a QA session now shuts its device down.** Going to another page with a device running left it running, unused, until the relay's idle timeout (5 minutes by default).
 - **The comment box in a QA session recovers from a failed post.** If the relay could not be reached, Post stayed greyed out; if it refused the comment, nothing was said. Either way it now says the comment was not posted and keeps your text. A rejected image no longer leaves the earlier one attached, and the same image can be picked again after posting.
 - **Flow Runs no longer jumps when its runs finish loading.** The placeholder rows shown while waiting were 6px taller than a run, so the table shrank as the runs arrived.

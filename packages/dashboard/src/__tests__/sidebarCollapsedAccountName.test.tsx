@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { AppSidebar } from '@/components/AppSidebar'
@@ -19,6 +19,8 @@ vi.mock('@/hooks/useAuth', () => ({
 vi.mock('next-themes', () => ({ useTheme: () => ({ resolvedTheme: 'light' }) }))
 
 describe('the collapsed sidebar account button', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
   it('keeps the name and email for assistive technology, hidden only visually', () => {
     vi.stubGlobal('matchMedia', (query: string) => ({
       matches: false, media: query, onchange: null,
@@ -38,6 +40,5 @@ describe('the collapsed sidebar account button', () => {
     expect(button).toContainElement(block)
     expect(block.className).toContain('group-data-[collapsible=icon]:sr-only')
     expect(block.className).not.toContain('group-data-[collapsible=icon]:hidden')
-    vi.unstubAllGlobals()
   })
 })
