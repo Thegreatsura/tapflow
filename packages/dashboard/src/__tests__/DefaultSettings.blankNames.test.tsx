@@ -68,10 +68,13 @@ describe.each([
     await save(label, initial, '  Jo  ')
     await waitFor(() => expect(patches(url)).toHaveLength(1))
     const input = screen.getByLabelText(label) as HTMLInputElement
-    fireEvent.change(input, { target: { value: 'Joanna' } })
+    // The field is trimmed when the save starts, not when it answers.
+    expect(input.value).toBe('Jo')
+    // A space added to start a second word trims to what was sent, and must survive the answer too.
+    fireEvent.change(input, { target: { value: 'Jo ' } })
     answer(new Response('{}'))
     await waitFor(() => expect(patches(url)).toHaveLength(1))
     await new Promise((resolve) => setTimeout(resolve, 20))
-    expect(input.value).toBe('Joanna')
+    expect(input.value).toBe('Jo ')
   })
 })

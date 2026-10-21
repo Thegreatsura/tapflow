@@ -85,6 +85,9 @@ export function DefaultSettings() {
   })
 
   async function onWorkspaceSave(data: WorkspaceData) {
+    // The schema trims what is sent, not the field. Put the trimmed value in the field now, before the request,
+    // so nothing writes to it after an await and an edit made while the save is in flight is never overwritten.
+    workspaceForm.setValue('teamName', data.teamName)
     const form = new FormData()
     form.append('team_name', data.teamName)
     if (data.logo) form.append('logo', data.logo)
@@ -92,9 +95,6 @@ export function DefaultSettings() {
       const res = await fetch('/api/v1/settings', { method: 'PATCH', credentials: 'include', body: form })
       if (!res.ok) { toast.error('Failed to update workspace'); return }
       toast.success('Workspace updated')
-      // The schema trims what is sent, not the field; show what was saved — unless the field was edited while
-      // the save was in flight, which is newer than what was sent.
-      if (workspaceForm.getValues('teamName').trim() === data.teamName) workspaceForm.setValue('teamName', data.teamName)
       void queryClient.invalidateQueries({ queryKey: queryKeys.settings })
     } catch {
       toast.error('Failed to update workspace')
@@ -116,6 +116,7 @@ export function DefaultSettings() {
   })
 
   async function onProfileSave(data: ProfileData) {
+    profileForm.setValue('displayName', data.displayName)
     const form = new FormData()
     form.append('display_name', data.displayName)
     if (data.avatar) form.append('avatar', data.avatar)
@@ -123,7 +124,6 @@ export function DefaultSettings() {
       const res = await fetch('/api/v1/profile', { method: 'PATCH', credentials: 'include', body: form })
       if (!res.ok) { toast.error('Failed to update profile'); return }
       toast.success('Profile updated')
-      if (profileForm.getValues('displayName').trim() === data.displayName) profileForm.setValue('displayName', data.displayName)
       void queryClient.invalidateQueries({ queryKey: queryKeys.me })
     } catch {
       toast.error('Failed to update profile')
