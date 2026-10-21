@@ -29,7 +29,8 @@ shadcn's `components/ui/avatar.tsx` is in the package and used nowhere. Do not d
 - **Image** — the uploaded picture, cropped to fill the circle (`object-fit: cover`).
 - **Letter** — the name's first character, upper-cased, centered. 42% of the size: 11.76px at 28px, semibold
   (600), Inter, on a 17.64px line. It cannot be selected. A name that does not start with a letter shows its first
-  character as it is (`두`, `7`); an empty name shows `?`.
+  character as it is (`두`, `7`); an empty name shows `?`. A name that starts with an emoji shows a broken glyph,
+  because only half of the character is taken.
 
 ## Properties
 
@@ -51,7 +52,8 @@ The six colors are DESIGN.md's Avatar Palette (`--avatar-1-bg` … `--avatar-6-f
   `duchan` and `dave` share the letter D and get different colors (orange and amber), and one person keeps one color
   everywhere. An empty name is slot 1.
 - The name is the person's nickname, or the part of their email before the `@` when they have none: the relay fills
-  it in, so the dashboard never gets an empty one in practice.
+  it in, so it is never empty. A nickname of only spaces is saved as it is, and then the circle shows no letter.
+  The first account is named `Admin`; an invite link with no email names the person `User`.
 - Dark slots 3 and 4 are under the 4.5:1 that 11.76px text needs; that is left to the designer's color pass, not a
   value to aim for.
 - Both call sites use every value: which one shows depends only on who the person is.
@@ -68,8 +70,8 @@ The six colors are DESIGN.md's Avatar Palette (`--avatar-1-bg` … `--avatar-6-f
 
 | Place | Layout |
 |-------|--------|
-| Sidebar footer, account button | Avatar, then the name (14px medium) over the email (12px `--muted-foreground`), 10px apart, both truncated. The button has 4px padding, `rounded-md`, `--sidebar-accent` on hover, and opens the Settings / Log out menu upward. With the sidebar collapsed to icons only the avatar shows, centered |
-| Comment, QA session side panel | Avatar at the top left of the comment, 2px down from its top, 10px before the text column. The author's name (14px semibold) and the time (11px `--muted-foreground`) sit beside it on one line |
+| Sidebar footer, account button | Avatar, then the name (14px medium) over the email (12px `--muted-foreground`), 10px apart, both truncated. The button has 4px padding, `rounded-md`, `--sidebar-accent` on hover, and opens the Settings / Log out menu upward. With the sidebar collapsed to its 48px icon rail only the avatar shows, centered. The button narrows to 23px, so the 28px avatar overhangs it and the hover fill shows only as 4px strips above and below it (measured) |
+| Comment, QA session side panel | Avatar at the top left of the comment, 2px down from its top, 10px before the text column. The author's name (14px semibold) and the time (11px `--muted-foreground`) sit beside it on one line, then a 16px copy-link button that appears on hover or focus |
 
 ## Not UserAvatar
 
@@ -81,7 +83,7 @@ and differ from UserAvatar:
 | Size | 28px | 56px |
 | Letter | 42%, semibold | 18px medium (32% of 56px) |
 | Image | No border | 1px `--border` |
-| Empty name | `?` on slot 1 | Settings, while the Nickname field is cleared: `?`, colored by the whole email. Invite: `?` on slot 1, though the relay will use the email's local part once the person joins |
+| Empty name | `?` on slot 1 | Settings, while the Nickname field is cleared: `?`, colored by the whole email. Invite: `?` on slot 1, though once the person joins the relay names them by the email's local part, or `User` for an invite link with no email |
 | Name | The saved name | The Nickname field as it is typed, so it changes letter and color live |
 
 The previews sit under the edit button of the image picker ([field.md](./field.md), `control` `image`). Draw them
