@@ -56,5 +56,7 @@ describe.each([
     await save(label, initial, '  Jo  ')
     await waitFor(() => expect(patches(url)).toHaveLength(1))
     expect((patches(url)[0][1]!.body as FormData).get(field)).toBe('Jo')
+    // The field shows what was saved, not what was typed.
+    await waitFor(() => expect((screen.getByLabelText(label) as HTMLInputElement).value).toBe('Jo'))
   })
 })

@@ -92,6 +92,8 @@ export function DefaultSettings() {
       const res = await fetch('/api/v1/settings', { method: 'PATCH', credentials: 'include', body: form })
       if (!res.ok) { toast.error('Failed to update workspace'); return }
       toast.success('Workspace updated')
+      // The schema trims what is sent, not the field; show what was saved.
+      workspaceForm.setValue('teamName', data.teamName)
       void queryClient.invalidateQueries({ queryKey: queryKeys.settings })
     } catch {
       toast.error('Failed to update workspace')
@@ -120,6 +122,7 @@ export function DefaultSettings() {
       const res = await fetch('/api/v1/profile', { method: 'PATCH', credentials: 'include', body: form })
       if (!res.ok) { toast.error('Failed to update profile'); return }
       toast.success('Profile updated')
+      profileForm.setValue('displayName', data.displayName)
       void queryClient.invalidateQueries({ queryKey: queryKeys.me })
     } catch {
       toast.error('Failed to update profile')
