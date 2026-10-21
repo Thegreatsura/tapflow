@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A nickname or team name of only spaces is no longer saved.** Settings refuses it, and the relay trims both names: a blank nickname falls back to your email's local part in the sidebar and on comments, a blank team name keeps the current one. It used to show as a blank name and an empty avatar circle. A name already saved as spaces stays blank until it is saved again.
 - **Leaving a QA session now shuts its device down.** Going to another page with a device running left it running, unused, until the relay's idle timeout (5 minutes by default).
 - **The comment box in a QA session recovers from a failed post.** If the relay could not be reached, Post stayed greyed out; if it refused the comment, nothing was said. Either way it now says the comment was not posted and keeps your text. A rejected image no longer leaves the earlier one attached, and the same image can be picked again after posting.
 - **Flow Runs no longer jumps when its runs finish loading.** The placeholder rows shown while waiting were 6px taller than a run, so the table shrank as the runs arrived.
