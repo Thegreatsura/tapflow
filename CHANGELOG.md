@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An Android slider or selected tab can be found by its id.** The UI tree dropped a node that was neither clickable nor labelled even when the app had given it an id, so a Compose `Slider` and the selected item of a navigation bar were missing. They are kept now, as on iOS. Two results can change for an existing flow: a `role` + `index` selector may count a newly kept node, and an `assertNotVisible` by id on such a node, which always passed because the node was never in the tree, now waits for it to go.
+- **An Android tree is no longer refused because of one element at the screen's edge.** A node flush with the right or bottom edge could round to just past it (`y + height = 1.0001`), and the flow runner and the MCP server refuse the whole tree for one element outside the screen.
 - **A flow or an AI agent can switch an iOS toggle.** Their taps had no duration, and a `UISwitch` ignored most of them (3 in 20 on iOS 26.5); a tap now lasts at least 50ms, and 20 in 20 toggle.
 - **An iOS text field with placeholder text can be found by its identifier.** The UI tree reported its identifier with the placeholder glued on, so a flow step or an MCP selector naming the field by `id` never matched it. The same parse dropped the label of a selected element, so a selected tab could not be found by its text.
 
