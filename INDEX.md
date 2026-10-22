@@ -24,7 +24,7 @@ Common rules are in the root [AGENTS.md](./AGENTS.md).
 | dashboard | [packages/dashboard/AGENTS.md](./packages/dashboard/AGENTS.md) | Vite + React SPA UI rules |
 | cli | [packages/cli/AGENTS.md](./packages/cli/AGENTS.md) | CLI UX rules |
 | mcp-server | [packages/mcp-server/AGENTS.md](./packages/mcp-server/AGENTS.md) | MCP server bridging tapflow to LLM agents |
-| flow-runner | [packages/flow-runner/AGENTS.md](./packages/flow-runner/AGENTS.md) | Deterministic YAML flow engine (automated QA axis) |
+| flow-runner | [packages/flow-runner/AGENTS.md](./packages/flow-runner/AGENTS.md) | Deterministic YAML flow engine (Automation) |
 | test-utils | [packages/test-utils/AGENTS.md](./packages/test-utils/AGENTS.md) | Test-only helpers shared across packages (private, never published) |
 
 ## Local Only

@@ -6,7 +6,7 @@ description: "Install @tapflowio/mcp-server and connect a coding agent to it. Th
 # MCP Server
 
 ::: warning Experimental
-tapflow's **AI Automation axis** — the MCP server and the flow runner — is experimental. The manual QA dashboard is the mature, production path; this axis is additive and still maturing. Expect rough edges, especially in selector matching and in timing right after an app launches.
+tapflow's **AI agents** (the MCP server) and **Automation** (the flow runner) are experimental. The manual QA dashboard is the most mature part of tapflow; these two are still maturing. Expect rough edges, especially in selector matching and in timing right after an app launches.
 :::
 
 `@tapflowio/mcp-server` exposes tapflow as a [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server. Claude Code, Codex, and any other MCP-compatible LLM agent can control iOS simulators and Android emulators as native tools — no scripting, no hardcoded selectors.

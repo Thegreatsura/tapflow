@@ -19,7 +19,7 @@ Changing a `cva` axis of a component with a spec means updating that spec in the
 ## WHAT
 
 React SPA team dashboard: provides the simulator viewer, build comments, and team invite screens.
-The audience is the whole team (PO, PM, designers, backend, QA) — not just QA. See root [AGENTS.md](../../AGENTS.md) for the two testing modes (manual vs. AI Agent via MCP).
+The audience is the whole team (PO, PM, designers, backend, QA) — not just QA. See root [AGENTS.md](../../AGENTS.md) for the three ways to use tapflow (Manual QA, AI agents via MCP, Automation).
 **No standalone deployment** — bundled to `dist/` via `vite build`, then copied to the relay package's `public/` directory and served directly by the relay server.
 
 ### App Center Structure
