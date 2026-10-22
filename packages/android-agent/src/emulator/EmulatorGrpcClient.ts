@@ -204,7 +204,8 @@ export class EmulatorGrpcClient {
   private touch(touches: TouchMsg[], display = 0): Promise<void> {
     // The deadline starts when the call is sent, not when it was queued. A failed call still lets the next one
     // go — the queue only ever holds settled-and-swallowed promises — because holding an up back behind a
-    // failed down would leave the touch pressed, the defect this queue fixes.
+    // failed down would leave the touch pressed, the defect this queue fixes. So the order holds for calls the
+    // emulator answered; one our deadline abandoned may still be applied after the next (AGENTS.md).
     const send = (): Promise<void> => new Promise((resolve, reject) => {
       this.raw.sendTouch(
         { touches, display },
