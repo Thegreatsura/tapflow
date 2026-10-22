@@ -50,7 +50,7 @@ vi.mock('@tapflowio/flow-runner', async (importOriginal) => ({
   },
 }))
 
-import { cmdFlowRun } from '../../commands/flow-run.js'
+import { cmdFlowRun, tagsArg } from '../../commands/flow-run.js'
 
 // A developer's own credentials file must never reach these runs: every test starts with none.
 beforeEach(() => { vi.stubEnv('TAPFLOW_TOKEN_FILE', path.join(os.tmpdir(), 'tapflow-no-such-credentials.json')) })
@@ -596,11 +596,26 @@ describe('cmdFlowRun runs only the flows that apply to this build and these tags
     expect(logLines()).toContain('– slow.yaml (skipped: not tagged smoke)')
   })
 
-  it('exits 2 when the tag filters leave nothing to run', async () => {
+  it('exits 2 when the tag filters leave nothing to run, and still writes the JUnit report saying why', async () => {
     fakeRelay()
-    await cmdFlowRun([flowFile('a.yaml')], { includeTags: 'smoke' })
+    const junit = path.join(dir, 'out', 'junit.xml')
+    const a = flowFile('a.yaml')
+    await cmdFlowRun([a], { includeTags: 'smoke', junit })
     expect(errLines()).toContain('✗ no flow ran: 1 skipped (tag-filter 1)')
     expect(process.exitCode).toBe(2)
+    expect(mocks.toJUnitXml).toHaveBeenCalledWith([], [{ name: 'a.yaml', file: a, message: 'not tagged smoke' }])
+    expect(fs.readFileSync(junit, 'utf-8')).toBe('<xml/>')
+  })
+
+  // The argument parser hands `''` back as 0, a bare flag as true, and a repeated one as an array.
+  it.each([
+    ['an empty value', 0, ''],
+    ['a flag with no value', true, ''],
+    ['a value', 'smoke,login', 'smoke,login'],
+    ['a numeric tag', 12, '12'],
+    ['a repeated flag', ['smoke', 0, 'login'], 'smoke,,login'],
+  ])('reads %s from the parser as a tag list', (_, value, list) => {
+    expect(tagsArg(value)).toBe(list)
   })
 
   // A relay older than skipped flows answers 400. Stopping there would drop the finish too, and the relay would

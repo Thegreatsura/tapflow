@@ -835,7 +835,7 @@ Body (JSON):
   deviceId, deviceName, platform  string  optional
 ```
 
-`skipped` is a flow the runner did not run: `app-mismatch` when its `appId` differs from the build's, `tag-filter` when the tag options left it out. A skipped flow takes no screenshot (`409`).
+`skipped` is a flow the runner did not run: `app-mismatch` when its `appId` differs from the build's, `tag-filter` when the tag options left it out. A skipped flow takes no screenshot (`409`), and a flow already reported as `passed` or `failed` cannot be reported as skipped (`409`).
 
 **Response `200`** `{ "ok": true }`
 

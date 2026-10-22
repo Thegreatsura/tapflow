@@ -211,8 +211,10 @@ describe('flow run records', () => {
     expect((await call('POST', `/api/v1/runs/${id}/flows/1`, bearer(PAT_CI), passed)).status).toBe(200)
 
     const r = await call('GET', `/api/v1/runs/${id}`, bearer(PAT_VIEW))
-    expect(r.body.flows[0]).toMatchObject({
-      status: 'skipped', skipReason: 'app-mismatch', failureKind: null, failureMessage: 'flow is for com.a, build 7 is com.b', steps: [],
+    // Only what a flow that never ran has: no device, steps, duration or screenshot.
+    expect(r.body.flows[0]).toEqual({
+      idx: 0, name: 'login', file: 'flows/login.yaml', status: 'skipped', skipReason: 'app-mismatch',
+      failureMessage: 'flow is for com.a, build 7 is com.b', video: null,
     })
     expect(r.body.flows[1]).not.toHaveProperty('skipReason')
     const list = await call('GET', '/api/v1/runs', bearer(PAT_VIEW))
@@ -233,6 +235,19 @@ describe('flow run records', () => {
     expect((await call('POST', url, bearer(PAT_CI), { status: 'skipped', durationMs: 0, steps: [] })).status).toBe(400)
     expect((await call('POST', url, bearer(PAT_CI), { status: 'skipped', skipReason: 'bored', durationMs: 0, steps: [] })).status).toBe(400)
     expect((await call('POST', url, bearer(PAT_CI), { ...passed, skipReason: 'tag-filter' })).status).toBe(400)
+  })
+
+  it('refuses to turn a flow that ran into a skipped one, so its screenshot is not left behind a skip', async () => {
+    const id = await create()
+    await call('POST', `/api/v1/runs/${id}/flows/0`, bearer(PAT_CI), passed)
+    await call('POST', `/api/v1/runs/${id}/flows/0/screenshot`, bearer(PAT_CI), PNG)
+    expect((await call('POST', `/api/v1/runs/${id}/flows/0`, bearer(PAT_CI), { status: 'skipped', skipReason: 'tag-filter', durationMs: 0, steps: [] })).status).toBe(409)
+    expect((await call('GET', `/api/v1/runs/${id}`, bearer(PAT_VIEW))).body.flows[0]).toMatchObject({ status: 'passed', hasScreenshot: true })
+  })
+
+  it('takes a null skipReason on a flow that ran as no reason', async () => {
+    const id = await create()
+    expect((await call('POST', `/api/v1/runs/${id}/flows/0`, bearer(PAT_CI), { ...passed, skipReason: null })).status).toBe(200)
   })
 
   it('refuses a screenshot for a skipped flow', async () => {

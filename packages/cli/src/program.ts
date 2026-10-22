@@ -18,7 +18,7 @@ import { cmdTokenSet, cmdTokenStatus } from './commands/token.js'
 import { cmdReset } from './commands/reset.js'
 import { cmdStatus } from './commands/status.js'
 import { cmdLogs } from './commands/logs.js'
-import { cmdFlowRun, type FlowRunOptions } from './commands/flow-run.js'
+import { cmdFlowRun, tagsArg, type FlowRunOptions, type TagsArg } from './commands/flow-run.js'
 import { cmdMigrate, cmdMigrateDataDir, cmdMigrateNetFilter } from './commands/migrate.js'
 
 /**
@@ -137,7 +137,7 @@ export function createCli(): CAC {
     .option('--include-tags <tags>', 'Run only flows tagged with at least one of these (comma-separated)')
     .option('--exclude-tags <tags>', 'Skip flows tagged with any of these (comma-separated); wins over --include-tags')
     .action((subcommand: string, files: string[], opts: Omit<FlowRunOptions, 'includeTags' | 'excludeTags'> & {
-      build?: string | number; timeout?: string | number; includeTags?: string | number; excludeTags?: string | number
+      build?: string | number; timeout?: string | number; includeTags?: TagsArg; excludeTags?: TagsArg
     }) => {
       if (subcommand !== 'run') {
         console.error(`unknown flow subcommand: ${subcommand} (expected: run)`)
@@ -147,9 +147,8 @@ export function createCli(): CAC {
         ...opts,
         build: opts.build !== undefined ? Number(opts.build) : undefined,
         timeout: opts.timeout !== undefined ? Number(opts.timeout) : undefined,
-        // The argument parser reads `--include-tags 1` as a number.
-        includeTags: opts.includeTags !== undefined ? String(opts.includeTags) : undefined,
-        excludeTags: opts.excludeTags !== undefined ? String(opts.excludeTags) : undefined,
+        includeTags: tagsArg(opts.includeTags),
+        excludeTags: tagsArg(opts.excludeTags),
       })
     })
 

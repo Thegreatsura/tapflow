@@ -54,8 +54,28 @@ const MAX_TIMEOUT_SECONDS = 2_147_483_647 / 1000
 
 class FlowRunEnvironmentError extends Error {}
 
+/** What the argument parser hands back for `--include-tags` / `--exclude-tags`. */
+export type TagsArg = string | number | boolean | (string | number | boolean)[]
+
+/**
+ * The parser turns a value that reads as a number into one, `''` included (`0`), gives `true` for a flag with no
+ * value, and an array for a repeated flag. An empty or missing value is no filter — `--include-tags "$TAGS"` with
+ * `$TAGS` unset must not filter on a tag called `0` and skip every flow. The cost is that a tag named `0` cannot be
+ * given on the command line.
+ */
+export function tagsArg(value: TagsArg | undefined): string | undefined {
+  if (value === undefined) return undefined
+  const one = (v: string | number | boolean) => (v === 0 || v === true ? '' : String(v))
+  return Array.isArray(value) ? value.map(one).join(',') : one(value)
+}
+
 function httpBaseOf(relayUrl: string): string {
   return relayUrl.replace(/^wss?/, (p) => (p === 'wss' ? 'https' : 'http'))
+}
+
+function writeJUnit(file: string, xml: string): void {
+  fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true })
+  fs.writeFileSync(file, xml)
 }
 
 function envFail(message: string): never {
@@ -247,6 +267,8 @@ export async function cmdFlowRun(files: string[], opts: FlowRunOptions): Promise
     }
     // Nothing ran, so nothing was tested: a green exit here would pass a CI job that checked no flow at all.
     if (eligible.length === 0) {
+      // The report is how CI shows why nothing ran, so it is written on this exit too.
+      if (opts.junit) writeJUnit(opts.junit, toJUnitXml([], skipped))
       envFail(`no flow ran: ${skipped.length} skipped (${[...skipCounts].map(([reason, n]) => `${reason} ${n}`).join(', ')})`)
     }
 
@@ -322,8 +344,7 @@ export async function cmdFlowRun(files: string[], opts: FlowRunOptions): Promise
     }
 
     if (opts.junit) {
-      fs.mkdirSync(path.dirname(path.resolve(opts.junit)), { recursive: true })
-      fs.writeFileSync(opts.junit, toJUnitXml(results, skipped))
+      writeJUnit(opts.junit, toJUnitXml(results, skipped))
       console.log(`JUnit report: ${opts.junit}`)
     }
 

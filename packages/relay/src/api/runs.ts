@@ -331,7 +331,7 @@ export async function handleReportFlow(
   if (body.status === 'skipped' && (typeof skipReason !== 'string' || !SKIP_REASONS.has(skipReason))) {
     return json(res, 400, { error: 'a skipped flow needs a skipReason of app-mismatch or tag-filter' })
   }
-  if (body.status !== 'skipped' && body.skipReason !== undefined) {
+  if (body.status !== 'skipped' && body.skipReason != null) {
     return json(res, 400, { error: 'skipReason is only for a skipped flow' })
   }
   const durationMs = nonNegInt(body.durationMs)
@@ -362,10 +362,16 @@ export async function handleReportFlow(
   // The run can go while the body arrives — its build purged, its app deleted — and the insert would then
   // fail its foreign key as a 500 with a stack in the log, for an answer that is just "not found".
   // `ownRun` judged the run before the body arrived; it is judged again here, where nothing can interleave.
-  const refusal = db.transaction((): 'gone' | 'finished' | null => {
+  const refusal = db.transaction((): 'gone' | 'finished' | 'ran' | null => {
     const now = db.prepare('SELECT finished_by FROM flow_runs WHERE seq = ?').get(run.seq) as { finished_by: string | null } | undefined
     if (!now) return 'gone'
     if (now.finished_by === 'client') return 'finished'
+    // A flow that ran cannot become one that was skipped: its screenshot would stay behind a row that says nothing
+    // was on screen. The runner decides skips before any flow runs, so only a confused client gets here.
+    if (body.status === 'skipped') {
+      const was = db.prepare('SELECT status FROM flow_run_flows WHERE run_seq = ? AND idx = ?').get(run.seq, idx) as { status: string } | undefined
+      if (was && was.status !== 'skipped') return 'ran'
+    }
     // An upsert that keeps the screenshot: the CLI may retry a report, and the screenshot arrives separately.
     db.prepare(`
       INSERT INTO flow_run_flows (run_seq, idx, name, file, device_id, device_name, platform, status, skip_reason,
@@ -386,6 +392,7 @@ export async function handleReportFlow(
   })()
   if (refusal === 'gone') return json(res, 404, { error: 'Run not found' })
   if (refusal === 'finished') return json(res, 409, { error: 'Run already finished' })
+  if (refusal === 'ran') return json(res, 409, { error: 'This flow already ran; it cannot be reported as skipped' })
   json(res, 200, { ok: true })
 }
 
@@ -609,9 +616,12 @@ export function handleGetRun(
       const status = run.status !== 'running' ? 'not-run' : idx === firstUnreported ? 'running' : 'pending'
       return { idx, name: p.name, file: p.file, status, video: videos.get(idx) ?? null }
     }
+    // A skipped flow never ran, so it has no device, steps, duration or screen to report.
+    if (f.status === 'skipped') {
+      return { idx, name: f.name, file: f.file, status: f.status, skipReason: f.skip_reason, failureMessage: f.failure_message, video: videos.get(idx) ?? null }
+    }
     return {
       idx, name: f.name, file: f.file, status: f.status,
-      ...(f.status === 'skipped' ? { skipReason: f.skip_reason } : {}),
       device: f.device_id ? { id: f.device_id, name: f.device_name, platform: f.platform } : null,
       failureKind: f.failure_kind, failureMessage: f.failure_message, durationMs: f.duration_ms,
       steps: JSON.parse(f.steps_json) as unknown[],

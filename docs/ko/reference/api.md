@@ -837,7 +837,7 @@ Body (JSON):
   deviceId, deviceName, platform  string  선택
 ```
 
-`skipped`는 러너가 실행하지 않은 플로우입니다. `app-mismatch`는 플로우의 `appId`가 빌드와 다른 경우, `tag-filter`는 태그 옵션에 걸러진 경우입니다. skipped 플로우에는 스크린샷을 올릴 수 없습니다(`409`).
+`skipped`는 러너가 실행하지 않은 플로우입니다. `app-mismatch`는 플로우의 `appId`가 빌드와 다른 경우, `tag-filter`는 태그 옵션에 걸러진 경우입니다. skipped 플로우에는 스크린샷을 올릴 수 없고 이미 `passed`나 `failed`로 보고한 플로우는 skipped로 다시 보고할 수 없습니다(`409`).
 
 **응답 `200`** `{ "ok": true }`
 
