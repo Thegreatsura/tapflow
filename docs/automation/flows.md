@@ -83,11 +83,13 @@ There is no fixed `sleep` step. Waiting is always condition-based. To wait for a
 - tapOn: { role: cell, index: 2 }
 ```
 
-A bare-string selector resolves in the order **exact identifier → exact label → partial label**. Once a stage matches, later stages are not tried.
+A bare-string selector resolves in the order **exact identifier → exact label → partial label → exact placeholder**. Once a stage matches, later stages are not tried.
+
+A placeholder is the hint text an empty input field shows. An input field with neither a label nor an identifier can be found by its placeholder. Because the placeholder is the last stage, an element whose label is the same text matches first. A placeholder never matches in part. On iOS the field can still be found by its placeholder after a value is typed into it. A `label:` selector looks at labels only.
 
 If a `tapOn` selector matches more than one element, it fails immediately and lists the candidates. It never picks the first one implicitly, so an ambiguous selector fails visibly instead of quietly tapping the wrong place. `assertVisible` checks presence only, so it passes when at least one element matches.
 
-When a `tapOn` fails because its selector matched nothing or more than one element, the runner prints up to three lines to try instead, taken from the screen at the moment it failed: `try: tapOn: "Sign in"`. Each one is a selector checked to tap exactly that one element on that screen, and it is kept in the [run record](#run-records) too. An input field is suggested by its `id`, never its label, so what was typed into it is not shown. An image is suggested only when its name matches the selector's, ignoring case, spacing and punctuation, because an image's name is usually an asset name rather than text on the screen. A failed `assertVisible` gets no suggestions: the expected text being missing can mean the app changed, and swapping in similar text would hide the regression.
+When a `tapOn` fails because its selector matched nothing or more than one element, the runner prints up to three lines to try instead, taken from the screen at the moment it failed: `try: tapOn: "Sign in"`. Each one is a selector checked to tap exactly that one element on that screen, and it is kept in the [run record](#run-records) too. An input field is suggested by its `id` or its placeholder, never its label, so what was typed into it is not shown. An image is suggested only when its name matches the selector's, ignoring case, spacing and punctuation, because an image's name is usually an asset name rather than text on the screen. A failed `assertVisible` gets no suggestions: the expected text being missing can mean the app changed, and swapping in similar text would hide the regression.
 
 To resolve an ambiguous match, add a disambiguator to the object form:
 

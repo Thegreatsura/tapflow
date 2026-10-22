@@ -272,6 +272,7 @@ const AGENT_CONSUMED = {
       ]),
       label: z.string(),
       identifier: z.string().optional(),
+      placeholder: z.string().optional(),
       frame: z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() }),
       enabled: z.boolean(),
       rawRole: z.string().optional(),

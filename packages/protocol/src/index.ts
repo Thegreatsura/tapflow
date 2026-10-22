@@ -119,6 +119,10 @@ export interface UIElement {
   role: UIElementRole
   label: string
   identifier?: string
+  /** A text field's placeholder (iOS `placeholderValue`, Android `hint`), apart from `label` on purpose: a
+   *  placeholder is not a name, and folding it into one hides the app's missing label. Absent when there is
+   *  none — and from an agent that predates the field, which reads the same as none. */
+  placeholder?: string
   frame: UIElementFrame
   enabled: boolean
   rawRole?: string

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A flow can find an iOS text field by its placeholder.** A field with no label and no identifier could not be found by any selector; `tapOn: "Nickname"` now finds it by the hint text it shows. The placeholder is tried last, after a partial label, so a step that found an element before finds the same one, and it never matches in part. An `assertNotVisible` on such a field's placeholder text, which could not see the field and always passed, now fails while the field is on screen. MCP's `query_ui_tree` lists it as `placeholder`. Android follows in a later release.
+
 ### Fixed
 
 - **A flow or an AI agent can switch an iOS toggle.** Their taps had no duration, and a `UISwitch` ignored most of them (3 in 20 on iOS 26.5); a tap now lasts at least 50ms, and 20 in 20 toggle.
