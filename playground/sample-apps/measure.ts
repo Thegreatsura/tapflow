@@ -6,6 +6,7 @@
 //   pnpm --filter @tapflowio/playground measure-tree \
 //     --expected sample-apps/expected/ios-uikit.json --zip test-builds/sample-uikit.app.zip \
 //     [--device <name|id>] [--relay ws://localhost:4000]
+//   Android: --expected sample-apps/expected/android-compose.json --zip test-builds/sample-compose.apk
 //
 // `--zip` uploads the build to App Center first; `--build <id>` measures one already there. Either way
 // install and launch go the way a tester's do. The token comes from `--token`, `TAPFLOW_TOKEN`, or
@@ -107,16 +108,20 @@ async function readTree(sessionId: string): Promise<UIElement[]> {
   }
 }
 
-/** The tree right now, read until two reads agree on its shape — a tab switch or a keyboard animates. */
+/** The tree right now, read until two reads agree on its shape and positions. Positions too: a keyboard that
+ *  resizes the window (Android `adjustResize`) moves every element without changing what the tree holds, and a
+ *  tap aimed at a frame read mid-move lands beside it. */
 async function settledTree(sessionId: string): Promise<UIElement[]> {
   let prev = ''
   for (let i = 0; i < 10; i++) {
     const tree = await readTree(sessionId)
-    const shape = tree.map((e) => `${e.role}|${e.label}|${e.identifier ?? ''}`).join('\n')
+    const shape = tree.map((e) => `${e.role}|${e.label}|${e.identifier ?? ''}|${e.frame.x.toFixed(2)},${e.frame.y.toFixed(2)}`).join('\n')
     if (shape === prev) return tree
     prev = shape
     await sleep(300)
   }
+  // Something on screen kept moving. The tree is used anyway, and said so: a tap aimed at it may miss.
+  console.warn('  (tree did not settle after 10 reads — the next result may be a miss caused by movement)')
   return readTree(sessionId)
 }
 
@@ -143,7 +148,8 @@ async function holdCentre(sessionId: string, el: UIElement): Promise<void> {
 /** Uses the element and waits for the app to say which element it saw used. */
 async function tapRoundTrip(sessionId: string, el: UIElement, key: string, gesture: 'tap' | 'swipe' | 'hold'): Promise<{ landed: boolean; status?: string }> {
   await (gesture === 'swipe' ? swipeAcross(sessionId, el) : gesture === 'hold' ? holdCentre(sessionId, el) : tapCentre(sessionId, el))
-  const deadline = Date.now() + 3000
+  // Long enough for several reads on Android, where one tree read takes over a second.
+  const deadline = Date.now() + 6000
   let status: string | undefined
   while (Date.now() < deadline) {
     status = statusOf(await readTree(sessionId))

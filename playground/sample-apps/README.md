@@ -8,23 +8,28 @@ proven without looking at the screen.
 | | |
 |---|---|
 | `ios/` | One xcodegen project, two targets with the same screens: `SampleUIKit` and `SampleSwiftUI` |
+| `android/` | One Jetpack Compose app with the same screens and ids (`testTag`s, exposed as `resource-id`) |
 | `expected/` | What each app's screens should expose, per screen and group |
-| `build.sh` | Builds both iOS targets into `playground/test-builds/` (gitignored) |
+| `build.sh` | Builds the iOS targets and the Android app into `playground/test-builds/` (gitignored); `ios` or `android` builds one |
 | `measure.ts` | Uploads a build, drives it through the relay, prints recall and round trip per group |
 
-Only source is committed. Nothing built here is, for the same reasons as `packages/ios-agent/netprobe`.
+Only source is committed. Nothing built here is, for the same reasons as `packages/ios-agent/netprobe`. The one
+binary is `android/gradle/wrapper/gradle-wrapper.jar`, which every Gradle project commits so it builds without a
+Gradle install; it matches the checksum Gradle publishes for 8.8.
 
 ## Run it
 
-Needs Xcode and `xcodegen` (`brew install xcodegen`); `build.sh` generates the project with it.
+iOS needs Xcode and `xcodegen` (`brew install xcodegen`); `build.sh` generates the project with it. Android needs
+JDK 17 and the Android SDK (`ANDROID_HOME`); Gradle comes through the wrapper.
 
 ```sh
-playground/sample-apps/build.sh                      # → test-builds/sample-uikit.app.zip, sample-swiftui.app.zip
+playground/sample-apps/build.sh                      # → test-builds/sample-uikit.app.zip, sample-swiftui.app.zip, sample-compose.apk
 cp playground/sample-apps/.env.example playground/sample-apps/.env   # then add a token for the local relay
-pnpm dev:relay & pnpm dev:ios &                      # from the repo root
+pnpm dev:relay & pnpm dev:ios &                      # from the repo root (pnpm dev:android for Android)
 pnpm --filter @tapflowio/playground measure-tree \
   --expected sample-apps/expected/ios-uikit.json \
   --zip test-builds/sample-uikit.app.zip --device <udid> --out <file.json>
+# Android: --expected sample-apps/expected/android-compose.json --zip test-builds/sample-compose.apk --device <avd name>
 ```
 
 `--device` takes a name or the device id. A name repeats once per installed runtime, so the id is the safe
