@@ -16,8 +16,10 @@
   <input id="web.input" aria-label="Web input" placeholder="Type here" onfocus="tapped('web.input')">
   <a id="web.link" href="#" onclick="tapped('web.link'); return false;">Web link</a>
   <script>
+    // iOS posts through WKWebView's message handler, Android through the app's JavaScript interface.
     function tapped(id) {
-      window.webkit.messageHandlers.tapped.postMessage(id);
+      if (window.webkit && window.webkit.messageHandlers) window.webkit.messageHandlers.tapped.postMessage(id);
+      else if (window.TapflowAndroid) window.TapflowAndroid.tapped(id);
     }
   </script>
 </body>

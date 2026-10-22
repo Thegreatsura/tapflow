@@ -2,18 +2,28 @@
 # Build the tree measurement sample apps into playground/test-builds/, where the other test builds live
 # (gitignored). Nothing built here is committed — see `.work` e2e-followups A3 for why.
 #
-#   ./build.sh            # iOS: both targets
-#   ./build.sh <udid>     # and install them on that booted simulator
+#   ./build.sh            # iOS (both targets) and Android
+#   ./build.sh <udid>     # and install the iOS apps on that booted simulator
+#   ./build.sh ios        # one platform only (also: android)
 #
 # Outputs, ready to upload to App Center:
 #   playground/test-builds/sample-uikit.app.zip     dev.tapflow.sample.uikit
 #   playground/test-builds/sample-swiftui.app.zip   dev.tapflow.sample.swiftui
+#   playground/test-builds/sample-compose.apk       dev.tapflow.sample.compose
 set -euo pipefail
 cd "$(dirname "$0")"
-UDID="${1:-}"
+ARG="${1:-}"
+UDID=""
+PLATFORMS="ios android"
+case "$ARG" in
+  ios|android) PLATFORMS="$ARG" ;;
+  "") ;;
+  *) UDID="$ARG" ;;
+esac
 OUT="$(cd .. && pwd)/test-builds"
 mkdir -p "$OUT"
 
+build_ios() {
 (
   cd ios
   xcodegen generate >/dev/null
@@ -38,3 +48,12 @@ for pair in "SampleUIKit:sample-uikit" "SampleSwiftUI:sample-swiftui"; do
     echo "installed $target on $UDID"
   fi
 done
+}
+
+build_android() {
+  (cd android && ./gradlew -q assembleDebug)
+  cp android/app/build/outputs/apk/debug/app-debug.apk "$OUT/sample-compose.apk"
+  echo "built $OUT/sample-compose.apk"
+}
+
+for platform in $PLATFORMS; do "build_$platform"; done
