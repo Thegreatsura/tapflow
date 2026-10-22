@@ -64,11 +64,15 @@ interface RawNode {
 
 const FRAME_RE = /\{\{(-?[\d.]+), (-?[\d.]+)\}, \{(-?[\d.]+), (-?[\d.]+)\}\}/
 // Terminate quoted fields on the next field boundary, so a quote inside the
-// value (e.g. label: 'Don't') does not truncate the match. The `, value: `
-// lookahead stays even though value isn't captured — a trailing value field is
-// still a valid label boundary.
-const IDENTIFIER_RE = /, identifier: '(.*?)'(?=, label: |, value: |$)/
-const LABEL_RE = /, label: '(.*?)'(?=, value: |$)/
+// value (e.g. label: 'Don't') does not truncate the match. A boundary is one of
+// the fields that can follow — `placeholderValue` on a text field, `value`
+// even though it isn't captured — or the end of the line, which may carry state
+// flags first (`, Selected`, `, Focused`). Missing either let the lazy match run
+// on to the line's last quote: a placeholder field's identifier came out as
+// `email', placeholderValue: 'Email`, and a selected tab's label as nothing.
+const TRAILING_FLAGS = String.raw`(?:, [A-Z][A-Za-z]*)*$`
+const IDENTIFIER_RE = new RegExp(String.raw`, identifier: '(.*?)'(?=, label: |, placeholderValue: |, value: |${TRAILING_FLAGS})`)
+const LABEL_RE = new RegExp(String.raw`, label: '(.*?)'(?=, placeholderValue: |, value: |${TRAILING_FLAGS})`)
 
 function parseLine(line: string): RawNode | null {
   // Strip indentation + the root arrow, then take the type up to ", 0x<addr>".

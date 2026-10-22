@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **An iOS text field with placeholder text can be found by its identifier.** The UI tree reported its identifier with the placeholder glued on, so a flow step or an MCP selector naming the field by `id` never matched it. The same parse dropped the label of a selected element, so a selected tab or segment could not be found by its text.
+
 ## [0.28.1] - 2026-10-21
 
 ### Added
