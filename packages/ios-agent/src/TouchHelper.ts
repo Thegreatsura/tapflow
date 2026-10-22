@@ -118,10 +118,15 @@ export class TouchHelper {
   }
 
   touchStart(x: number, y: number): boolean {
+    // Opened before the coordinates move on: a held-back up flushed by the open belongs to the last
+    // touch and carries its position. The helper releases at its own latch anyway (type 3 ignores the
+    // frame's coordinates), but a frame naming another touch's point is one protocol change from a
+    // tap on the wrong target.
+    const sent = this.openGesture(this.coordFrame(1, x, y))
     this.lastX = x
     this.lastY = y
     this.touchStartedAt = Date.now()
-    return this.openGesture(this.coordFrame(1, x, y))
+    return sent
   }
 
   touchMove(x: number, y: number): boolean {

@@ -639,6 +639,16 @@ describe('minimum contact', () => {
     expect(types(proc)).toEqual([1, 3, 1])
   })
 
+  it('writes a held-back up with its own touch\'s position, not the next one\'s', async () => {
+    const { helper, proc } = await setupHelper()
+    vi.useFakeTimers()
+    helper.touchStart(0.2, 0.3)
+    void helper.touchEndAfterMinContact()
+    helper.touchStart(0.8, 0.9)
+    const up = proc.stdin.write.mock.calls.map((c) => c[0] as Buffer).find((b) => b[0] === 3)!
+    expect([up.readFloatBE(1), up.readFloatBE(5)].map((v) => Math.round(v * 10) / 10)).toEqual([0.2, 0.3])
+  })
+
   it('writes a held-back up before a pinch opens', async () => {
     const { helper, proc } = await setupHelper()
     vi.useFakeTimers()
