@@ -12,7 +12,7 @@ status: living
 
 ## WHAT
 
-`@tapflowio/flow-runner`: deterministic YAML flow engine — the replay half of the automated QA axis.
+`@tapflowio/flow-runner`: deterministic YAML flow engine — the replay half of Automation.
 Flows are authored once (by an agent via MCP, or by hand) and replayed with **zero LLM calls**: same input → same execution, no API cost in CI.
 
 Published on the standard npm channel and versioned by changesets in the repo-wide fixed group. Publish only via the changesets flow — see [CONTRIBUTING.md § Branches & releases](../../CONTRIBUTING.md#branches--releases).

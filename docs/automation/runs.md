@@ -6,7 +6,7 @@ description: "See tapflow flow run's records on the dashboard's Flow Runs page: 
 # Flow Runs
 
 ::: warning Experimental
-The flow runner and its run records are part of tapflow's **AI automation axis**, which is experimental. The mature path is the manual QA dashboard.
+The flow runner and its run records belong to **Automation**, one of the three ways to use tapflow, and are experimental. The most mature part of tapflow is the manual QA dashboard.
 :::
 
 The dashboard's **Flow Runs** page shows the records `tapflow flow run` leaves. When CI runs your flows on every build, anyone on the team can see in a browser which flow failed on which build, and why. A failure in the app is kept apart from an environment problem such as the device, the agent or the relay.
