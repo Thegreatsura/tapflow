@@ -2449,7 +2449,8 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     // pointer is down is the emulator's state, and it outlives the client a restart replaced — left
     // alone, the next tap's press arrives on a pointer already down and reads as a drag from here.
     // Best effort, on whatever channel serves now; on scrcpy an unmatched release is harmless. With no
-    // channel up yet there is nothing to send it on.
+    // channel up yet there is nothing to send it on. It goes on the new client's queue, which cannot order it
+    // after a press still in flight on the replaced one — a restart in mid-tap is the window.
     const pc = this.pointerControl(state)
     if (opened?.via === 'channel' && pc) {
       this.fire(kind === 'touch' ? pc.touchUp(0, state.lastTouchPx.x, state.lastTouchPx.y) : pc.pinchEnd())
