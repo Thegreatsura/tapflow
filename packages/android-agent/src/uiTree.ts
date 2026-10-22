@@ -46,6 +46,8 @@ function parseBounds(v: string | undefined): RawNode['bounds'] {
 }
 
 const round4 = (n: number): number => Math.round(n * 10000) / 10000
+/** Down, for a far edge: `x + width` must not reach past 1 by a rounding step. Same rule as the iOS parser. */
+const floor4 = (n: number): number => Math.max(0, Math.floor(n * 10000 + 1e-9) / 10000)
 
 export function parseUiAutomatorDump(xml: string): UIElement[] {
   if (!xml.includes('<hierarchy')) {
@@ -96,17 +98,23 @@ export function parseUiAutomatorDump(xml: string): UIElement[] {
       attrs['long-clickable'] === 'true' ||
       attrs['checkable'] === 'true' ||
       attrs['scrollable'] === 'true'
-    if (!interactive && label === '') continue
+    // An id keeps a node, as it does on iOS: whoever named it can select it, and a selector by `id` must find
+    // it. Without this a node that is neither clickable nor labelled was dropped even when the app named it —
+    // measured on a Compose `SeekBar` and on a selected navigation item, which stops being clickable.
+    if (!interactive && label === '' && !attrs['resource-id']) continue
 
     const className = attrs['class'] ?? ''
     const element: UIElement = {
       role: toRole(className),
       label,
+      // The far edge is rounded down from the rounded near one, so x + width never passes 1: every consumer refuses
+      // the whole tree for one element outside 0–1, and a node flush with the bottom edge (the navigation bar's
+      // background, 2337/2400) rounded to 1.0001.
       frame: {
         x: round4(x1 / width),
         y: round4(y1 / height),
-        width: round4((x2 - x1) / width),
-        height: round4((y2 - y1) / height),
+        width: floor4(x2 / width - round4(x1 / width)),
+        height: floor4(y2 / height - round4(y1 / height)),
       },
       enabled: attrs['enabled'] !== 'false',
     }
