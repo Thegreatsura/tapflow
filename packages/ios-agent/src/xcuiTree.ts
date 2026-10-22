@@ -9,7 +9,10 @@ import type { UIElement, UIElementRole } from '@tapflowio/agent-core'
 //   NavigationBar, 0x105808b10, {{0.0, 47.4}, {402.0, 47.4}}, identifier: 'The App'
 //   Other, 0x105810800, {{0.0, 131.3}, {402.0, 66.4}}, identifier: 'Echo Box', label: 'Echo Box'
 //   Other, 0x105811820, {{366.6, 94.7}, {32.2, 779.3}}, label: 'Vertical scroll bar', value: 0%
-// Fields after the address appear in order: [pid], [frame], [identifier], [label], [value].
+//   TextField, 0x105812a00, {{20.0, 120.0}, {362.0, 34.0}}, identifier: 'email', placeholderValue: 'Email'
+//   Button, 0x105813b00, {{279.0, 795.0}, {98.0, 54.0}}, identifier: 'tab.web', label: 'Web', Selected
+// Fields after the address appear in order: [pid], [frame], [identifier], [label], [placeholderValue],
+// [value], then state flags (Selected, Focused, ...).
 
 // XCUITest element type → unified vocabulary. XCUITest labels many custom/composed
 // views as "Other" (they still carry identifier/label), so role is best-effort and
@@ -64,11 +67,16 @@ interface RawNode {
 
 const FRAME_RE = /\{\{(-?[\d.]+), (-?[\d.]+)\}, \{(-?[\d.]+), (-?[\d.]+)\}\}/
 // Terminate quoted fields on the next field boundary, so a quote inside the
-// value (e.g. label: 'Don't') does not truncate the match. The `, value: `
-// lookahead stays even though value isn't captured — a trailing value field is
-// still a valid label boundary.
-const IDENTIFIER_RE = /, identifier: '(.*?)'(?=, label: |, value: |$)/
-const LABEL_RE = /, label: '(.*?)'(?=, value: |$)/
+// value (e.g. label: 'Don't') does not truncate the match. A boundary is one of
+// the fields that can follow — `placeholderValue` on a text field, `value`
+// even though it isn't captured — or the end of the line, which may carry state
+// flags first (`, Selected`, `, Focused`). Missing either let the lazy match run
+// on to the line's last quote: a placeholder field's identifier came out as
+// `email', placeholderValue: 'Email`, and a selected tab's label as nothing.
+// Flags are assumed to be single words; none with a space has been seen in runner output.
+const TRAILING_FLAGS = String.raw`(?:, [A-Z][A-Za-z]*)*$`
+const IDENTIFIER_RE = new RegExp(String.raw`, identifier: '(.*?)'(?=, label: |, placeholderValue: |, value: |${TRAILING_FLAGS})`)
+const LABEL_RE = new RegExp(String.raw`, label: '(.*?)'(?=, placeholderValue: |, value: |${TRAILING_FLAGS})`)
 
 function parseLine(line: string): RawNode | null {
   // Strip indentation + the root arrow, then take the type up to ", 0x<addr>".
