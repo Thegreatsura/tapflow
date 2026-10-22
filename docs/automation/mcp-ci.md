@@ -4,7 +4,7 @@
 tapflow's **AI agents** (the MCP server) and **Automation** (the flow runner) are experimental. The manual QA dashboard is the most mature part of tapflow; these two are still maturing. Expect rough edges, especially in selector matching and in timing right after an app launches.
 :::
 
-Using an agent with the flow runner splits the work into two stages: an LLM agent explores the app and **authors** a scenario, and a deterministic runner **replays** it. The guiding principle is simple — an LLM is involved only at authoring time, and replay is deterministic.
+Using an agent with the flow runner splits the work into two stages: an LLM agent explores the app and **authors** a scenario, and a deterministic runner **replays** it. The guiding principle is simple — an LLM is involved only at authoring time, and replay is deterministic. Exploratory runs, covered below, are the one exception: they read the screen with an LLM on every run.
 
 That distinction changes CI. If an LLM judges the screen on every run, the result varies run to run and you pay for API calls each time. Save a verified scenario as a [flow](/automation/flows) instead, and CI replays that flow with no LLM calls — idempotent, and free.
 
