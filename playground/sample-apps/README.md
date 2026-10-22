@@ -23,12 +23,13 @@ iOS needs Xcode and `xcodegen` (`brew install xcodegen`); `build.sh` generates t
 JDK 17 and the Android SDK (`ANDROID_HOME`); Gradle comes through the wrapper.
 
 ```sh
-playground/sample-apps/build.sh                      # → test-builds/sample-uikit.app.zip, sample-swiftui.app.zip
+playground/sample-apps/build.sh                      # → test-builds/sample-uikit.app.zip, sample-swiftui.app.zip, sample-compose.apk
 cp playground/sample-apps/.env.example playground/sample-apps/.env   # then add a token for the local relay
-pnpm dev:relay & pnpm dev:ios &                      # from the repo root
+pnpm dev:relay & pnpm dev:ios &                      # from the repo root (pnpm dev:android for Android)
 pnpm --filter @tapflowio/playground measure-tree \
   --expected sample-apps/expected/ios-uikit.json \
   --zip test-builds/sample-uikit.app.zip --device <udid> --out <file.json>
+# Android: --expected sample-apps/expected/android-compose.json --zip test-builds/sample-compose.apk --device <avd name>
 ```
 
 `--device` takes a name or the device id. A name repeats once per installed runtime, so the id is the safe

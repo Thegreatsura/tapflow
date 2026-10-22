@@ -3,7 +3,7 @@
 # (gitignored). Nothing built here is committed — see `.work` e2e-followups A3 for why.
 #
 #   ./build.sh            # iOS (both targets) and Android
-#   ./build.sh <udid>     # and install the iOS apps on that booted simulator
+#   ./build.sh <udid>     # iOS only, installed on that booted simulator
 #   ./build.sh ios        # one platform only (also: android)
 #
 # Outputs, ready to upload to App Center:
@@ -18,7 +18,8 @@ PLATFORMS="ios android"
 case "$ARG" in
   ios|android) PLATFORMS="$ARG" ;;
   "") ;;
-  *) UDID="$ARG" ;;
+  # A device id is a simulator's: installing is iOS-only, so it builds iOS only.
+  *) UDID="$ARG"; PLATFORMS="ios" ;;
 esac
 OUT="$(cd .. && pwd)/test-builds"
 mkdir -p "$OUT"

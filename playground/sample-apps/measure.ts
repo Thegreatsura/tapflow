@@ -6,6 +6,7 @@
 //   pnpm --filter @tapflowio/playground measure-tree \
 //     --expected sample-apps/expected/ios-uikit.json --zip test-builds/sample-uikit.app.zip \
 //     [--device <name|id>] [--relay ws://localhost:4000]
+//   Android: --expected sample-apps/expected/android-compose.json --zip test-builds/sample-compose.apk
 //
 // `--zip` uploads the build to App Center first; `--build <id>` measures one already there. Either way
 // install and launch go the way a tester's do. The token comes from `--token`, `TAPFLOW_TOKEN`, or
@@ -119,6 +120,8 @@ async function settledTree(sessionId: string): Promise<UIElement[]> {
     prev = shape
     await sleep(300)
   }
+  // Something on screen kept moving. The tree is used anyway, and said so: a tap aimed at it may miss.
+  console.warn('  (tree did not settle after 10 reads — the next result may be a miss caused by movement)')
   return readTree(sessionId)
 }
 
