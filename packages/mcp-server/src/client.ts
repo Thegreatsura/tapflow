@@ -117,6 +117,7 @@ function isUIElement(value: unknown): value is UIElement {
   if (typeof record.role !== 'string' || !UI_ROLES.has(record.role) || typeof record.label !== 'string' || typeof record.enabled !== 'boolean') return false
   if (record.identifier !== undefined && typeof record.identifier !== 'string') return false
   if (record.rawRole !== undefined && typeof record.rawRole !== 'string') return false
+  if (record.placeholder !== undefined && typeof record.placeholder !== 'string') return false
   const x = rect.x
   const y = rect.y
   const width = rect.width

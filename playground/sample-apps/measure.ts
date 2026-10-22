@@ -90,7 +90,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 function matches(el: UIElement, e: Expected): boolean {
   if (e.identifier) return el.identifier === e.identifier
   const labels = e.labelAny ?? (e.label ? [e.label] : [])
-  return labels.includes(el.label)
+  // A field with no label is found by its placeholder, as a bare-text selector finds it.
+  return labels.includes(el.label) || (el.placeholder !== undefined && labels.includes(el.placeholder))
 }
 
 /** One tree read, retried when the failure is one the runner itself calls transient. A permanent one

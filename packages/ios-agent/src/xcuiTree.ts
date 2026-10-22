@@ -63,6 +63,7 @@ interface RawNode {
   frame?: { x: number; y: number; width: number; height: number }
   identifier?: string
   label?: string
+  placeholder?: string
 }
 
 const FRAME_RE = /\{\{(-?[\d.]+), (-?[\d.]+)\}, \{(-?[\d.]+), (-?[\d.]+)\}\}/
@@ -73,10 +74,14 @@ const FRAME_RE = /\{\{(-?[\d.]+), (-?[\d.]+)\}, \{(-?[\d.]+), (-?[\d.]+)\}\}/
 // flags first (`, Selected`, `, Focused`). Missing either let the lazy match run
 // on to the line's last quote: a placeholder field's identifier came out as
 // `email', placeholderValue: 'Email`, and a selected tab's label as nothing.
-// Flags are assumed to be single words; none with a space has been seen in runner output.
-const TRAILING_FLAGS = String.raw`(?:, [A-Z][A-Za-z]*)*$`
+// A flag may be two capitalised words: `Keyboard Focused` is printed on a text field being typed into
+// (iOS 26.5, measured), which a single-word pattern would have let the lazy match run past.
+const TRAILING_FLAGS = String.raw`(?:, [A-Z][A-Za-z]*(?: [A-Z][A-Za-z]*)*)*$`
 const IDENTIFIER_RE = new RegExp(String.raw`, identifier: '(.*?)'(?=, label: |, placeholderValue: |, value: |${TRAILING_FLAGS})`)
 const LABEL_RE = new RegExp(String.raw`, label: '(.*?)'(?=, placeholderValue: |, value: |${TRAILING_FLAGS})`)
+// Kept after typing: measured, a field holding "abc" still prints `placeholderValue: 'Email', value: abc`. An
+// empty field echoes the placeholder into `value` too, which is one reason `value` is not read here.
+const PLACEHOLDER_RE = new RegExp(String.raw`, placeholderValue: '(.*?)'(?=, value: |${TRAILING_FLAGS})`)
 
 function parseLine(line: string): RawNode | null {
   // Strip indentation + the root arrow, then take the type up to ", 0x<addr>".
@@ -92,6 +97,8 @@ function parseLine(line: string): RawNode | null {
   if (im) node.identifier = im[1]
   const lm = LABEL_RE.exec(line)
   if (lm) node.label = lm[1]
+  const pm = PLACEHOLDER_RE.exec(line)
+  if (pm && pm[1] !== '') node.placeholder = pm[1]
   return node
 }
 
@@ -143,6 +150,7 @@ export function parseTreeText(text: string): UIElement[] {
       enabled: true, // debugDescription does not expose enabled; default true (Open Q9)
     }
     if (node.identifier) element.identifier = node.identifier
+    if (node.placeholder) element.placeholder = node.placeholder
     element.rawRole = node.type
     elements.push(element)
   }

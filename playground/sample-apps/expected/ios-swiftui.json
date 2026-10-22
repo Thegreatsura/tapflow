@@ -173,7 +173,7 @@
           ],
           "role": "input",
           "tap": true,
-          "note": "Placeholder only: no identifier, no label. The tree reports the placeholder, the element schema does not carry it yet \u2014 an expected miss until that is decided."
+          "note": "Placeholder only: no identifier, no label. Found through the element's placeholder, as `tapOn: \"Nickname\"` finds it."
         }
       ]
     },
