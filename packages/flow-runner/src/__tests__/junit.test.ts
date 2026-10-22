@@ -50,6 +50,17 @@ describe('toJUnitXml', () => {
     expect(xml).not.toContain('<failure')
   })
 
+  it('lists a skipped flow as a skipped testcase and counts it', () => {
+    const xml = toJUnitXml([passed], [{ name: 'other app', file: 'b.yaml', message: 'flow is for com.a, build 7 is com.b' }])
+    expect(xml).toContain('<testsuites tests="2" failures="0" skipped="1"')
+    expect(xml).toContain('<testsuite name="tapflow-flows" tests="2" failures="0" skipped="1"')
+    expect(xml).toContain('<testcase name="other app" classname="b.yaml" time="0.000">\n      <skipped message="flow is for com.a, build 7 is com.b"/>')
+  })
+
+  it('says skipped="0" when nothing was skipped', () => {
+    expect(toJUnitXml([passed])).toContain('tests="1" failures="0" skipped="0"')
+  })
+
   it('strips XML-invalid control characters from messages', () => {
     const xml = toJUnitXml([{
       ...failed,

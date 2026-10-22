@@ -9,7 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`tapflow flow run` can pick flows by tag.** A flow can list `tags`, and `--include-tags smoke,login` runs only flows carrying one of them while `--exclude-tags flaky` leaves out flows carrying it, winning over an include. A flow left out is skipped, not failed: it is listed with why, counted on the last line and in the run record, and written to JUnit as `<skipped>`. When no flow runs at all, the run exits 2 before choosing a device rather than passing having tested nothing.
 - **A flow can find an iOS text field by its placeholder.** A field with no label and no identifier could not be found by any selector; `tapOn: "Nickname"` now finds it by the hint text it shows. The placeholder is tried last, after a partial label, so a step that found an element before finds the same one, and it never matches in part. An `assertNotVisible` on such a field's placeholder text, which could not see the field and always passed, now fails while the field is on screen. MCP's `query_ui_tree` lists it as `placeholder`. Android follows in a later release.
+
+### Changed
+
+- **A flow whose `appId` is not the build's is skipped instead of run.** With `--build` (or `run_flow`'s `buildId`), each flow's `appId` is compared with the build's bundle id; until now it was read only by `clearState`, so a flow for another app ran and failed on its first selector, which read as a regression. The skip line names both ids. If you run flows against a build whose id differs from their `appId`, such as a debug build with `applicationIdSuffix ".debug"`, set `appId` to that build's id or remove it; a run where every flow is skipped exits 2. The check needs a token with `builds:write` (an API-type token); with a `view` token or none, the runner says so in one line and runs every flow as before. Upgrade the relay with the CLI to keep skipped flows in run records: an older relay does not record them, and the CLI warns once and records the rest.
 
 ### Fixed
 

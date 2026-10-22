@@ -383,8 +383,12 @@ tapflow flow run .tapflow/flows/login-smoke.yaml
 | `--artifacts <dir>` | `.tapflow/artifacts` | Directory for failure screenshots |
 | `--timeout <seconds>` | `10` | Default wait per selector (seconds) |
 | `--no-record` | — | Do not record this run on the relay |
+| `--include-tags <tags>` | — | Run only flows tagged with at least one of these (comma-separated) |
+| `--exclude-tags <tags>` | — | Skip flows tagged with any of these (comma-separated). Wins over `--include-tags`. |
 
 With neither `--session` nor `--device`, it uses the booted device when exactly one is booted. With none booted, or more than one, it stops with an environment error.
+
+With `--build`, a flow whose `appId` differs from that build's bundle ID is skipped rather than run. So is a flow the tag options filter out. A skipped flow does not count as a failure, but when no flow runs at all, the run stops with exit code `2` before choosing a device. See [Choosing flows](/automation/flows#choosing-flows).
 
 | Exit code | Meaning |
 |-----------|---------|

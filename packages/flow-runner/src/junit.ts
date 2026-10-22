@@ -20,8 +20,16 @@ function stepLog(result: FlowResult): string {
     .join('\n')
 }
 
-export function toJUnitXml(results: FlowResult[]): string {
+/** A flow the run chose not to replay (`isEligible`). Not a `FlowResult`: the engine never saw it. */
+export interface SkippedFlow {
+  name: string
+  file?: string
+  message: string
+}
+
+export function toJUnitXml(results: FlowResult[], skipped: SkippedFlow[] = []): string {
   const failures = results.filter((r) => r.status === 'failed').length
+  const tests = results.length + skipped.length
   const totalSec = (results.reduce((acc, r) => acc + r.durationMs, 0) / 1000).toFixed(3)
 
   const cases = results
@@ -36,12 +44,16 @@ export function toJUnitXml(results: FlowResult[]): string {
         `    </testcase>`
       )
     })
+    .concat(skipped.map((f) =>
+      `    <testcase name="${esc(f.name)}" classname="${esc(f.file ?? f.name)}" time="0.000">\n` +
+      `      <skipped message="${esc(f.message)}"/>\n` +
+      `    </testcase>`))
     .join('\n')
 
   return (
     '<?xml version="1.0" encoding="UTF-8"?>\n' +
-    `<testsuites tests="${results.length}" failures="${failures}" time="${totalSec}">\n` +
-    `  <testsuite name="tapflow-flows" tests="${results.length}" failures="${failures}" time="${totalSec}">\n` +
+    `<testsuites tests="${tests}" failures="${failures}" skipped="${skipped.length}" time="${totalSec}">\n` +
+    `  <testsuite name="tapflow-flows" tests="${tests}" failures="${failures}" skipped="${skipped.length}" time="${totalSec}">\n` +
     `${cases}\n` +
     '  </testsuite>\n' +
     '</testsuites>\n'

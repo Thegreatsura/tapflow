@@ -15,7 +15,7 @@ function listItem(overrides: Partial<RunListItem> = {}): RunListItem {
     isCi: true, ci: { provider: 'github', branch: 'main', commit: 'abcdef123456', jobUrl: 'https://github.com/o/r/actions/runs/1' },
     build: { id: 7, appName: 'Coffee', versionName: '1.2.0', buildNumber: '42', platform: 'ios' },
     createdBy: 'ci', flowsTotal: 2, createdAt: '2026-10-11 01:00:00', finishedAt: '2026-10-11 01:01:05',
-    flowsPassed: 2, flowsFailed: 0,
+    flowsPassed: 2, flowsFailed: 0, flowsSkipped: 0,
     ...overrides,
   }
 }
@@ -62,6 +62,15 @@ describe('Runs list', () => {
     expect(urls[0]).toBe('/api/v1/runs?ci=1&limit=25')
     expect(screen.getByText('GitHub Actions · main')).toBeTruthy()
     expect(link.closest('tr')?.textContent).toContain('2/2')
+  })
+
+  // Mutation: drop the skipped count, and a run that skipped two of three reads as one that lost them.
+  it('names the flows a run skipped beside the passed count', async () => {
+    stubRelay(() => Response.json({ items: [listItem({ flowsTotal: 3, flowsPassed: 1, flowsSkipped: 2 }), listItem({ id: 'r2' })], nextCursor: null, prevCursor: null }))
+    renderAt('/automation/runs')
+    const rows = (await screen.findAllByRole('link', { name: /^Coffee 1\.2\.0 · build 42, Passed, / })).map((l) => l.closest('tr')?.textContent)
+    expect(rows[0]).toContain('1/3(2 skipped)')
+    expect(rows[1]).not.toContain('skipped')
   })
 
   it('tells a run the environment failed apart from one the app failed, in the row and its name', async () => {
@@ -280,6 +289,21 @@ describe('Run detail', () => {
     expect(shot.getAttribute('src')).toBe('/api/v1/runs/r1/flows/0/screenshot')
     expect(screen.getByText('Not run')).toBeTruthy()
     expect(screen.getByRole('link', { name: /Open the CI run/ }).getAttribute('href')).toBe('https://github.com/o/r/actions/runs/1')
+  })
+
+  it('shows a skipped flow with why, and nothing of a run it never had', async () => {
+    stubRelay(() => Response.json(detail({
+      flows: [
+        { idx: 0, name: 'login', file: 'flows/login.yaml', status: 'skipped', skipReason: 'app-mismatch', failureMessage: 'flow is for com.a, build 7 is com.b' },
+        { idx: 1, name: 'slow', file: null, status: 'skipped', skipReason: 'tag-filter', failureMessage: 'not tagged smoke' },
+      ],
+    })))
+    renderAt('/automation/runs/r1')
+    expect(await screen.findByText('flow is for com.a, build 7 is com.b')).toBeTruthy()
+    expect(screen.getByText('Skipped: another app')).toBeTruthy()
+    expect(screen.getByText('Skipped: tags')).toBeTruthy()
+    expect(screen.getByText('not tagged smoke')).toBeTruthy()
+    expect(screen.queryByRole('img')).toBeNull()
   })
 
   it('marks a run and a flow that failed only on the environment as such, not as the app failing', async () => {

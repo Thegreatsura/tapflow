@@ -10,7 +10,7 @@ import { TechLabel } from '@/components/ui/tech-label'
 import { useBreadcrumb } from '@/hooks/useBreadcrumb'
 import { getRun, queryKeys, runScreenshotUrl } from '@/lib/queries'
 import {
-  UNREPORTED_FLOW_LABEL, failureBadge, formatAgo, formatDuration, runBuildLabel,
+  SKIP_REASON_LABEL, UNREPORTED_FLOW_LABEL, failureBadge, formatAgo, formatDuration, runBuildLabel,
   pollWhileRunning, runDuration, runOutcomeText, runSourceLabel, shortCommit,
 } from '@/lib/runs'
 import type { RunDetail as Run, RunFlow, RunStep } from '@/lib/types'
@@ -126,7 +126,9 @@ function FlowItem({ runId, flow }: { runId: string; flow: RunFlow }) {
       <div className="flex flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium">{flow.name}</span>
-          {isReported(flow) ? (
+          {flow.status === 'skipped' ? (
+            <Badge tone="backlog" className="text-xs">{SKIP_REASON_LABEL[flow.skipReason] ?? 'Skipped'}</Badge>
+          ) : isReported(flow) ? (
             <>
               <Badge tone={badge?.tone} className="text-xs">{badge?.label}</Badge>
               <TechLabel className="text-muted-foreground">{formatDuration(flow.durationMs)}</TechLabel>
@@ -138,6 +140,7 @@ function FlowItem({ runId, flow }: { runId: string; flow: RunFlow }) {
         </div>
         {flow.file && <TechLabel className="block text-muted-foreground">{flow.file}</TechLabel>}
       </div>
+      {flow.status === 'skipped' && flow.failureMessage && <p className="text-sm text-muted-foreground">{flow.failureMessage}</p>}
       {isReported(flow) && flow.status === 'failed' && (
         <>
           {flow.failureMessage && <p className="text-sm text-destructive">{flow.failureMessage}</p>}

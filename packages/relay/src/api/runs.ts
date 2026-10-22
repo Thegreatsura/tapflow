@@ -155,7 +155,8 @@ interface FlowRow {
   device_id: string | null
   device_name: string | null
   platform: string | null
-  status: 'passed' | 'failed'
+  status: 'passed' | 'failed' | 'skipped'
+  skip_reason: string | null
   failure_kind: string | null
   failure_message: string | null
   duration_ms: number
@@ -305,7 +306,9 @@ export async function handleCreateRun(req: http.IncomingMessage, res: http.Serve
   json(res, 201, { id })
 }
 
-const FLOW_STATUSES = new Set(['passed', 'failed'])
+const FLOW_STATUSES = new Set(['passed', 'failed', 'skipped'])
+/** Why the runner did not replay a flow — flow-runner's `SkipReason`. */
+const SKIP_REASONS = new Set(['app-mismatch', 'tag-filter'])
 const STEP_STATUSES = new Set(['passed', 'failed', 'skipped'])
 
 export async function handleReportFlow(
@@ -321,7 +324,15 @@ export async function handleReportFlow(
   if (!body) return
 
   if (typeof body.status !== 'string' || !FLOW_STATUSES.has(body.status)) {
-    return json(res, 400, { error: 'status must be passed or failed' })
+    return json(res, 400, { error: 'status must be passed, failed or skipped' })
+  }
+  // The reason comes with a skip and with nothing else, so a row cannot say "passed" and give a reason it was not run.
+  const skipReason = body.status === 'skipped' ? body.skipReason : undefined
+  if (body.status === 'skipped' && (typeof skipReason !== 'string' || !SKIP_REASONS.has(skipReason))) {
+    return json(res, 400, { error: 'a skipped flow needs a skipReason of app-mismatch or tag-filter' })
+  }
+  if (body.status !== 'skipped' && body.skipReason !== undefined) {
+    return json(res, 400, { error: 'skipReason is only for a skipped flow' })
   }
   const durationMs = nonNegInt(body.durationMs)
   if (durationMs === null) return json(res, 400, { error: 'durationMs must be a non-negative integer' })
@@ -357,17 +368,17 @@ export async function handleReportFlow(
     if (now.finished_by === 'client') return 'finished'
     // An upsert that keeps the screenshot: the CLI may retry a report, and the screenshot arrives separately.
     db.prepare(`
-      INSERT INTO flow_run_flows (run_seq, idx, name, file, device_id, device_name, platform, status, failure_kind,
-                                  failure_message, duration_ms, steps_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO flow_run_flows (run_seq, idx, name, file, device_id, device_name, platform, status, skip_reason,
+                                  failure_kind, failure_message, duration_ms, steps_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (run_seq, idx) DO UPDATE SET
         device_id = excluded.device_id, device_name = excluded.device_name, platform = excluded.platform,
-        status = excluded.status, failure_kind = excluded.failure_kind, failure_message = excluded.failure_message,
-        duration_ms = excluded.duration_ms, steps_json = excluded.steps_json
+        status = excluded.status, skip_reason = excluded.skip_reason, failure_kind = excluded.failure_kind,
+        failure_message = excluded.failure_message, duration_ms = excluded.duration_ms, steps_json = excluded.steps_json
     `).run(
       run.seq, idx, planned.name, planned.file,
       str(body.deviceId, MAX_NAME), str(body.deviceName, MAX_NAME), str(body.platform, 50),
-      body.status, str(body.failureKind, 50), str(body.failureMessage, MAX_MESSAGE),
+      body.status, skipReason ?? null, body.status === 'skipped' ? null : str(body.failureKind, 50), str(body.failureMessage, MAX_MESSAGE),
       durationMs, JSON.stringify(steps),
     )
     db.prepare(`UPDATE flow_runs SET last_activity_at = datetime('now') WHERE seq = ?`).run(run.seq)
@@ -396,8 +407,11 @@ export async function handleUploadFlowScreenshot(
 ): Promise<void> {
   const run = ownRun(req, res, params.id)
   if (!run) return
-  const current = getDb().prepare('SELECT screenshot_file FROM flow_run_flows WHERE run_seq = ? AND idx = ?')
-  if (!current.get(run.seq, Number(params.idx))) return json(res, 404, { error: 'Report the flow before its screenshot' })
+  const current = getDb().prepare('SELECT screenshot_file, status FROM flow_run_flows WHERE run_seq = ? AND idx = ?')
+  const row = current.get(run.seq, Number(params.idx)) as { status: string } | undefined
+  if (!row) return json(res, 404, { error: 'Report the flow before its screenshot' })
+  // Nothing was on a screen for a flow that never ran.
+  if (row.status === 'skipped') return json(res, 409, { error: 'A skipped flow has no screenshot' })
 
   const buf = await readBodyLimited(req, MAX_SCREENSHOT_BYTES)
   if (buf === null) return json(res, 413, { error: `Screenshot larger than ${MAX_SCREENSHOT_BYTES} bytes` })
@@ -541,12 +555,13 @@ export function handleListRuns(req: http.IncomingMessage, res: http.ServerRespon
   const sql = (conds: string[], order: 'ASC' | 'DESC') => `
     SELECT r.*,
            (SELECT COUNT(*) FROM flow_run_flows f WHERE f.run_seq = r.seq AND f.status = 'passed') AS flows_passed,
-           (SELECT COUNT(*) FROM flow_run_flows f WHERE f.run_seq = r.seq AND f.status = 'failed') AS flows_failed
+           (SELECT COUNT(*) FROM flow_run_flows f WHERE f.run_seq = r.seq AND f.status = 'failed') AS flows_failed,
+           (SELECT COUNT(*) FROM flow_run_flows f WHERE f.run_seq = r.seq AND f.status = 'skipped') AS flows_skipped
       FROM flow_runs r
      ${conds.length ? `WHERE ${conds.join(' AND ')}` : ''}
      ORDER BY r.seq ${order}
      LIMIT ?`
-  type Row = RunRow & { flows_passed: number; flows_failed: number }
+  type Row = RunRow & { flows_passed: number; flows_failed: number; flows_skipped: number }
   const db = getDb()
   const { before, after } = ids
   const page = after !== undefined
@@ -562,7 +577,7 @@ export function handleListRuns(req: http.IncomingMessage, res: http.ServerRespon
   const first = page[0]
   const last = page[page.length - 1]
   json(res, 200, {
-    items: page.map((r) => ({ ...runSummary(r), flowsPassed: r.flows_passed, flowsFailed: r.flows_failed })),
+    items: page.map((r) => ({ ...runSummary(r), flowsPassed: r.flows_passed, flowsFailed: r.flows_failed, flowsSkipped: r.flows_skipped })),
     nextCursor: last && exists('r.seq < ?', last.seq) ? String(last.seq) : null,
     prevCursor: first && exists('r.seq > ?', first.seq) ? String(first.seq) : null,
   })
@@ -596,6 +611,7 @@ export function handleGetRun(
     }
     return {
       idx, name: f.name, file: f.file, status: f.status,
+      ...(f.status === 'skipped' ? { skipReason: f.skip_reason } : {}),
       device: f.device_id ? { id: f.device_id, name: f.device_name, platform: f.platform } : null,
       failureKind: f.failure_kind, failureMessage: f.failure_message, durationMs: f.duration_ms,
       steps: JSON.parse(f.steps_json) as unknown[],

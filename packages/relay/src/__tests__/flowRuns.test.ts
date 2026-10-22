@@ -31,9 +31,9 @@ interface Body {
   createdBy: string | null
   ci: { jobUrl: string | null } | null
   build: unknown
-  flows: { name: string; status: string; hasScreenshot?: boolean; steps?: object[] }[]
+  flows: { name: string; status: string; hasScreenshot?: boolean; steps?: object[]; skipReason?: string }[]
   watchSessionId: string | null
-  items: { id: string }[]
+  items: { id: string; flowsSkipped?: number }[]
   nextCursor: string | null
   prevCursor: string | null
 }
@@ -200,6 +200,45 @@ describe('flow run records', () => {
     })
     expect(r.body.flows[0].steps?.[0]).not.toHaveProperty('extra')
     expect(r.body.flows[1]).toMatchObject({ name: 'checkout', status: 'not-run' })
+  })
+
+  // L1: a flow the runner did not replay, and why. Mutations: drop skipped from the status set; drop skip_reason from
+  // the upsert's update list; let a passed flow carry a reason.
+  it('records a skipped flow with its reason and message, and counts it apart from passed and failed', async () => {
+    const id = await create()
+    const skipped = { status: 'skipped', skipReason: 'app-mismatch', failureMessage: 'flow is for com.a, build 7 is com.b', durationMs: 0, steps: [] }
+    expect((await call('POST', `/api/v1/runs/${id}/flows/0`, bearer(PAT_CI), skipped)).status).toBe(200)
+    expect((await call('POST', `/api/v1/runs/${id}/flows/1`, bearer(PAT_CI), passed)).status).toBe(200)
+
+    const r = await call('GET', `/api/v1/runs/${id}`, bearer(PAT_VIEW))
+    expect(r.body.flows[0]).toMatchObject({
+      status: 'skipped', skipReason: 'app-mismatch', failureKind: null, failureMessage: 'flow is for com.a, build 7 is com.b', steps: [],
+    })
+    expect(r.body.flows[1]).not.toHaveProperty('skipReason')
+    const list = await call('GET', '/api/v1/runs', bearer(PAT_VIEW))
+    expect(list.body.items[0]).toMatchObject({ id, flowsPassed: 1, flowsFailed: 0, flowsSkipped: 1, flowsTotal: 2 })
+  })
+
+  it('clears the reason when a retried report turns a skipped flow into a run one', async () => {
+    const id = await create()
+    await call('POST', `/api/v1/runs/${id}/flows/0`, bearer(PAT_CI), { status: 'skipped', skipReason: 'tag-filter', durationMs: 0, steps: [] })
+    expect((await call('POST', `/api/v1/runs/${id}/flows/0`, bearer(PAT_CI), passed)).status).toBe(200)
+    expect((await call('GET', `/api/v1/runs/${id}`, bearer(PAT_VIEW))).body.flows[0]).toMatchObject({ status: 'passed' })
+    expect(getDb().prepare('SELECT skip_reason FROM flow_run_flows WHERE idx = 0').get()).toEqual({ skip_reason: null })
+  })
+
+  it('refuses a skip with no reason or an unknown one, and a reason on a flow that ran', async () => {
+    const id = await create()
+    const url = `/api/v1/runs/${id}/flows/0`
+    expect((await call('POST', url, bearer(PAT_CI), { status: 'skipped', durationMs: 0, steps: [] })).status).toBe(400)
+    expect((await call('POST', url, bearer(PAT_CI), { status: 'skipped', skipReason: 'bored', durationMs: 0, steps: [] })).status).toBe(400)
+    expect((await call('POST', url, bearer(PAT_CI), { ...passed, skipReason: 'tag-filter' })).status).toBe(400)
+  })
+
+  it('refuses a screenshot for a skipped flow', async () => {
+    const id = await create()
+    await call('POST', `/api/v1/runs/${id}/flows/0`, bearer(PAT_CI), { status: 'skipped', skipReason: 'tag-filter', durationMs: 0, steps: [] })
+    expect((await call('POST', `/api/v1/runs/${id}/flows/0/screenshot`, bearer(PAT_CI), PNG)).status).toBe(409)
   })
 
   // B2: a failed tapOn's suggestions are stored whole or not at all — a cut line is a different selector.

@@ -19,7 +19,7 @@ Flows are not a language you hand-write from scratch — they are an artifact a 
 
 ## Flow file structure
 
-A flow has three top-level keys.
+A flow is made of these top-level keys.
 
 ```yaml
 name: login-smoke
@@ -38,7 +38,8 @@ steps:
 | Key | Required | Description |
 |-----|----------|-------------|
 | `name` | No | Name shown in reports. Defaults to the file name. |
-| `appId` | Conditional | Bundle id of the app under test. Required when `clearState` is used without an argument. |
+| `appId` | Conditional | Bundle id of the app under test. Required when `clearState` is used without an argument. With `--build`, it is compared with that build's bundle id ([Choosing flows](#choosing-flows)). |
+| `tags` | No | A list of tags. Use them to pick flows with `--include-tags` and `--exclude-tags`. A tag cannot contain a comma. |
 | `steps` | Yes | The list of steps, run top to bottom. |
 
 Coordinates are normalized 0–1 everywhere. Selectors point at screen elements directly, so you will rarely write pixel coordinates into a flow.
@@ -138,14 +139,27 @@ tapflow flow run .tapflow/flows/login.yaml .tapflow/flows/checkout.yaml
 | `--artifacts <dir>` | Failure-screenshot directory (default `.tapflow/artifacts`) |
 | `--timeout <seconds>` | Default per-selector wait (default 10, max 2147483.647) |
 | `--no-record` | Do not record this run on the relay. |
+| `--include-tags <tags>` | Run only flows tagged with at least one of these (comma-separated). |
+| `--exclude-tags <tags>` | Skip flows tagged with any of these (comma-separated). Wins over `--include-tags`. |
 
 The `launchApp` step takes no argument and launches the build passed via `--build`. That keeps the build id out of the flow file, so the same flow runs against a fresh build on every CI run.
 
 When the run starts, the runner prints a dashboard link on a `watch this run:` line. Open it to watch, live, the flow driving the device; the watch ends when the run does. In CI the line is not printed (detected from the `CI` environment variable, Jenkins's `JENKINS_URL` or Azure Pipelines' `TF_BUILD`), because the link shows the relay's address and would stay in a public repository's log. How the address is chosen, and who can watch, are the same as for the [MCP server](/automation/mcp-server#watch-the-device), with the `--relay` address in place of `TAPFLOW_RELAY_URL`.
 
+### Choosing flows {#choosing-flows}
+
+A flow that does not fit this run is skipped rather than run. There are two cases.
+
+- **A flow for another app**: with `--build`, each flow's `appId` is compared with that build's bundle id. When they differ, the runner prints both ids, as in `– login (skipped: flow is for com.example.app, build 42 is com.example.app.debug)`, and skips the flow. You can pass a directory that mixes several apps' flows, and only the ones for the build run. A flow with no `appId` runs against any build.
+- **A flow the tags filter out**: `--include-tags smoke,login` runs only flows that carry at least one of the two. `--exclude-tags flaky` skips flows that carry it, and when the two overlap, `--exclude-tags` wins.
+
+A skipped flow does not count as a failure. The last line counts it separately, as in `1/1 flows passed, 1 skipped`. When no flow runs at all, the run stops with exit code `2` before choosing a device, so a run that tested nothing cannot read as a pass. A build id the relay does not have stops the run the same way.
+
+Comparing `appId` needs a token that can read the build: an API-type token (`view, builds:write`). With no token, or a `view` token, the runner prints an `app check skipped` line and runs every flow whatever its `appId`. If you run a flow against a build whose bundle id carries a suffix, such as a debug build (`com.example.app.debug`), set `appId` to that build's id or remove it.
+
 ### Run records {#run-records}
 
-With a token, the runner records the run on the relay: each flow's pass or fail and steps, a screenshot of the screen each flow failed on or ended on, the device it ran on, and the build passed with `--build`. In CI it also records the provider, branch, commit and a link to the CI run. When the relay created the record, the runner prints its id on a `recorded as run` line at the end of the run, followed outside CI by a link to the run's dashboard page. The records are on the dashboard's [Flow Runs](/automation/runs) page.
+With a token, the runner records the run on the relay: each flow's pass, fail or skip, why a flow was skipped, its steps, a screenshot of the screen each flow failed on or ended on, the device it ran on, and the build passed with `--build`. In CI it also records the provider, branch, commit and a link to the CI run. When the relay created the record, the runner prints its id on a `recorded as run` line at the end of the run, followed outside CI by a link to the run's dashboard page. The records are on the dashboard's [Flow Runs](/automation/runs) page.
 
 - Recording never changes the result or the exit code. If the relay does not answer or refuses the record, the runner prints one warning line and records nothing more for that run. A screenshot the relay cannot take (for example, one over 5 MB) gets its own warning, and the rest of the run is still recorded. At the end of a run it waits at most 10 seconds for the record to finish sending. Capturing a passed flow's last screen takes one screenshot before the next flow starts, at most 5 seconds.
 - While recording, the runner also sends each flow's video. It cuts the device stream it already receives, so a flow never waits on the video being sent. On iOS it asks the agent for an H.264 stream for this, and when the agent is set to send JPEG (`TAPFLOW_IOS_CODEC=jpeg`) no video is kept. If video cannot be sent, the runner prints one warning line and the record carries on. At the end of a run the record is sent first, and video gets what is left of the 10 seconds. The relay keeps a passed flow's video for 3 days by default, and when all videos together pass 20 GB it removes passed flows' videos first, oldest first.
@@ -169,7 +183,7 @@ Distinguishing `1` from `2` matters: a product failure (`1`) and an infrastructu
 
 A run cancelled while its flows are running leaves its session and, when it is being recorded, marks the record cancelled before it exits. A second signal exits at once.
 
-A failed flow leaves a screenshot from the point of failure in the artifacts directory, and with `--junit` each flow is recorded as one `testcase`.
+A failed flow leaves a screenshot from the point of failure in the artifacts directory, and with `--junit` each flow is recorded as one `testcase`. A skipped flow is a `testcase` with `<skipped>`.
 
 ## File location convention
 

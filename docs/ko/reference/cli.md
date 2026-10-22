@@ -362,8 +362,12 @@ tapflow flow run .tapflow/flows/login-smoke.yaml
 | `--artifacts <dir>` | `.tapflow/artifacts` | 실패 스크린샷을 저장할 디렉터리 |
 | `--timeout <seconds>` | `10` | 셀렉터마다 기다리는 기본 시간(초) |
 | `--no-record` | — | 이 실행을 릴레이에 기록하지 않음 |
+| `--include-tags <tags>` | — | 이 태그 중 하나라도 있는 플로우만 실행(쉼표로 구분) |
+| `--exclude-tags <tags>` | — | 이 태그 중 하나라도 있는 플로우는 건너뜀(쉼표로 구분). `--include-tags`보다 우선합니다. |
 
 `--session`과 `--device`를 모두 생략하면 부팅된 기기가 정확히 하나일 때 그 기기를 씁니다. 부팅된 기기가 없거나 여러 대면 환경 오류로 멈춥니다.
+
+`--build`를 주면 플로우의 `appId`가 그 빌드의 번들 ID와 다른 플로우는 실행하지 않고 건너뜁니다. 태그 옵션에 걸러진 플로우도 건너뜁니다. 건너뛴 플로우는 실패로 세지 않지만 실행된 플로우가 하나도 없으면 기기를 고르기 전에 종료 코드 `2`로 멈춥니다. 자세한 내용은 [실행할 플로우 고르기](/ko/automation/flows#choosing-flows)를 참고하세요.
 
 | 종료 코드 | 의미 |
 |-----------|------|
