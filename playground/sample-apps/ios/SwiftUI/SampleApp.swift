@@ -72,7 +72,7 @@ struct FormScreen: View {
                 .accessibilityIdentifier("form.password")
             Toggle("Notifications", isOn: $notify)
                 .accessibilityIdentifier("form.notify")
-            // A tap on a slider's track does not always change its value, so the touch itself is the signal.
+            // Reported when a drag begins on it. The UIKit target reports a value change, which a drag also makes.
             Slider(value: $volume) { editing in
                 if editing { status.tapped("form.volume") }
             }

@@ -16,6 +16,8 @@ Only source is committed. Nothing built here is, for the same reasons as `packag
 
 ## Run it
 
+Needs Xcode and `xcodegen` (`brew install xcodegen`); `build.sh` generates the project with it.
+
 ```sh
 playground/sample-apps/build.sh                      # → test-builds/sample-uikit.app.zip, sample-swiftui.app.zip
 cp playground/sample-apps/.env.example playground/sample-apps/.env   # then add a token for the local relay
@@ -32,12 +34,18 @@ matching.
 ## Reading a result
 
 Groups are scored apart. `basic` is what a tester expects to work; `hard` and `web` are there to fail
-sometimes, and folding them into `basic` would make every number meaningless.
+sometimes, and folding them into `basic` would make every number meaningless. `offscreen` holds a list row
+below the fold: it is never tapped, and `0/1` there records that the tree does not report rows that are not
+on screen, not a defect.
+
+Elements are used the way a person would use them (`gesture` in `expected/`): a tap by default, a swipe for
+a slider. `hold`, a 150ms press, is there for measuring how often a zero-length tap fails on a control.
 
 A failure is sorted into one of two kinds before anything is changed:
 
-- **Our input or parsing differs from the platform's** — fix it once, for every widget. A zero-length tap
-  that `UISwitch` ignores is this kind, and so was an identifier with the placeholder glued on (#1035).
+- **Our input or parsing differs from the platform's** — fix it once, for every widget. An identifier with
+  the placeholder glued on was this kind (#1035). A `UISwitch` that sometimes ignores our tap may be too —
+  the zero-length tap is the suspect, and `hold` is how its failure rate gets measured before anything changes.
 - **A widget reports itself oddly** — record it, do not add a per-widget rule. A SwiftUI `Toggle` reported
   as one row-wide switch is this kind.
 

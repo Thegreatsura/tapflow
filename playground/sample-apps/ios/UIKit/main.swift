@@ -54,8 +54,8 @@ final class FormViewController: UIViewController, UITextFieldDelegate {
         volume.accessibilityLabel = "Volume"
         // Centred like the SwiftUI target's, so the same swipe from the middle starts on the thumb in both.
         volume.value = 0.5
-        // A tap on a slider's track does not always change its value, so the touch itself is the signal.
-        volume.addAction(UIAction { _ in Status.shared.tapped("form.volume") }, for: .touchDown)
+        // Reported when the value changes, as the SwiftUI target's drag is — so "landed" means the same in both.
+        volume.addAction(UIAction { _ in Status.shared.tapped("form.volume") }, for: .valueChanged)
 
         let submit = UIButton(type: .system)
         submit.setTitle("Submit", for: .normal)

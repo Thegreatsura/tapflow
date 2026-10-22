@@ -141,6 +141,7 @@ async function tapRoundTrip(sessionId: string, el: UIElement, key: string, gestu
 
 async function main(): Promise<void> {
   const buildId = values.zip ? await upload(values.zip) : Number(values.build)
+  if (!Number.isInteger(buildId)) throw new Error(`--build must be a build id, got "${values.build}"`)
   if (values.zip) console.log(`uploaded ${values.zip} as build ${buildId}`)
   await client.connect()
   const devices = (await client.listDevices()).flatMap((s) => s.devices)
@@ -179,7 +180,10 @@ async function main(): Promise<void> {
     if (screen.navigate && screen.navigate !== currentTab) {
       const tab = elementOf(await settledTree(sessionId), screen.navigate)
       if (!tab) throw new Error(`cannot reach screen "${screen.screen}": tab ${screen.navigate} is not in the tree`)
-      await tapCentre(sessionId, tab)
+      // Checked like any other tap: a keyboard left over the tab bar takes the tap, and every element of the
+      // next screen would then be scored missing for a navigation that never happened.
+      const r = await tapRoundTrip(sessionId, tab, screen.navigate, 'tap')
+      if (!r.landed) throw new Error(`navigation to ${screen.navigate} did not land (status ${r.status ?? '?'})`)
       currentTab = screen.navigate
     }
     if (values.dump) {
