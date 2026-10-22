@@ -15,7 +15,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { RelayClient, authHeader, resolveToken } from '@tapflowio/flow-runner'
+import { RelayClient, TransientQueryError, authHeader, resolveToken } from '@tapflowio/flow-runner'
 import type { UIElement } from '@tapflowio/protocol'
 
 interface Expected {
@@ -93,17 +93,30 @@ function matches(el: UIElement, e: Expected): boolean {
   return labels.includes(el.label)
 }
 
+/** One tree read, retried when the failure is one the runner itself calls transient. A permanent one
+ *  still ends the measurement: it says the device or the runner is gone, not that a number is low. */
+async function readTree(sessionId: string): Promise<UIElement[]> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await client.queryUITree(sessionId)
+    } catch (e) {
+      if (!(e instanceof TransientQueryError) || attempt >= 3) throw e
+      await sleep(500)
+    }
+  }
+}
+
 /** The tree right now, read until two reads agree on its shape — a tab switch or a keyboard animates. */
 async function settledTree(sessionId: string): Promise<UIElement[]> {
   let prev = ''
   for (let i = 0; i < 10; i++) {
-    const tree = await client.queryUITree(sessionId)
+    const tree = await readTree(sessionId)
     const shape = tree.map((e) => `${e.role}|${e.label}|${e.identifier ?? ''}`).join('\n')
     if (shape === prev) return tree
     prev = shape
     await sleep(300)
   }
-  return client.queryUITree(sessionId)
+  return readTree(sessionId)
 }
 
 function statusOf(tree: UIElement[]): string | undefined {
@@ -132,7 +145,7 @@ async function tapRoundTrip(sessionId: string, el: UIElement, key: string, gestu
   const deadline = Date.now() + 3000
   let status: string | undefined
   while (Date.now() < deadline) {
-    status = statusOf(await client.queryUITree(sessionId))
+    status = statusOf(await readTree(sessionId))
     if (status === `tapped:${key}`) return { landed: true, status }
     await sleep(250)
   }

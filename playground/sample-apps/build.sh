@@ -20,7 +20,7 @@ mkdir -p "$OUT"
   for target in SampleUIKit SampleSwiftUI; do
     xcodebuild -project TapflowSample.xcodeproj -scheme "$target" -configuration Debug \
       -sdk iphonesimulator -destination "generic/platform=iOS Simulator" -derivedDataPath build \
-      CODE_SIGNING_ALLOWED=NO build >/dev/null
+      CODE_SIGNING_ALLOWED=NO -quiet build
   done
 )
 
