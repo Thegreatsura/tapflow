@@ -584,9 +584,15 @@ importers:
       '@tapflowio/android-agent':
         specifier: workspace:*
         version: link:../packages/android-agent
+      '@tapflowio/flow-runner':
+        specifier: workspace:^
+        version: link:../packages/flow-runner
       '@tapflowio/ios-agent':
         specifier: workspace:*
         version: link:../packages/ios-agent
+      '@tapflowio/protocol':
+        specifier: workspace:^
+        version: link:../packages/protocol
       '@tapflowio/relay':
         specifier: workspace:*
         version: link:../packages/relay
