@@ -32,10 +32,10 @@ const READY_MARKER = 'touch-helper ready'
 const READY_DEADLINE_MS = 5_000
 
 // The shortest contact a tap is given. Clients that drive a device — flow-runner, the MCP server — send
-// the touch's down and up back to back, and a person never does. Measured on iPhone 17 Pro / iOS 26.5: a
-// `UISwitch` toggled for 3 of 20 such taps and 20 of 20 held 150ms, while a button took both 20/20. So
-// the up waits until the touch has lasted this long. A person's tap and every swipe already last longer,
-// so nothing they send is delayed.
+// the touch's down and up back to back. Measured on iPhone 17 Pro / iOS 26.5, 20 taps each on a
+// `UISwitch`: 3 toggled with the up sent at once, 20 with this 50ms hold (a button took every tap either
+// way). A person's tap and a swipe usually last longer already, so they are rarely held, and one that is
+// held only gains contact time.
 export const MIN_CONTACT_MS = 50
 
 export class TouchHelper {
@@ -118,9 +118,6 @@ export class TouchHelper {
   }
 
   touchStart(x: number, y: number): boolean {
-    // A new touch while the last one's up is still held back: that up goes first, now, so the two
-    // touches cannot overlap — a down written over an open touch would move it rather than tap.
-    if (this.heldEnd) this.releaseHeldEnd(this.touchEnd())
     this.lastX = x
     this.lastY = y
     this.touchStartedAt = Date.now()
@@ -251,6 +248,10 @@ export class TouchHelper {
   // A gesture's opening frame. Self-contained, and it records which process is serving the
   // gesture so the frames that follow can be held to it.
   private openGesture(buf: Buffer): boolean {
+    // A new gesture while the last touch's up is still held back: that up goes first, now, so the two
+    // cannot overlap — a down written over an open touch moves it rather than taps, and an up landing
+    // inside a pinch lifts a finger the pinch is using.
+    if (this.heldEnd) this.releaseHeldEnd(this.touchEnd())
     const sent = this.sendSelfContained(buf)
     // Only a *delivered* open owns the gesture. Recording unconditionally looks equivalent and is
     // not: during the start-up window the open is refused while `this.proc` is a healthy process

@@ -1346,9 +1346,11 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
         // write as dropped, and that is what the caller needs to hear (#482).
         const helper = state.touchHelper
         // terminal of a tap/swipe → ack the gesture, once the up is written (it may wait for the
-        // touch's minimum contact). The refusal is read then too, when the answer is decided.
+        // touch's minimum contact). The refusal is read then too, from the helper the state holds *then*:
+        // one replaced during the wait (a chrome reload, a reboot) is up and owns nothing, which is
+        // `no-gesture`, where the stopped one it replaced would say the channel is gone.
         void (helper ? helper.touchEndAfterMinContact() : Promise.resolve(false))
-          .then((sent) => this.ackInput(state, sent ? 'delivered' : this.refusalReason(helper, 'continuation'), requestId))
+          .then((sent) => this.ackInput(state, sent ? 'delivered' : this.refusalReason(state.touchHelper, 'continuation'), requestId))
         break
       }
       case 'input:pinch:start': {

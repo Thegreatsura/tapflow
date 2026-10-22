@@ -639,6 +639,16 @@ describe('minimum contact', () => {
     expect(types(proc)).toEqual([1, 3, 1])
   })
 
+  it('writes a held-back up before a pinch opens', async () => {
+    const { helper, proc } = await setupHelper()
+    vi.useFakeTimers()
+    helper.touchStart(0.2, 0.2)
+    const first = helper.touchEndAfterMinContact()
+    helper.pinchStart(0.4, 0.4, 0.6, 0.6)
+    expect(types(proc)).toEqual([1, 3, 6])
+    await expect(first).resolves.toBe(true)
+  })
+
   it('answers a held-back up as not sent when the helper stops, and writes nothing', async () => {
     const { helper, proc } = await setupHelper()
     vi.useFakeTimers()
