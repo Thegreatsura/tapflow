@@ -79,16 +79,23 @@ describe('parseUiAutomatorDump', () => {
         `<node ${attrs({ class: 'android.widget.SeekBar', 'resource-id': 'form.volume', focusable: 'true', bounds: '[27,1089][1053,1205]' })} />`,
         `<node ${attrs({ class: 'android.view.View', 'resource-id': 'tab.form', selected: 'true', focusable: 'true', bounds: '[0,2127][255,2337]' })} />`,
         `<node ${attrs({ class: 'android.widget.LinearLayout', bounds: '[0,0][1080,2400]' })} />`,
+        // The window's decor carries ids too, and is left out.
+        `<node ${attrs({ class: 'android.widget.FrameLayout', 'resource-id': 'android:id/content', bounds: '[0,0][1080,2337]' })} />`,
+        `<node ${attrs({ class: 'android.view.View', 'resource-id': 'android:id/navigationBarBackground', bounds: '[0,2337][1080,2400]' })} />`,
+        // A framework id that names a real target is kept.
+        `<node ${attrs({ class: 'android.widget.ProgressBar', 'resource-id': 'android:id/progress', bounds: '[500,1000][580,1080]' })} />`,
       ].join('\n'),
     )
     const els = parseUiAutomatorDump(xml)
-    expect(els.map((e) => [e.identifier, e.role])).toEqual([['form.volume', 'slider'], ['tab.form', 'other']])
+    expect(els.map((e) => [e.identifier, e.role])).toEqual([
+      ['form.volume', 'slider'], ['tab.form', 'other'], ['android:id/progress', 'other'],
+    ])
   })
 
   it('never lets a frame reach past the screen by rounding', () => {
-    // The navigation bar's background as an Android 14 emulator dumped it: flush with the bottom edge, where
-    // rounding y and height apart gave y + height = 1.0001 and the whole tree was refused.
-    const xml = wrap(`<node ${attrs({ class: 'android.view.View', 'resource-id': 'android:id/navigationBarBackground', bounds: '[0,2337][1080,2400]' })} />`)
+    // Flush with the bottom edge at the bounds an Android 14 emulator's navigation bar had: rounding y and height
+    // apart gave y + height = 1.0001 and the whole tree was refused. Any clickable bottom bar reached it.
+    const xml = wrap(`<node ${attrs({ class: 'android.widget.Button', text: 'Bottom bar', clickable: 'true', bounds: '[0,2337][1080,2400]' })} />`)
     const [el] = parseUiAutomatorDump(xml)
     expect(el.frame.y + el.frame.height).toBeLessThanOrEqual(1)
     let seed = 7
