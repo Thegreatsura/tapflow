@@ -1345,8 +1345,10 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
         // The helper's answer, not its existence: a helper whose process has died reports every
         // write as dropped, and that is what the caller needs to hear (#482).
         const helper = state.touchHelper
-        // terminal of a tap/swipe → ack the gesture
-        void this.ackInput(state, helper?.touchEnd() ? 'delivered' : this.refusalReason(helper, 'continuation'), requestId)
+        // terminal of a tap/swipe → ack the gesture, once the up is written (it may wait for the
+        // touch's minimum contact). The refusal is read then too, when the answer is decided.
+        void (helper ? helper.touchEndAfterMinContact() : Promise.resolve(false))
+          .then((sent) => this.ackInput(state, sent ? 'delivered' : this.refusalReason(helper, 'continuation'), requestId))
         break
       }
       case 'input:pinch:start': {
@@ -2304,10 +2306,9 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     first?.touchHelper?.touchMove(x, y)
     return Promise.resolve()
   }
-  touchEnd(): Promise<void> {
+  async touchEnd(): Promise<void> {
     const first = this.liveDeviceState()
-    first?.touchHelper?.touchEnd()
-    return Promise.resolve()
+    await first?.touchHelper?.touchEndAfterMinContact()
   }
 
   async openUrl(url: string): Promise<void> {

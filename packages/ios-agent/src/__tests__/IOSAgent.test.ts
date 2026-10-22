@@ -12,7 +12,7 @@ import { SimulatorNetwork } from '../SimulatorNetwork.js'
 // agent acks on that answer, so the mock has to state it — returning undefined would model a
 // helper that silently drops everything. `killHelper()` below flips one over to that state.
 vi.mock('../TouchHelper', () => ({
-  TouchHelper: vi.fn(function () { return ({
+  TouchHelper: vi.fn(function () { return withMinContact({
     start: vi.fn(),
     stop: vi.fn(),
     isReady: vi.fn(() => true),
@@ -36,6 +36,17 @@ vi.mock('../TouchHelper', () => ({
     sendKey: vi.fn(() => true),
   }) }),
 }))
+
+// The agent writes a terminal frame through `touchEndAfterMinContact`, whose answer is `touchEnd`'s once the
+// touch has lasted long enough. Mirrored here without the wait, and non-enumerable so `killHelper` (which
+// rewrites every mock) leaves it following `touchEnd` — a dead helper's dropped up is still answered false.
+function withMinContact<T extends { touchEnd: () => boolean }>(helper: T): T {
+  Object.defineProperty(helper, 'touchEndAfterMinContact', {
+    value: () => Promise.resolve(helper.touchEnd()),
+    enumerable: false,
+  })
+  return helper
+}
 
 // The #482 state: the helper object is still there and the stream is still running, but its
 // child process is gone, so every write is dropped.
