@@ -25,7 +25,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@tapflowio/flow-runner', async (importOriginal) => ({
   // The real tap and token resolution: these tests feed it frames and tokens and check what reaches the relay.
-  ...(({ VideoTap, resolveToken, tokenRefusal, fetchWithToken, fixedToken }) => ({ VideoTap, resolveToken, tokenRefusal, fetchWithToken, fixedToken }))(
+  ...(({ VideoTap, resolveToken, tokenRefusal, fetchWithToken, fixedToken, isEligible, lookupBuild, parseTagList }) => ({
+    VideoTap, resolveToken, tokenRefusal, fetchWithToken, fixedToken, isEligible, lookupBuild, parseTagList,
+  }))(
     await importOriginal<typeof import('@tapflowio/flow-runner')>(),
   ),
   parseFlow: mocks.parseFlow,
@@ -48,7 +50,7 @@ vi.mock('@tapflowio/flow-runner', async (importOriginal) => ({
   },
 }))
 
-import { cmdFlowRun } from '../../commands/flow-run.js'
+import { cmdFlowRun, tagsArg } from '../../commands/flow-run.js'
 
 // A developer's own credentials file must never reach these runs: every test starts with none.
 beforeEach(() => { vi.stubEnv('TAPFLOW_TOKEN_FILE', path.join(os.tmpdir(), 'tapflow-no-such-credentials.json')) })
@@ -287,16 +289,18 @@ describe('cmdFlowRun records the run on the relay (A3)', () => {
     await cmdFlowRun([file], { token: 'tflw_pat_x', relay: 'wss://relay.example.test', build: 7 })
 
     expect(relay.calls.map((c) => c.url)).toEqual([
+      // The lookup is awaited at once; the create waits its turn on the recorder's queue.
+      'https://relay.example.test/api/v1/builds/7',
       'https://relay.example.test/api/v1/runs',
       'https://relay.example.test/api/v1/runs/run-1/flows/0',
       'https://relay.example.test/api/v1/runs/run-1/flows/0/screenshot',
       'https://relay.example.test/api/v1/runs/run-1/finish',
     ])
-    expect(relay.calls[0]!.body).toEqual({ client: 'client-1', buildId: 7, flows: [{ name: file, file }] })
-    expect(relay.calls[1]!.body).toMatchObject({
+    expect(relay.calls[1]!.body).toEqual({ client: 'client-1', buildId: 7, flows: [{ name: file, file }] })
+    expect(relay.calls[2]!.body).toMatchObject({
       status: 'failed', failureKind: 'product', deviceId: 'dev1', deviceName: 'dev', platform: 'ios',
     })
-    expect(relay.calls[3]!.body).toEqual({ status: 'failed', exitCode: 1, failureKind: 'product' })
+    expect(relay.calls[4]!.body).toEqual({ status: 'failed', exitCode: 1, failureKind: 'product' })
     // Outside CI, with the page's link on the watch link's origin.
     expect(console.log).toHaveBeenCalledWith('recorded as run run-1: http://localhost:4000/automation/runs/run-1')
     expect(process.exitCode).toBe(1)
@@ -472,6 +476,160 @@ describe('cmdFlowRun records the run on the relay (A3)', () => {
     for (const sig of ['SIGINT', 'SIGTERM'] as const) {
       for (const l of process.listeners(sig)) if (!before[sig].includes(l)) process.off(sig, l)
     }
+  })
+})
+
+describe('cmdFlowRun runs only the flows that apply to this build and these tags (L1)', () => {
+  let dir: string
+  const flowsByFile = new Map<string, { appId?: string; tags?: string[] }>()
+
+  const flowFile = (name: string, fields: { appId?: string; tags?: string[] } = {}): string => {
+    const file = path.join(dir, name)
+    fs.writeFileSync(file, 'steps: []\n')
+    flowsByFile.set(file, fields)
+    return file
+  }
+
+  /** The relay knows build 7 as `com.b`, and answers `/builds/<other>` with what `buildAnswer` says. */
+  const relayWith = (buildAnswer: (url: string) => Response = () => Response.json({ id: 7, bundle_id: 'com.b' })) =>
+    fakeRelay((url) => (url.includes('/api/v1/builds/') ? buildAnswer(url) : defaultAnswer(url)))
+
+  const logLines = () => vi.mocked(console.log).mock.calls.map(([l]) => String(l))
+  const errLines = () => vi.mocked(console.error).mock.calls.map(([l]) => String(l))
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    flowsByFile.clear()
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tapflow-flow-eligible-'))
+    mocks.parseFlow.mockImplementation((_text: string, file?: string) => ({ name: path.basename(file ?? 'flow'), steps: [], file, ...flowsByFile.get(file ?? '') }))
+    mocks.runFlow.mockResolvedValue(resultOf('passed'))
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    process.exitCode = undefined
+    vi.stubEnv('TAPFLOW_TOKEN', '')
+    for (const name of ['CI', 'JENKINS_URL', 'TF_BUILD', 'GITHUB_ACTIONS']) vi.stubEnv(name, '')
+    mocks.listDevices.mockResolvedValue([
+      { devices: [{ sessionId: 's1', name: 'dev', status: 'booted', busy: false, id: 'dev1', platform: 'ios' }] },
+    ])
+  })
+
+  afterEach(() => {
+    mocks.parseFlow.mockImplementation((_text: string, file?: string) => ({ name: file ?? 'flow', steps: [] }))
+    vi.restoreAllMocks()
+    vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
+    process.exitCode = undefined
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('skips a flow for another app, records why, and runs the rest', async () => {
+    const relay = relayWith()
+    const other = flowFile('other.yaml', { appId: 'com.a' })
+    const mine = flowFile('mine.yaml', { appId: 'com.b' })
+    await cmdFlowRun([other, mine], { token: 'tflw_pat_x', build: 7, junit: path.join(dir, 'junit.xml') })
+
+    expect(mocks.runFlow).toHaveBeenCalledTimes(1)
+    expect(mocks.runFlow.mock.calls[0]![0]).toMatchObject({ name: 'mine.yaml' })
+    expect(logLines()).toContain('– other.yaml (skipped: flow is for com.a, build 7 is com.b)')
+    expect(logLines()).toContain('\n1/1 flows passed, 1 skipped')
+    expect(relay.calls.find((c) => c.url.endsWith('/flows/0'))!.body).toEqual({
+      status: 'skipped', skipReason: 'app-mismatch', failureMessage: 'flow is for com.a, build 7 is com.b', durationMs: 0, steps: [],
+    })
+    expect(relay.calls.find((c) => c.url.endsWith('/flows/1'))!.body).toMatchObject({ status: 'passed' })
+    expect(mocks.toJUnitXml).toHaveBeenCalledWith([expect.anything()], [{ name: 'other.yaml', file: other, message: 'flow is for com.a, build 7 is com.b' }])
+    expect(process.exitCode).toBe(0)
+  })
+
+  it('exits 2 without touching a device when no flow applies, and records the run as an environment failure', async () => {
+    const relay = relayWith()
+    await cmdFlowRun([flowFile('other.yaml', { appId: 'com.a' })], { token: 'tflw_pat_x', build: 7 })
+
+    expect(mocks.runFlow).not.toHaveBeenCalled()
+    expect(mocks.listDevices).not.toHaveBeenCalled()
+    expect(mocks.bootDevice).not.toHaveBeenCalled()
+    expect(relay.calls.find((c) => c.url.endsWith('/finish'))!.body).toEqual({
+      status: 'failed', exitCode: 2, failureKind: 'environment', errorMessage: 'no flow ran: 1 skipped (app-mismatch 1)',
+    })
+    expect(process.exitCode).toBe(2)
+  })
+
+  it('exits 2 without touching a device when the build does not exist', async () => {
+    relayWith(() => Response.json({ error: 'Build not found' }, { status: 404 }))
+    await cmdFlowRun([flowFile('a.yaml')], { token: 'tflw_pat_x', build: 99 })
+    expect(errLines()).toContain('✗ build 99 not found on the relay (see list_builds / the dashboard)')
+    expect(mocks.bootDevice).not.toHaveBeenCalled()
+    expect(process.exitCode).toBe(2)
+  })
+
+  // `flow run` needs only a view token; the build route wants builds:write. A refusal is not a missing build.
+  it('runs every flow, and says the app check was left out, when the relay will not say what the build is', async () => {
+    relayWith(() => Response.json({ error: 'Insufficient scope' }, { status: 403 }))
+    await cmdFlowRun([flowFile('other.yaml', { appId: 'com.a' })], { token: 'tflw_pat_x', build: 7 })
+    expect(mocks.runFlow).toHaveBeenCalledTimes(1)
+    expect(errLines()).toContain('app check skipped (the relay answered 403): flows run whatever their appId')
+    expect(process.exitCode).toBe(0)
+  })
+
+  it('runs every flow without asking the relay when there is no token', async () => {
+    const relay = fakeRelay()
+    await cmdFlowRun([flowFile('other.yaml', { appId: 'com.a' })], { build: 7 })
+    expect(relay.calls).toEqual([])
+    expect(mocks.runFlow).toHaveBeenCalledTimes(1)
+    expect(errLines()).toContain('app check skipped (no token): flows run whatever their appId')
+  })
+
+  it('says nothing about the app check when no flow names an app', async () => {
+    relayWith(() => Response.json({}, { status: 403 }))
+    await cmdFlowRun([flowFile('a.yaml')], { token: 'tflw_pat_x', build: 7 })
+    expect(errLines().some((l) => l.startsWith('app check skipped'))).toBe(false)
+  })
+
+  it('runs only the flows the tag filters let through, exclude winning', async () => {
+    fakeRelay()
+    const smoke = flowFile('smoke.yaml', { tags: ['smoke'] })
+    const flaky = flowFile('flaky.yaml', { tags: ['smoke', 'flaky'] })
+    const slow = flowFile('slow.yaml', { tags: ['slow'] })
+    await cmdFlowRun([smoke, flaky, slow], { includeTags: 'smoke', excludeTags: 'flaky' })
+    expect(mocks.runFlow.mock.calls.map(([f]) => (f as { name: string }).name)).toEqual(['smoke.yaml'])
+    expect(logLines()).toContain('– flaky.yaml (skipped: tagged flaky)')
+    expect(logLines()).toContain('– slow.yaml (skipped: not tagged smoke)')
+  })
+
+  it('exits 2 when the tag filters leave nothing to run, and still writes the JUnit report saying why', async () => {
+    fakeRelay()
+    const junit = path.join(dir, 'out', 'junit.xml')
+    const a = flowFile('a.yaml')
+    await cmdFlowRun([a], { includeTags: 'smoke', junit })
+    expect(errLines()).toContain('✗ no flow ran: 1 skipped (tag-filter 1)')
+    expect(process.exitCode).toBe(2)
+    expect(mocks.toJUnitXml).toHaveBeenCalledWith([], [{ name: 'a.yaml', file: a, message: 'not tagged smoke' }])
+    expect(fs.readFileSync(junit, 'utf-8')).toBe('<xml/>')
+  })
+
+  // The argument parser hands `''` back as 0, a bare flag as true, and a repeated one as an array.
+  it.each([
+    ['an empty value', 0, ''],
+    ['a flag with no value', true, ''],
+    ['a value', 'smoke,login', 'smoke,login'],
+    ['a numeric tag', 12, '12'],
+    ['a repeated flag', ['smoke', 0, 'login'], 'smoke,,login'],
+  ])('reads %s from the parser as a tag list', (_, value, list) => {
+    expect(tagsArg(value)).toBe(list)
+  })
+
+  // A relay older than skipped flows answers 400. Stopping there would drop the finish too, and the relay would
+  // then show the run as "runner disconnected". Mutation: let the 400 stop recording.
+  it('still records the rest of the run when the relay refuses a skipped flow', async () => {
+    const relay = fakeRelay((url) => {
+      if (url.includes('/api/v1/builds/')) return Response.json({ id: 7, bundle_id: 'com.b' })
+      if (url.endsWith('/flows/0')) return Response.json({ error: 'every flow needs a status of passed or failed' }, { status: 400 })
+      return defaultAnswer(url)
+    })
+    await cmdFlowRun([flowFile('other.yaml', { appId: 'com.a' }), flowFile('mine.yaml')], { token: 'tflw_pat_x', build: 7 })
+    expect(relay.calls.map((c) => c.url.replace(/^.*\/api\/v1/, ''))).toEqual(['/builds/7', '/runs', '/runs/run-1/flows/0', '/runs/run-1/flows/1', '/runs/run-1/finish'])
+    expect(errLines().filter((l) => l.startsWith('skipped flows not recorded'))).toHaveLength(1)
+    expect(logLines().some((l) => l.startsWith('recorded as run run-1') && !l.includes('incomplete'))).toBe(true)
   })
 })
 

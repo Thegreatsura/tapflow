@@ -145,6 +145,8 @@ export interface RunSummary {
 export interface RunListItem extends RunSummary {
   flowsPassed: number
   flowsFailed: number
+  /** Flows the runner chose not to replay. */
+  flowsSkipped: number
 }
 
 export interface RunStep {
@@ -157,9 +159,22 @@ export interface RunStep {
   suggestions?: { yaml: string; element: { role: string; label: string; identifier?: string } }[]
 }
 
-/** A flow of a run: reported, or still to come (`running` / `pending`), or never reached (`not-run`). */
+/**
+ * A flow of a run: reported, or still to come (`running` / `pending`), or never reached (`not-run`), or one the runner
+ * chose not to replay (`skipped`): another app's flow, or one the tag filters left out.
+ */
 export type RunFlow =
   | { idx: number; name: string; file: string | null; status: 'running' | 'pending' | 'not-run'; video?: VideoSummary | null }
+  | {
+      idx: number
+      name: string
+      file: string | null
+      status: 'skipped'
+      skipReason: 'app-mismatch' | 'tag-filter'
+      /** Why, in words: "flow is for com.a, build 7 is com.b", "not tagged smoke". */
+      failureMessage: string | null
+      video?: VideoSummary | null
+    }
   | {
       idx: number
       name: string

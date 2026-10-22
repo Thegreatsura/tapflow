@@ -1,4 +1,4 @@
-import { fetchWithToken, fixedToken, tokenRefusal, type TokenSource } from '@tapflowio/flow-runner'
+import { fetchWithToken, fixedToken, tokenRefusal, type SkipReason, type TokenSource } from '@tapflowio/flow-runner'
 import type { CiContext } from './ci.js'
 
 /**
@@ -15,8 +15,9 @@ import type { CiContext } from './ci.js'
 
 export interface RunRecorderDeps {
   fetch: typeof fetch
-  /** One line to the person running the command. At most twice per run: once if recording stops, and once
-   *  the first time a flow's screenshot (the screen it failed on or ended on) cannot be sent. */
+  /** One line to the person running the command. At most three times per run: once if recording stops, once
+   *  the first time a flow's screenshot (the screen it failed on or ended on) cannot be sent, and once if the relay
+   *  refuses a skipped flow. */
   warn: (line: string) => void
   callTimeoutMs?: number
 }
@@ -44,7 +45,16 @@ export interface RunOutcome {
 
 const CALL_TIMEOUT_MS = 5_000
 
-class RecordRefused extends Error {}
+class RecordRefused extends Error {
+  constructor(message: string, readonly status?: number) {
+    super(message)
+  }
+}
+
+export interface SkippedReport {
+  reason: SkipReason
+  message: string
+}
 
 export class RunRecorder {
   private queue: Promise<void> = Promise.resolve()
@@ -52,6 +62,7 @@ export class RunRecorder {
   private stopped = false
   private finished = false
   private screenshotWarned = false
+  private skippedWarned = false
   /** Aborts the call in flight when the drain gives up, so nothing keeps the process alive past the cap. */
   private readonly gaveUp = new AbortController()
   private readonly callTimeoutMs: number
@@ -131,6 +142,29 @@ export class RunRecorder {
     })
   }
 
+  /**
+   * A flow the run chose not to replay. **A relay that refuses it is not a reason to stop recording**: one older
+   * than skipped flows answers 400, and stopping there would drop every report after it and the finish too, so the
+   * relay would close the run as "runner disconnected". Skipped reports are sent before any flow runs, so that
+   * would be the whole run.
+   */
+  reportSkipped(idx: number, skipped: SkippedReport): void {
+    if (this.finished) return
+    this.enqueue(true, async () => {
+      try {
+        await this.post(`/api/v1/runs/${this.id}/flows/${idx}`, JSON.stringify({
+          status: 'skipped', skipReason: skipped.reason, failureMessage: skipped.message, durationMs: 0, steps: [],
+        }), 'application/json')
+      } catch (e) {
+        if (!(e instanceof RecordRefused && e.status === 400)) throw e
+        if (!this.skippedWarned) {
+          this.skippedWarned = true
+          this.deps.warn(`skipped flows not recorded: ${e.message} — update the relay to record them; the rest of the run is still recorded`)
+        }
+      }
+    })
+  }
+
   /** Only the first call counts: a cancelled run finishes from its signal handler, then from its `finally`. */
   finish(outcome: RunOutcome): void {
     if (this.finished) return
@@ -182,7 +216,7 @@ export class RunRecorder {
       body: typeof body === 'string' ? body : new Uint8Array(body),
       signal: AbortSignal.any([AbortSignal.timeout(this.callTimeoutMs), this.gaveUp.signal]),
     }, this.deps.fetch)
-    if (!res.ok) throw new RecordRefused(await refusal(res, this.tokens))
+    if (!res.ok) throw new RecordRefused(await refusal(res, this.tokens), res.status)
     return res
   }
 }

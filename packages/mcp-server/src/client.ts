@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type {
   BrowserToRelay, DeviceSummary, InputErrorReason, SessionTerminatedReason, UIElement,
 } from '@tapflowio/protocol'
-import { EnvironmentStepError, TransientQueryError, authHeader, fetchWithToken, fixedToken, tokenRefusal, type TokenSource } from '@tapflowio/flow-runner'
+import { EnvironmentStepError, TransientQueryError, authHeader, fetchWithToken, fixedToken, lookupBuild, tokenRefusal, type BuildLookup, type TokenSource } from '@tapflowio/flow-runner'
 
 // Protocol owns the wire shape; this file used to declare an identical copy under a name the
 // relay uses for a *different* shape. Kept exported as `DeviceInfo` because that is this
@@ -46,7 +46,8 @@ export interface RunInfo {
   build: string | null
   buildId: number | null
   ci: { branch: string | null; commit: string | null; jobUrl: string | null } | null
-  flows: { passed: number; failed: number; total: number }
+  /** `skipped` is the flows the run chose not to replay (another app's, or filtered out by tag). */
+  flows: { passed: number; failed: number; skipped: number; total: number }
   createdAt: string
   finishedAt: string | null
   /** The run's dashboard page, for the person the agent works for. */
@@ -94,6 +95,7 @@ interface RawRun {
   flowsTotal: number
   flowsPassed?: number
   flowsFailed?: number
+  flowsSkipped?: number
   createdAt: string
   finishedAt: string | null
 }
@@ -1287,7 +1289,7 @@ export class TapflowClient {
     // The cursor goes back out: without it an agent can reach only the newest page of what matches.
     const runs = (body.items ?? []).map((r) => ({
       ...this.runHead(r),
-      flows: { passed: r.flowsPassed ?? 0, failed: r.flowsFailed ?? 0, total: r.flowsTotal },
+      flows: { passed: r.flowsPassed ?? 0, failed: r.flowsFailed ?? 0, skipped: r.flowsSkipped ?? 0, total: r.flowsTotal },
       createdAt: r.createdAt,
       finishedAt: r.finishedAt,
     }))
@@ -1361,6 +1363,11 @@ export class TapflowClient {
       // that network opens. The docs say so.
       url: new URL(`/automation/runs/${encodeURIComponent(r.id)}`, this.httpBase()).toString(),
     }
+  }
+
+  /** The build's bundle id for `run_flow`'s app check. Only a 404 is an answer; see flow-runner's `lookupBuild`. */
+  lookupBuild(buildId: number): Promise<BuildLookup> {
+    return lookupBuild(this.relayUrl.replace(/^wss?/, (p) => (p === 'wss' ? 'https' : 'http')), this.tokens, buildId)
   }
 
   async listBuilds(): Promise<AppInfo[]> {

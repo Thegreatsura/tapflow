@@ -9,6 +9,11 @@ import {
   VideoTap,
   resolveToken,
   tokenRefusal,
+  isEligible,
+  lookupBuild,
+  parseTagList,
+  type EligibilityTarget,
+  type SkippedFlow,
   type Flow,
   type FlowResult,
   type EngineOptions,
@@ -30,6 +35,9 @@ export interface FlowRunOptions {
   timeout?: number
   /** `--no-record` sets it false. */
   record?: boolean
+  /** Comma-separated, as typed. */
+  includeTags?: string
+  excludeTags?: string
 }
 
 // Exit codes are part of the CI contract: 0 = all flows passed,
@@ -46,8 +54,28 @@ const MAX_TIMEOUT_SECONDS = 2_147_483_647 / 1000
 
 class FlowRunEnvironmentError extends Error {}
 
+/** What the argument parser hands back for `--include-tags` / `--exclude-tags`. */
+export type TagsArg = string | number | boolean | (string | number | boolean)[]
+
+/**
+ * The parser turns a value that reads as a number into one, `''` included (`0`), gives `true` for a flag with no
+ * value, and an array for a repeated flag. An empty or missing value is no filter — `--include-tags "$TAGS"` with
+ * `$TAGS` unset must not filter on a tag called `0` and skip every flow. The cost is that a tag named `0` cannot be
+ * given on the command line.
+ */
+export function tagsArg(value: TagsArg | undefined): string | undefined {
+  if (value === undefined) return undefined
+  const one = (v: string | number | boolean) => (v === 0 || v === true ? '' : String(v))
+  return Array.isArray(value) ? value.map(one).join(',') : one(value)
+}
+
 function httpBaseOf(relayUrl: string): string {
   return relayUrl.replace(/^wss?/, (p) => (p === 'wss' ? 'https' : 'http'))
+}
+
+function writeJUnit(file: string, xml: string): void {
+  fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true })
+  fs.writeFileSync(file, xml)
 }
 
 function envFail(message: string): never {
@@ -215,6 +243,35 @@ export async function cmdFlowRun(files: string[], opts: FlowRunOptions): Promise
       client.setStreamListener(video.tap)
     }
 
+    // Which flows run is decided before a device is chosen, so a run where none would is refused without touching one.
+    const target: EligibilityTarget = { includeTags: parseTagList(opts.includeTags), excludeTags: parseTagList(opts.excludeTags) }
+    if (opts.build !== undefined) {
+      const build = await lookupBuild(httpBaseOf(relayUrl), tokens, opts.build)
+      if (build.kind === 'not-found') envFail(`build ${opts.build} not found on the relay (see list_builds / the dashboard)`)
+      if (build.kind === 'found') target.build = { id: opts.build, bundleId: build.bundleId }
+      else if (flows.some((f) => f.appId !== undefined)) console.error(`app check skipped (${build.reason}): flows run whatever their appId`)
+    }
+    const eligible: number[] = []
+    const skipped: SkippedFlow[] = []
+    const skipCounts = new Map<string, number>()
+    for (const [flowIndex, flow] of flows.entries()) {
+      const verdict = isEligible(flow, target)
+      if (verdict.ok) {
+        eligible.push(flowIndex)
+        continue
+      }
+      console.log(`– ${flow.name} (skipped: ${verdict.message})`)
+      skipped.push({ name: flow.name, ...(flow.file ? { file: flow.file } : {}), message: verdict.message })
+      skipCounts.set(verdict.reason, (skipCounts.get(verdict.reason) ?? 0) + 1)
+      recorder?.reportSkipped(flowIndex, { reason: verdict.reason, message: verdict.message })
+    }
+    // Nothing ran, so nothing was tested: a green exit here would pass a CI job that checked no flow at all.
+    if (eligible.length === 0) {
+      // The report is how CI shows why nothing ran, so it is written on this exit too.
+      if (opts.junit) writeJUnit(opts.junit, toJUnitXml([], skipped))
+      envFail(`no flow ran: ${skipped.length} skipped (${[...skipCounts].map(([reason, n]) => `${reason} ${n}`).join(', ')})`)
+    }
+
     const { sessionId, device } = await resolveSession(client, opts)
     const { watchUrl } = await client.joinSession(sessionId)
     joinedSessionId = sessionId
@@ -250,7 +307,8 @@ export async function cmdFlowRun(files: string[], opts: FlowRunOptions): Promise
     }
     const results: FlowResult[] = []
 
-    for (const [flowIndex, flow] of flows.entries()) {
+    for (const flowIndex of eligible) {
+      const flow = flows[flowIndex]
       process.stdout.write(`▶ ${flow.name} `)
       const sink = video?.lane.video(flowIndex)
       if (sink) video?.tap.begin(sink, device.platform)
@@ -286,13 +344,12 @@ export async function cmdFlowRun(files: string[], opts: FlowRunOptions): Promise
     }
 
     if (opts.junit) {
-      fs.mkdirSync(path.dirname(path.resolve(opts.junit)), { recursive: true })
-      fs.writeFileSync(opts.junit, toJUnitXml(results))
+      writeJUnit(opts.junit, toJUnitXml(results, skipped))
       console.log(`JUnit report: ${opts.junit}`)
     }
 
     const failed = results.filter((r) => r.status === 'failed')
-    console.log(`\n${results.length - failed.length}/${results.length} flows passed`)
+    console.log(`\n${results.length - failed.length}/${results.length} flows passed${skipped.length > 0 ? `, ${skipped.length} skipped` : ''}`)
     // All failed flows environmental → exit 2 (infrastructure, not a regression). Any
     // product failure keeps exit 1, so a real regression is never masked by a blip.
     if (failed.length > 0) {

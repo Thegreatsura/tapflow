@@ -828,13 +828,16 @@ Body (JSON):
 
 ```
 Body (JSON):
-  status          "passed" | "failed"  필수
+  status          "passed" | "failed" | "skipped"  필수
+  skipReason      string               skipped일 때 필수, 아니면 보내지 않음  "app-mismatch" | "tag-filter"
   durationMs      number               필수
   steps           array                필수  [{ index, name, status: "passed"|"failed"|"skipped", durationMs, message? }], 최대 1000개
   failureKind     string               선택  "product" | "environment"
-  failureMessage  string               선택
+  failureMessage  string               선택  skipped 플로우에서는 건너뛴 이유를 사람이 읽는 문장으로
   deviceId, deviceName, platform  string  선택
 ```
+
+`skipped`는 러너가 실행하지 않은 플로우입니다. `app-mismatch`는 플로우의 `appId`가 빌드와 다른 경우, `tag-filter`는 태그 옵션에 걸러진 경우입니다. skipped 플로우에는 스크린샷을 올릴 수 없고 이미 `passed`나 `failed`로 보고한 플로우는 skipped로 다시 보고할 수 없습니다(`409`).
 
 **응답 `200`** `{ "ok": true }`
 
@@ -894,6 +897,7 @@ Query:
       "flowsTotal": 2,
       "flowsPassed": 1,
       "flowsFailed": 1,
+      "flowsSkipped": 0,
       "createdAt": "2026-10-11 01:00:00",
       "finishedAt": "2026-10-11 01:01:05"
     }
@@ -909,7 +913,7 @@ Query:
 
 실행 하나와 플로우별 결과를 돌려줍니다. 목록 항목의 필드에 아래가 더해집니다.
 
-- `flows`: 계획된 플로우 순서대로입니다. 보고된 플로우는 `status`(`passed`·`failed`)와 `steps`, `device`, `durationMs`, `hasScreenshot`을 담습니다. 영상이 있는 플로우는 `video`에 `ended`, `endReason`, `evicted`, `notRecorded`, `bytes`를 담고 영상이 없으면 `null`입니다. `notRecorded`는 러너가 영상을 남길 수 없었던 이유(`jpeg`, `no-keyframe`)입니다. 아직 보고되지 않은 플로우는 진행 중인 실행에서 `running`(지금 실행 중)이나 `pending`, 끝난 실행에서 `not-run`입니다.
+- `flows`: 계획된 플로우 순서대로입니다. 보고된 플로우는 `status`(`passed`·`failed`)와 `steps`, `device`, `durationMs`, `hasScreenshot`을 담습니다. 건너뛴 플로우는 `status: "skipped"`와 `skipReason`, 이유를 담은 `failureMessage`를 담습니다. 영상이 있는 플로우는 `video`에 `ended`, `endReason`, `evicted`, `notRecorded`, `bytes`를 담고 영상이 없으면 `null`입니다. `notRecorded`는 러너가 영상을 남길 수 없었던 이유(`jpeg`, `no-keyframe`)입니다. 아직 보고되지 않은 플로우는 진행 중인 실행에서 `running`(지금 실행 중)이나 `pending`, 끝난 실행에서 `not-run`입니다.
 - `watchSessionId`: 러너가 지금 붙잡고 있는 세션 ID입니다. 진행 중일 때만 값이 있고 [AI 세션 보기](/ko/automation/mcp-server#watch-the-device) 페이지 주소에 씁니다.
 
 존재하지 않는 실행이면 `404`를 받습니다.

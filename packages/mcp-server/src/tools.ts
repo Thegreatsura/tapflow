@@ -3,7 +3,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { EnvironmentStepError, parseFlow, runFlow, type FlowDriver } from '@tapflowio/flow-runner'
+import { EnvironmentStepError, isEligible, parseFlow, runFlow, type FlowDriver } from '@tapflowio/flow-runner'
 import { SessionEndedError, SessionLeftError, type TapflowClient } from './client.js'
 
 // Input refusal reasons that name the environment rather than the product,
@@ -397,7 +397,8 @@ export function registerTools(server: McpServer, client: TapflowClient): void {
         'file path via "path" (resolved from the MCP server process cwd). Steps: clearState / launchApp / tapOn / ' +
         'inputText / pressKey / swipe / scroll / openUrl / assertVisible / assertNotVisible. launchApp launches the ' +
         'buildId argument. When buildId is set, the build is installed before replaying (like `tapflow flow run --build`) ' +
-        'so clearState/launchApp have the app present — pass install:false to skip. Returns per-step results; on failure ' +
+        'so clearState/launchApp have the app present — pass install:false to skip. A flow whose appId differs from ' +
+        "the build's bundle id is not run and returns an error naming both. Returns per-step results; on failure " +
         'a screenshot is saved to a temp file.',
       inputSchema: {
         sessionId: z.string().describe('Session ID from list_devices (connect_device first)'),
@@ -425,6 +426,19 @@ export function registerTools(server: McpServer, client: TapflowClient): void {
           yamlText = fs.readFileSync(resolved, 'utf-8')
         }
         const parsed = parseFlow(yamlText, flowPath ?? 'inline-flow.yaml')
+        // The same check as `flow run --build`, before the device is touched. With one flow, "skipped" leaves nothing
+        // run, which `flow run` also treats as an error rather than a pass.
+        let appCheckSkipped: string | undefined
+        if (buildId !== undefined) {
+          const build = await client.lookupBuild(buildId)
+          if (build.kind === 'not-found') return err(`run_flow: build ${buildId} not found (see list_builds)`)
+          if (build.kind === 'found') {
+            const verdict = isEligible(parsed, { build: { id: buildId, bundleId: build.bundleId } })
+            if (!verdict.ok) return err(`run_flow did not run the flow: ${verdict.message} — set the flow's appId to the build's, remove it, or pick another build`)
+          } else if (parsed.appId !== undefined) {
+            appCheckSkipped = build.reason
+          }
+        }
         // Install the build before replaying (mirrors `flow run --build`) so clearState/launchApp find the app present; skip with install:false.
         if (buildId !== undefined && install !== false) {
           await client.installApp(sessionId, buildId)
@@ -448,6 +462,8 @@ export function registerTools(server: McpServer, client: TapflowClient): void {
           ...(result.failureMessage ? { failureMessage: result.failureMessage } : {}),
           ...(result.failureKind ? { failureKind: result.failureKind } : {}),
           ...(screenshotPath ? { failureScreenshotPath: screenshotPath } : {}),
+          // The flow ran without its appId being compared with the build's, and why.
+          ...(appCheckSkipped ? { appCheckSkipped } : {}),
         }, null, 2))
       } catch (e) {
         return err(`run_flow failed: ${(e as Error).message}`)

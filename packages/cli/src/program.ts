@@ -18,7 +18,7 @@ import { cmdTokenSet, cmdTokenStatus } from './commands/token.js'
 import { cmdReset } from './commands/reset.js'
 import { cmdStatus } from './commands/status.js'
 import { cmdLogs } from './commands/logs.js'
-import { cmdFlowRun, type FlowRunOptions } from './commands/flow-run.js'
+import { cmdFlowRun, tagsArg, type FlowRunOptions, type TagsArg } from './commands/flow-run.js'
 import { cmdMigrate, cmdMigrateDataDir, cmdMigrateNetFilter } from './commands/migrate.js'
 
 /**
@@ -134,7 +134,11 @@ export function createCli(): CAC {
     .option('--artifacts <dir>', 'Failure screenshot directory (default: .tapflow/artifacts)')
     .option('--timeout <seconds>', 'Default per-selector wait (default: 10)')
     .option('--no-record', 'Do not record this run on the relay')
-    .action((subcommand: string, files: string[], opts: FlowRunOptions & { build?: string | number; timeout?: string | number }) => {
+    .option('--include-tags <tags>', 'Run only flows tagged with at least one of these (comma-separated)')
+    .option('--exclude-tags <tags>', 'Skip flows tagged with any of these (comma-separated); wins over --include-tags')
+    .action((subcommand: string, files: string[], opts: Omit<FlowRunOptions, 'includeTags' | 'excludeTags'> & {
+      build?: string | number; timeout?: string | number; includeTags?: TagsArg; excludeTags?: TagsArg
+    }) => {
       if (subcommand !== 'run') {
         console.error(`unknown flow subcommand: ${subcommand} (expected: run)`)
         process.exit(2)
@@ -143,6 +147,8 @@ export function createCli(): CAC {
         ...opts,
         build: opts.build !== undefined ? Number(opts.build) : undefined,
         timeout: opts.timeout !== undefined ? Number(opts.timeout) : undefined,
+        includeTags: tagsArg(opts.includeTags),
+        excludeTags: tagsArg(opts.excludeTags),
       })
     })
 
