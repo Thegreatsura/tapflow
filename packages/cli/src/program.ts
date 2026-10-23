@@ -133,11 +133,12 @@ export function createCli(): CAC {
     .option('--junit <path>', 'Write a JUnit XML report')
     .option('--artifacts <dir>', 'Failure screenshot directory (default: .tapflow/artifacts)')
     .option('--timeout <seconds>', 'Default per-selector wait (default: 10)')
+    .option('--admission-timeout <seconds>', 'How long to wait while another device boots on the same Mac, or the Mac is over its CPU or memory limit (default: 600)')
     .option('--no-record', 'Do not record this run on the relay')
     .option('--include-tags <tags>', 'Run only flows tagged with at least one of these (comma-separated)')
     .option('--exclude-tags <tags>', 'Skip flows tagged with any of these (comma-separated); wins over --include-tags')
     .action((subcommand: string, files: string[], opts: Omit<FlowRunOptions, 'includeTags' | 'excludeTags'> & {
-      build?: string | number; timeout?: string | number; includeTags?: TagsArg; excludeTags?: TagsArg
+      build?: string | number; timeout?: string | number; admissionTimeout?: string | number; includeTags?: TagsArg; excludeTags?: TagsArg
     }) => {
       if (subcommand !== 'run') {
         console.error(`unknown flow subcommand: ${subcommand} (expected: run)`)
@@ -147,6 +148,7 @@ export function createCli(): CAC {
         ...opts,
         build: opts.build !== undefined ? Number(opts.build) : undefined,
         timeout: opts.timeout !== undefined ? Number(opts.timeout) : undefined,
+        admissionTimeout: opts.admissionTimeout !== undefined ? Number(opts.admissionTimeout) : undefined,
         includeTags: tagsArg(opts.includeTags),
         excludeTags: tagsArg(opts.excludeTags),
       })

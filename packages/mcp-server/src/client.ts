@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import type {
-  BrowserToRelay, DeviceSummary, InputErrorReason, SessionTerminatedReason, UIElement,
+  BootRefusalReason, BrowserToRelay, DeviceSummary, InputErrorReason, SessionTerminatedReason, UIElement,
 } from '@tapflowio/protocol'
-import { EnvironmentStepError, TransientQueryError, authHeader, fetchWithToken, fixedToken, lookupBuild, tokenRefusal, type BuildLookup, type TokenSource } from '@tapflowio/flow-runner'
+import { AdmissionRefusedError, EnvironmentStepError, TransientQueryError, authHeader, fetchWithToken, fixedToken, lookupBuild, tokenRefusal, type BuildLookup, type TokenSource } from '@tapflowio/flow-runner'
 
 // Protocol owns the wire shape; this file used to declare an identical copy under a name the
 // relay uses for a *different* shape. Kept exported as `DeviceInfo` because that is this
@@ -179,6 +179,9 @@ interface Waiter {
   sessionId?: string
 }
 
+/** Runtime mirror of `BootRefusalReason`: a reason added to the union is a compile error here until handled. */
+const BOOT_REFUSALS: Record<BootRefusalReason, true> = { 'host-booting': true }
+
 /**
  * The caller left this session while a request was still in flight (#514).
  *
@@ -194,6 +197,7 @@ interface Waiter {
  * error instead would bury the cause. Both are needed, so the message states both — the same shape
  * `SessionEndedError` has, and the reason its guard is a bare rethrow.
  */
+
 export class SessionLeftError extends Error {}
 
 /**
@@ -888,6 +892,15 @@ export class TapflowClient {
     // tools guard reads it as environmental. Against an older relay nothing answers it and the
     // deadline runs, which is slow rather than wrong.
     if (msg['type'] === 'device:boot-error') {
+      // The relay's boot gate: the Mac is busy, not broken. Said so plainly, with what to do, because the caller
+      // is an agent that will otherwise read a failure and give up on the device.
+      const reason = msg['reason']
+      if (typeof reason === 'string' && Object.hasOwn(BOOT_REFUSALS, reason)) {
+        throw new AdmissionRefusedError(
+          `boot refused (${reason}): another device is still booting on this Mac. Call boot_device again in about 30 seconds.`,
+          reason as BootRefusalReason,
+        )
+      }
       throw this.failed(sessionId, (msg['message'] as string) ?? 'Boot failed')
     }
     // The one thing that clears `needsReboot`, because it is the one thing that answers it: what a rebound

@@ -15,7 +15,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import { directionOf, parseInbound } from '../validate/index.js'
+import { directionOf, parseInbound, readyCold } from '../validate/index.js'
 
 /** The narrowing every test does. Written once because `parseInbound` returns a union and each test
  *  would otherwise repeat the same four lines to reach `msg`. */
@@ -360,5 +360,15 @@ describe('a client newer than this relay still joins', () => {
 
   it('still refuses a kind that is not a string', () => {
     expect(fail({ type: 'session:start', sessionId: 's1', clientKind: 7 }).reason).toBe('bad-shape')
+  })
+})
+
+describe('readyCold reads one checked field off a forwarded ready', () => {
+  it('returns the boolean, and undefined for anything else', () => {
+    expect(readyCold({ type: 'device:ready', sessionId: 's', payload: { deviceId: 'd', cold: true } })).toBe(true)
+    expect(readyCold({ type: 'device:ready', sessionId: 's', payload: { deviceId: 'd', cold: false } })).toBe(false)
+    expect(readyCold({ type: 'device:ready', sessionId: 's', payload: { deviceId: 'd' } })).toBeUndefined()
+    expect(readyCold({ type: 'device:ready', sessionId: 's', payload: { deviceId: 'd', cold: 'yes' } })).toBeUndefined()
+    expect(readyCold({ type: 'device:ready', sessionId: 's' })).toBeUndefined()
   })
 })

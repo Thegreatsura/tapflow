@@ -312,7 +312,7 @@ describe('browser-inbound routing matches the protocol union', () => {
       'device:ready': 'payload requestId? sessionId?',
       'app:install-error': 'message requestId sessionId',
       'app:launch-error': 'message requestId sessionId',
-      'device:boot-error': 'message requestId? sessionId',
+      'device:boot-error': 'message reason? requestId? sessionId',
       'open-url:error': 'message requestId sessionId',
       'app:clear-state-error': 'message requestId sessionId',
       // #491 inverted this pair: `reason` is the closed union a consumer branches on and is now

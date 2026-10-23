@@ -25,8 +25,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@tapflowio/flow-runner', async (importOriginal) => ({
   // The real tap and token resolution: these tests feed it frames and tokens and check what reaches the relay.
-  ...(({ VideoTap, resolveToken, tokenRefusal, fetchWithToken, fixedToken, isEligible, lookupBuild, parseTagList }) => ({
-    VideoTap, resolveToken, tokenRefusal, fetchWithToken, fixedToken, isEligible, lookupBuild, parseTagList,
+  ...(({ VideoTap, resolveToken, tokenRefusal, fetchWithToken, fixedToken, isEligible, lookupBuild, parseTagList, retryAdmission, admissionRefusalOf, AdmissionRefusedError }) => ({
+    VideoTap, resolveToken, tokenRefusal, fetchWithToken, fixedToken, isEligible, lookupBuild, parseTagList, retryAdmission, admissionRefusalOf, AdmissionRefusedError,
   }))(
     await importOriginal<typeof import('@tapflowio/flow-runner')>(),
   ),
@@ -55,6 +55,7 @@ import { cmdFlowRun, tagsArg } from '../../commands/flow-run.js'
 // A developer's own credentials file must never reach these runs: every test starts with none.
 beforeEach(() => { vi.stubEnv('TAPFLOW_TOKEN_FILE', path.join(os.tmpdir(), 'tapflow-no-such-credentials.json')) })
 import type { FlowResult, StreamListener } from '@tapflowio/flow-runner'
+import { AdmissionRefusedError } from '@tapflowio/flow-runner'
 import { CODEC_H264, writeEnvelopeHeader } from '@tapflowio/agent-core/utils'
 
 const IDR = writeEnvelopeHeader(Buffer.from([0, 0, 0, 1, 0x67, 1, 0, 0, 0, 1, 0x68, 1, 0, 0, 0, 1, 0x65, 9]), 1, { codec: CODEC_H264, keyframe: true })
@@ -124,6 +125,52 @@ describe('cmdFlowRun exit codes (#543)', () => {
     })
     await run([flowFile('a.yaml')])
     expect(mocks.activity.mock.calls).toEqual([['s1', 'step 2: inputText (7 chars)']])
+  })
+
+  // L2: a Mac busy booting another device is waited out, and the run lets go of the session while it waits so a
+  // person who wants this device is not told it is in use. Mutation: drop the leave, or retry any failure.
+  describe('when the Mac is busy booting another device', () => {
+    const busy = () => new AdmissionRefusedError('boot refused (host-booting): busy', 'host-booting')
+
+    it('leaves the session, waits, and joins and boots again', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout'] })
+      try {
+        mocks.bootDevice.mockRejectedValueOnce(busy())
+        mocks.runFlow.mockResolvedValue(resultOf('passed'))
+        const done = run([flowFile('a.yaml')])
+        await vi.advanceTimersByTimeAsync(10_000)
+        await done
+      } finally {
+        vi.useRealTimers()
+      }
+      expect(mocks.joinSession).toHaveBeenCalledTimes(2)
+      expect(mocks.bootDevice).toHaveBeenCalledTimes(2)
+      const leaveAt = mocks.leaveSession.mock.invocationCallOrder[0]!
+      expect(leaveAt).toBeGreaterThan(mocks.bootDevice.mock.invocationCallOrder[0]!)
+      expect(leaveAt).toBeLessThan(mocks.joinSession.mock.invocationCallOrder[1]!)
+      expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/^waiting \d+s: another device is booting on this Mac$/))
+      expect(process.exitCode ?? 0).toBe(0)
+    })
+
+    it('gives up with exit 2 once --admission-timeout has passed', async () => {
+      mocks.bootDevice.mockRejectedValue(busy())
+      try {
+        await run([flowFile('a.yaml')], { admissionTimeout: 0 })
+        expect(process.exitCode).toBe(2)
+        expect(mocks.runFlow).not.toHaveBeenCalled()
+      } finally {
+        // The mock is shared by the whole file and `clearAllMocks` keeps implementations: restore it even on failure.
+        mocks.bootDevice.mockReset()
+        mocks.bootDevice.mockImplementation(async () => {})
+      }
+    })
+
+    it('does not retry a boot that failed for another reason', async () => {
+      mocks.bootDevice.mockRejectedValueOnce(new Error('Device not found: dev1'))
+      await run([flowFile('a.yaml')])
+      expect(mocks.joinSession).toHaveBeenCalledTimes(1)
+      expect(process.exitCode).toBe(2)
+    })
   })
 
   it('prints where to watch the run', async () => {

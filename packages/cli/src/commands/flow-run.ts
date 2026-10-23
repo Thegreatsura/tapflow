@@ -12,6 +12,8 @@ import {
   isEligible,
   lookupBuild,
   parseTagList,
+  retryAdmission,
+  admissionRefusalOf,
   type EligibilityTarget,
   type SkippedFlow,
   type Flow,
@@ -33,6 +35,8 @@ export interface FlowRunOptions {
   junit?: string
   artifacts?: string
   timeout?: number
+  /** How long to wait for a Mac that is busy booting another device, in seconds. */
+  admissionTimeout?: number
   /** `--no-record` sets it false. */
   record?: boolean
   /** Comma-separated, as typed. */
@@ -51,6 +55,12 @@ const RECORD_DRAIN_MS = 10_000
 /** Shorter on a cancel: CI kills soon after. GitHub Actions sends SIGINT, then SIGTERM 7.5 s later, then SIGKILL. */
 const RECORD_DRAIN_ON_SIGNAL_MS = 5_000
 const MAX_TIMEOUT_SECONDS = 2_147_483_647 / 1000
+/**
+ * How long a run waits on a Mac that is busy before giving up with exit 2. One boot holds a Mac for 30–90 s, and a
+ * person's boot goes ahead of a run's, so ten minutes covers a queue of several without letting a stuck Mac hold a
+ * CI job for its whole budget.
+ */
+const DEFAULT_ADMISSION_TIMEOUT_SECONDS = 600
 
 class FlowRunEnvironmentError extends Error {}
 
@@ -184,6 +194,10 @@ export async function cmdFlowRun(files: string[], opts: FlowRunOptions): Promise
     if (opts.timeout !== undefined && !(Number.isFinite(opts.timeout) && opts.timeout > 0 && opts.timeout <= MAX_TIMEOUT_SECONDS)) {
       envFail(`--timeout must be a positive number of seconds no greater than ${MAX_TIMEOUT_SECONDS}`)
     }
+    const admissionTimeout = opts.admissionTimeout ?? DEFAULT_ADMISSION_TIMEOUT_SECONDS
+    if (!(Number.isFinite(admissionTimeout) && admissionTimeout >= 0 && admissionTimeout <= MAX_TIMEOUT_SECONDS)) {
+      envFail(`--admission-timeout must be a number of seconds from 0 to ${MAX_TIMEOUT_SECONDS}`)
+    }
 
     // Parse everything up front: a schema error is a config problem (exit 2),
     // not a test failure, and it should surface before touching any device.
@@ -273,20 +287,38 @@ export async function cmdFlowRun(files: string[], opts: FlowRunOptions): Promise
     }
 
     const { sessionId, device } = await resolveSession(client, opts)
-    const { watchUrl } = await client.joinSession(sessionId)
-    joinedSessionId = sessionId
-    dashboardBase = watchUrl
-    // Whoever started the run can watch it live from here. **Not in CI**: the link is the relay's address
-    // rewritten (`wss://host` → `https://host/…`), so a secret holding the relay URL does not mask it, and a
-    // public repository's log would show the host the docs keep in a secret.
-    if (!runningInCI()) console.log(`watch this run: ${watchUrl}`)
-
-    // Always send device:boot — it is idempotent on a booted device and it is
-    // what initializes the agent's touch/stream state for this session (the
-    // dashboard does the same on join).
     console.log(`preparing ${device.name}...`)
-    // H.264 when there is a video to keep: JPEG is several times the size and is not kept.
-    await client.bootDevice(sessionId, device.id, { acceptH264: video !== undefined })
+    // Join and boot as one attempt, retried while the Mac is busy. The session is let go before each wait, so a
+    // person who wants this device is not told it is in use by a run that is only queueing (flow-runner's
+    // `retryAdmission`).
+    const joining = client
+    await retryAdmission(async () => {
+      const { watchUrl } = await joining.joinSession(sessionId)
+      joinedSessionId = sessionId
+      if (dashboardBase === undefined) {
+        dashboardBase = watchUrl
+        // Whoever started the run can watch it live from here, the boot included. **Not in CI**: the link is the
+        // relay's address rewritten (`wss://host` → `https://host/…`), so a secret holding the relay URL does not
+        // mask it, and a public repository's log would show the host the docs keep in a secret.
+        if (!runningInCI()) console.log(`watch this run: ${watchUrl}`)
+      }
+      try {
+        // Always send device:boot — it is idempotent on a booted device and it is
+        // what initializes the agent's touch/stream state for this session (the
+        // dashboard does the same on join).
+        // H.264 when there is a video to keep: JPEG is several times the size and is not kept.
+        await joining.bootDevice(sessionId, device.id, { acceptH264: video !== undefined })
+      } catch (e) {
+        if (admissionRefusalOf(e) !== null) {
+          joining.leaveSession(sessionId)
+          joinedSessionId = undefined
+        }
+        throw e
+      }
+    }, {
+      timeoutMs: admissionTimeout * 1000,
+      onWait: (reason, ms) => console.log(`waiting ${Math.round(ms / 1000)}s: ${reason === 'host-booting' ? 'another device is booting on this Mac' : 'the Mac is over its CPU or memory limit'}`),
+    })
     if (opts.build !== undefined && opts.install !== false) {
       console.log(`installing build ${opts.build}...`)
       await client.installApp(sessionId, opts.build)

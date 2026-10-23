@@ -35,6 +35,12 @@ QA sessions already running on it drops. Origin: [#107](https://github.com/jo-du
   without the relay ever bringing it up (#440), and the viewer's next boot would be a full one. And
   an AI client keeps the memory check, because its boot warms the UI-tree runner, which costs memory
   on a device already running.
+- **The CPU half pauses on a Mac whose boot slot is held.** A cold boot pins the CPU for 30–90 s
+  ([simulator-boot-contention.md](./simulator-boot-contention.md)), and the per-Mac boot gate
+  (`packages/relay/src/admission/`) already decides when the next boot may start. A join during that
+  time is not a boot, so refusing it would lock a person out of a device that is up, for the length of
+  someone else's boot. Outside a held slot the CPU check is unchanged. "Reject, do not queue" still holds
+  for this gate; the boot gate is the one place a request waits, and only a person's boot does.
 - The error message is returned to the client; surfacing it in the dashboard UI is a
   separate concern. This gate is distinct from any slot-count mechanism, which follows its
   own path.

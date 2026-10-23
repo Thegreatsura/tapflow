@@ -612,7 +612,30 @@ export interface DeviceBootError extends SessionScoped {
   type: 'device:boot-error'
   message: string
   requestId?: string
+  /**
+   * Set only when the relay's per-host boot gate refused the boot, so a client can tell "wait and try
+   * again" from a boot that failed. An agent's own boot failures carry no reason. See `BootRefusalReason`.
+   */
+  reason?: BootRefusalReason
 }
+
+/**
+ * Why the relay refused a boot before it reached an agent. Only automated clients are refused; a person's
+ * boot is held instead (`packages/relay/src/admission/`).
+ *
+ * - `host-booting`: another boot on the same Mac has not settled yet. One boot at a time is the rule,
+ *   because a boot is what slows the other sessions on that Mac (`contributing/simulator-boot-contention.md`).
+ */
+export type BootRefusalReason = 'host-booting'
+
+/**
+ * Every refusal a client may meet on its way to a booted device that means "the Mac is busy, not broken" —
+ * all of them worth waiting out. A join refused for resources and a boot refused by the gate call for the same
+ * response, so they are one type even though they arrive on different messages (`error.reason`,
+ * `device:boot-error.reason`). Types only, like the rest of this entry; a client that needs the members at
+ * runtime mirrors them in a `Record<AdmissionRefusal, true>`, as `SESSION_START_FAILURES` does.
+ */
+export type AdmissionRefusal = BootRefusalReason | Extract<SessionStartFailure, 'agent-resources-exhausted'>
 
 export interface OpenUrlError extends SessionScoped {
   type: 'open-url:error'
