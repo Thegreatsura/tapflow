@@ -8,5 +8,7 @@ import type { Session } from '../SessionManager.js'
  * resort for an agent with neither, which gates that one session against nothing.
  */
 export function hostKeyOf(session: Pick<Session, 'id' | 'agentId' | 'agentName'>): string {
-  return session.agentId ?? session.agentName ?? `session:${session.id}`
+  // `||`, not `??`: the register schema defaults a missing `agentName` to `''`, and an empty key would put every
+  // such agent, on whatever Mac, behind one slot.
+  return session.agentId || session.agentName || `session:${session.id}`
 }

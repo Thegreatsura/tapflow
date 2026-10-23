@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { HostBootGate, GATE_DEFAULTS, type BootRequest, type Effect } from '../admission/HostBootGate.js'
 import { isSettled } from '../admission/settle.js'
 import { classifyBoot } from '../admission/classifyBoot.js'
+import { hostKeyOf } from '../admission/hostKey.js'
 
 const HOST = 'mac-1'
 let now = 0
@@ -43,6 +44,16 @@ describe('classifyBoot', () => {
     expect(classifyBoot('booted', 'full-erase')).toBe('cold')
     expect(classifyBoot('shutdown', undefined)).toBe('cold')
     expect(classifyBoot('unknown', 'app-only')).toBe('cold')
+  })
+})
+
+describe('hostKeyOf', () => {
+  it('keys by machine id, then name, and never by an empty string', () => {
+    expect(hostKeyOf({ id: 's1', agentId: 'uuid-1', agentName: 'mac' })).toBe('uuid-1')
+    expect(hostKeyOf({ id: 's1', agentName: 'mac' })).toBe('mac')
+    // The register schema defaults a missing name to '' — two such agents must not share a slot.
+    expect(hostKeyOf({ id: 's1', agentName: '' })).toBe('session:s1')
+    expect(hostKeyOf({ id: 's2', agentId: '', agentName: '' })).toBe('session:s2')
   })
 })
 
