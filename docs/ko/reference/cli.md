@@ -363,7 +363,7 @@ tapflow flow run .tapflow/flows/login-smoke.yaml
 | `--timeout <seconds>` | `10` | 셀렉터마다 기다리는 기본 시간(초) |
 | `--service-tier <tier>` | 에이전트 설정 | 기기가 켜질 때 끌 백그라운드 서비스 범위. `stock`(모두 켬), `lean`, `slim`(거의 모두 끔). iOS 18.5 이상. 아래 설명을 참고하세요. |
 | `--keep <features>` | — | `--service-tier`에서 켜 둘 기능(쉼표로 구분). 예: `push,photos` |
-| `--admission-timeout <seconds>` | `600` | 같은 Mac에서 다른 기기가 부팅 중이거나 Mac의 메모리가 심각하게 부족하거나 CPU·메모리 한도를 넘었을 때 기다리는 최대 시간(초). 넘으면 종료 코드 `2`로 멈춥니다. |
+| `--admission-timeout <seconds>` | `600` | Mac이 바빠서 기다리는 최대 시간(초). 바쁜 경우는 같은 Mac에서 다른 기기가 부팅 중일 때, 메모리가 심각하게 부족할 때, 허용된 자동화 기기를 모두 쓰는 중일 때, CPU·메모리 한도를 넘었을 때입니다. 넘으면 종료 코드 `2`로 멈춥니다. |
 | `--no-record` | — | 이 실행을 릴레이에 기록하지 않음 |
 | `--include-tags <tags>` | — | 이 태그 중 하나라도 있는 플로우만 실행(쉼표로 구분) |
 | `--exclude-tags <tags>` | — | 이 태그 중 하나라도 있는 플로우는 건너뜀(쉼표로 구분). `--include-tags`보다 우선합니다. |

@@ -1718,11 +1718,7 @@ export class RelayServer {
         this.settleBoot(msg.sessionId, msg.requestId)
         this.gateEvent({ kind: 'boot-error', sessionId: msg.sessionId, requestId: msg.requestId })
         const session = this.sessions.get(msg.sessionId)
-        // A boot that failed did not bring the device up, so who asked for it says nothing about the device.
-        if (session && session.lastBootPending && session.lastBootPending.requestId === msg.requestId) {
-          session.lastBoot = session.lastBootPending.prev
-          session.lastBootPending = undefined
-        }
+        if (session) this.undoLastBoot(session, msg.requestId)
         if (session?.browserSocket?.readyState === WebSocket.OPEN) {
           // `reason` is the relay's word that the Mac is busy, and clients wait out any frame carrying one. An agent's
           // boot failure is a failure, so a `reason` an agent put on it does not reach them.
@@ -1738,8 +1734,9 @@ export class RelayServer {
         this.sessions.updateDeviceStatus(session.id, 'shutdown')
         this.sessions.setReadySent(session.id, false)
         this.sessions.setDeviceServiceTier(session.id, undefined)
-        session.lastBoot = undefined
-        session.lastBootPending = undefined
+        // Unless a boot went out after the shutdown this answers: the shutdown carries no correlator, and a device
+        // the relay shut down to make room can be picked up and started again before the agent reports back.
+        if (session.lastBootPending === undefined) session.lastBoot = undefined
         session.evictingAt = undefined
         if (session.browserSocket?.readyState === WebSocket.OPEN) {
           session.browserSocket.send(JSON.stringify(raw))
@@ -2283,7 +2280,8 @@ export class RelayServer {
     }
     if (cost === 'cold') {
       const s = boot.session
-      s.lastBootPending = { requestId: msg.requestId, prev: s.lastBootPending?.prev ?? s.lastBoot }
+      // A boot still out keeps the value from before it: `prev` may itself be absent, which is the answer, not a gap.
+      s.lastBootPending = { requestId: msg.requestId, prev: s.lastBootPending ? s.lastBootPending.prev : s.lastBoot }
       s.lastBoot = { booterClass, at: Date.now() }
     }
     // Tracked by the socket it actually goes to (#885): a rebind invalidates only the boots
@@ -2337,6 +2335,8 @@ export class RelayServer {
       if (!oldSockets.has(pending.agentSocket)) continue
       this.forgetBoot(key)
       const session = this.sessions.get(pending.sessionId)
+      // The agent that would have answered is gone, so nothing else will settle the record this boot made.
+      if (session) this.undoLastBoot(session, pending.requestId)
       // `sendTo` skips a socket that is not OPEN, and a session nobody has joined has no
       // `browserSocket` at all — either way the entry is still gone, so nothing later answers
       // a request nobody holds.
@@ -2902,6 +2902,17 @@ export class RelayServer {
       session.lastBootPending = undefined
     } else if (cold === true) {
       session.lastBoot = { booterClass: isAiClientKind(session.holderKind) ? 'automated' : 'interactive', at: Date.now() }
+      // An earlier boot of this session brought the device up while a newer one is still out: that newer one
+      // turning out warm must fall back to this, not to before either.
+      if (pending) pending.prev = session.lastBoot
+    }
+  }
+
+  /** A boot that did not bring the device up (failed, or stranded by a rebind) says nothing about who started it. */
+  private undoLastBoot(session: Session, requestId: string | undefined): void {
+    if (session.lastBootPending && session.lastBootPending.requestId === requestId) {
+      session.lastBoot = session.lastBootPending.prev
+      session.lastBootPending = undefined
     }
   }
 

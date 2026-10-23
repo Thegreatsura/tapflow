@@ -307,7 +307,10 @@ export class SessionManager {
     ) {
       return { ok: false, failure: 'held-by-another' }
     }
-    session.idleResumeOnLeave = session.idleTimer !== null && isAiClientKind(holder.kind)
+    // Decided by the join that stops a countdown. A later re-join by the same client (MCP's `connect_device` again)
+    // finds no timer and must not forget it; a person taking the device over makes it theirs to leave.
+    if (session.idleTimer !== null) session.idleResumeOnLeave = isAiClientKind(holder.kind)
+    else if (!isAiClientKind(holder.kind)) session.idleResumeOnLeave = false
     if (session.idleTimer) { clearTimeout(session.idleTimer); session.idleTimer = null }
     // Unconditional, and **the order is what makes it safe**: this releases the session from whichever
     // socket held it, which on a re-join is the socket joining. Removing and re-adding the same entry is a
