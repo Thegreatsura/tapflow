@@ -1,6 +1,6 @@
 'use client';
 
-import type { BrowserToRelay, FormFactor } from '@tapflowio/protocol'
+import type { BootRefusalReason, BrowserToRelay, FormFactor } from '@tapflowio/protocol'
 import { newRequestId } from '@/lib/requestId';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { useClientRecording } from '@/hooks/useClientRecording';
@@ -47,7 +47,7 @@ interface IOSViewerProps {
   installError: string | null;
   bootError: string | null;
   /** The relay holds this viewer's boot behind another on the same Mac (a restart reaches it with chrome still up). */
-  bootWaiting: boolean;
+  bootWaiting: BootRefusalReason | null;
   /** See `SimulatorInfoCard.servicesOff`. */
   servicesOff: boolean;
   launching: boolean;

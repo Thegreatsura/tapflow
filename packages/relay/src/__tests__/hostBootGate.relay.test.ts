@@ -65,9 +65,9 @@ describe('the relay routes boots through the per-Mac boot gate', () => {
     browser.send(JSON.stringify({ type: 'device:boot', sessionId, requestId, payload: { deviceId } }))
   }
 
-  const resources = (cpuPercent: number) => JSON.stringify({
+  const resources = (cpuPercent: number, memoryPressure?: string) => JSON.stringify({
     type: 'agent:resources',
-    resources: { cpuPercent, memUsedMB: 4000, memTotalMB: 16000, slotsAvailable: 1, slotsTotal: 2, reportedAt: Date.now() },
+    resources: { cpuPercent, memUsedMB: 4000, memTotalMB: 16000, slotsAvailable: 1, slotsTotal: 2, reportedAt: Date.now(), memoryPressure },
   })
 
   it('forwards the tier a run asks for, and charges a running device on another tier as a cold boot', async () => {
@@ -185,6 +185,42 @@ describe('the relay routes boots through the per-Mac boot gate', () => {
     const waiting = await waitForType<DeviceBootWaiting>(person, 'device:boot-waiting')
     expect(waiting.requestId).toBe(`${mac.session.get('b')}-boot`)
     expect(waiting.until).toBeGreaterThanOrEqual(before + 60_000)
+  })
+
+  // Clients wait out any boot error that carries a `reason`, so only the relay's gate may set one.
+  it('strips a reason an agent put on its own boot failure', async () => {
+    await start()
+    const mac = await agent('mac-1', ['a'])
+    const person = await join(mac.session.get('a')!)
+    boot(person, mac.session.get('a')!, 'a')
+    await waitForType<DeviceBoot>(mac.ws, 'device:boot')
+    mac.ws.send(JSON.stringify({ type: 'device:boot-error', sessionId: mac.session.get('a'), requestId: `${mac.session.get('a')}-boot`, reason: 'host-booting', message: 'simctl failed' }))
+    const failed = await waitForType<DeviceBootError>(person, 'device:boot-error')
+    expect(failed.message).toBe('simctl failed')
+    expect(failed.reason).toBeUndefined()
+  })
+
+  // The memory safety valve, end to end: the agent's own report is what closes and reopens the Mac.
+  it('refuses automation and holds a person while an agent reports critical memory, and lets the person go when it clears', async () => {
+    await start()
+    const mac = await agent('mac-1', ['a', 'b'])
+    // A report from an agent that cannot read pressure says nothing, so a co-resident one's critical stands.
+    const other = await agent('mac-1', ['z'], 'android')
+    mac.ws.send(resources(40, 'critical'))
+    other.ws.send(resources(40))
+    const robot = await join(mac.session.get('a')!, 'flow-runner')
+    boot(robot, mac.session.get('a')!, 'a')
+    const refused = await waitForType<DeviceBootError>(robot, 'device:boot-error')
+    expect(refused.reason).toBe('host-memory-critical')
+    expect(refused.message).toMatch(/short of memory/)
+
+    const person = await join(mac.session.get('b')!)
+    boot(person, mac.session.get('b')!, 'b')
+    expect((await waitForType<DeviceBootWaiting>(person, 'device:boot-waiting')).reason).toBe('host-memory-critical')
+    expect(await waitForTypeOrNull(mac.ws, 'device:boot', 150)).toBeNull()
+
+    mac.ws.send(resources(40, 'warn'))
+    expect((await waitForType<DeviceBoot>(mac.ws, 'device:boot')).sessionId).toBe(mac.session.get('b'))
   })
 
   it('reports each Mac\'s admission on the device listing, the same on both of its agents', async () => {

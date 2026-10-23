@@ -322,6 +322,23 @@ describe('DeviceViewer says when its boot is waiting for another device on the M
     expect(screen.queryByText(WAITING)).toBeNull()
     expect(screen.getByText(/Boot failed: agent offline/)).toBeTruthy()
   })
+
+  // The relay's memory safety valve holds a person's boot too, and says why, so the tester is not told a device is
+  // starting when none is. A later notice for the same boot replaces the reason: a held boot can move from one wait
+  // to the other.
+  it('says the Mac is low on memory when that is what the boot waits for', () => {
+    const LOW = 'This Mac is low on memory. Yours starts when it frees up…'
+    render(<DeviceViewer sessionId="s1" deviceId="dev-1" />)
+    join()
+    const id = lastBootId()
+    act(() => { deliver!({ type: 'device:boot-waiting', sessionId: 's1', requestId: id, until: Date.now() + 60_000, reason: 'host-memory-critical' }) })
+    expect(screen.getByText(LOW)).toBeTruthy()
+    expect(screen.queryByText(WAITING)).toBeNull()
+
+    act(() => { deliver!({ type: 'device:boot-waiting', sessionId: 's1', requestId: id, until: Date.now() + 60_000, reason: 'host-booting' }) })
+    expect(screen.getByText(WAITING)).toBeTruthy()
+    expect(screen.queryByText(LOW)).toBeNull()
+  })
 })
 
 // L2 S2b-2. A run's `--service-tier slim` stays on the device until it restarts; a person who picks it is told.

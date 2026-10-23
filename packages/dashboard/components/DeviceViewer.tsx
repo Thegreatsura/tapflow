@@ -3,7 +3,7 @@
 import { skeletonSize } from '@/lib/deviceSkeleton';
 import { framelessChrome } from '@/lib/framelessChrome';
 
-import type { BrowserToRelay, FormFactor, SessionTerminatedReason } from '@tapflowio/protocol'
+import type { BootRefusalReason, BrowserToRelay, FormFactor, SessionTerminatedReason } from '@tapflowio/protocol'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useRelay } from '@/hooks/useRelay';
 import { usePerfMode } from '@/hooks/usePerfMode';
@@ -105,7 +105,7 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
   const [bootError, setBootError] = useState<string | null>(null);
   // Set while the relay holds this viewer's boot behind another on the same Mac; cleared by anything that
   // ends the wait — the boot starting, finishing or failing.
-  const [bootWaiting, setBootWaiting] = useState(false);
+  const [bootWaiting, setBootWaiting] = useState<BootRefusalReason | null>(null);
   // The tier the device came up with, from `device:ready`: a person who picks a device a run left slim is told how to
   // get its services back (a restart boots it on the agent's own tier).
   const [servicesOff, setServicesOff] = useState(false);
@@ -277,7 +277,7 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
       setInstalling(false);
       setInstallError(null);
       setBootError(null);
-      setBootWaiting(false);
+      setBootWaiting(null);
       setLaunching(false);
       setSwKeyboardPending(false);
       if (kbdDeadlineRef.current) clearTimeout(kbdDeadlineRef.current);
@@ -325,7 +325,7 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
       // Release the rebind: without this a failed re-boot would suppress every later install for
       // the life of the mount.
       rebindRef.current = { pending: 0, appInstalled: false };
-      setBootWaiting(false);
+      setBootWaiting(null);
       setBootError(msg.message);
     }
     // Only for the boot this viewer is waiting on: a reconnect re-sends its boot, and the relay answers the one it
@@ -334,7 +334,8 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
     // the device is off until the held boot goes ahead. And a failure from the last cycle (an Android stream that
     // died) is not this boot's: left set, it outranks the wait and the tester reads "Boot failed" throughout.
     if (msg.type === 'device:boot-waiting' && msg.requestId === latestBootIdRef.current) {
-      setBootWaiting(true);
+      // A relay that predates `reason` held boots only behind another boot.
+      setBootWaiting(msg.reason ?? 'host-booting');
       setDeviceReady(false);
       setBootError(null);
     }
@@ -387,7 +388,7 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
     // and there is no latch.
 
     if (msg.type === 'device:booting') {
-      setBootWaiting(false);
+      setBootWaiting(null);
       setServicesOff(false);
       setDeviceReady(false);
       setInstalling(false);
@@ -428,7 +429,7 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
       // clearing the spinner is exactly what it is for (#440). Gating this line on the correlator would
       // reinstate the defect the replay exists to prevent.
       setDeviceReady(true);
-      setBootWaiting(false);
+      setBootWaiting(null);
       // Everything below is a reaction to *our* boot, so it is gated. Absent is accepted, so what this
       // rejects is exactly one thing: a ready **carrying** an id that is not one this mount is waiting
       // for. That is a straggler from an earlier boot cycle, which would otherwise release the current

@@ -518,16 +518,20 @@ describe('RelayClient.bootDevice — an optional correlator, with a fallback', (
     await expect(failure).rejects.toMatchObject({ reason: 'host-booting' })
   })
 
-  it('reports a boot error with no reason, or one it does not know, as a plain failure', async () => {
-    for (const extra of [{}, { reason: 'some-future-reason' }]) {
-      const { client } = await relay((m) => ({ type: 'device:boot-error', sessionId: 's1', requestId: m['requestId'], message: 'boot failed', ...extra }))
-      const failure = client.bootDevice('s1', 'dev-1')
-      await expect(failure).rejects.toThrow('boot failed')
-      await expect(failure).rejects.not.toBeInstanceOf(AdmissionRefusedError)
-      for (const c of wss!.clients) c.terminate()
-      await new Promise<void>((r) => wss!.close(() => r()))
-      wss = null
-    }
+  it('reports a boot error with no reason as a plain failure', async () => {
+    const { client } = await relay((m) => ({ type: 'device:boot-error', sessionId: 's1', requestId: m['requestId'], message: 'boot failed' }))
+    const failure = client.bootDevice('s1', 'dev-1')
+    await expect(failure).rejects.toThrow('boot failed')
+    await expect(failure).rejects.not.toBeInstanceOf(AdmissionRefusedError)
+  })
+
+  // Only the relay's admission gate puts a reason on a boot error, and it refuses only a busy Mac. A run built
+  // before a newer relay added a reason must wait that one out too, not fail red on a Mac that is merely busy.
+  it('waits out a refusal whose reason it does not know, keeping the reason in the message', async () => {
+    const { client } = await relay((m) => ({ type: 'device:boot-error', sessionId: 's1', requestId: m['requestId'], reason: 'some-future-reason', message: 'busy' }))
+    const failure = client.bootDevice('s1', 'dev-1')
+    await expect(failure).rejects.toBeInstanceOf(AdmissionRefusedError)
+    await expect(failure).rejects.toMatchObject({ reason: 'unrecognised-refusal', message: expect.stringContaining('some-future-reason') })
   })
 
   it('is not satisfied by a ready carrying another boot\'s correlator', async () => {

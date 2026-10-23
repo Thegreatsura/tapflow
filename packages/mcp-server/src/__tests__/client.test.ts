@@ -290,6 +290,21 @@ describe('TapflowClient', () => {
       await expect(failure).rejects.toMatchObject({ reason: 'host-booting' })
     })
 
+    it('says why when the Mac is short of memory', async () => {
+      setTimeout(() => relay.send({ type: 'device:boot-error', sessionId: 'sess-1', reason: 'host-memory-critical', message: 'short' }), 10)
+      const failure = client.bootDevice('sess-1', 'dev-1')
+      await expect(failure).rejects.toThrow(/host-memory-critical.*short of memory/)
+      await expect(failure).rejects.toMatchObject({ reason: 'host-memory-critical' })
+    })
+
+    // Only the gate sets a reason, so one a newer relay added is still a busy Mac to try again on, not a broken boot.
+    it('treats a refusal reason it does not know as a busy Mac', async () => {
+      setTimeout(() => relay.send({ type: 'device:boot-error', sessionId: 'sess-1', reason: 'some-future-reason', message: 'busy' }), 10)
+      const failure = client.bootDevice('sess-1', 'dev-1')
+      await expect(failure).rejects.toThrow(/some-future-reason.*boot_device again/)
+      await expect(failure).rejects.toMatchObject({ reason: 'unrecognised-refusal' })
+    })
+
     it('ignores device:ready for a different sessionId and resolves on the correct one', async () => {
       setTimeout(() => {
         relay.send({ type: 'device:ready', sessionId: 'OTHER' })

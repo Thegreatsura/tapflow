@@ -179,8 +179,12 @@ interface Waiter {
   sessionId?: string
 }
 
-/** Runtime mirror of `BootRefusalReason`: a reason added to the union is a compile error here until handled. */
-const BOOT_REFUSALS: Record<BootRefusalReason, true> = { 'host-booting': true }
+/** What a refused boot tells the calling agent, per `BootRefusalReason`: a reason added to the union is a compile
+ *  error here until it has words. */
+const BOOT_REFUSALS: Record<BootRefusalReason, string> = {
+  'host-booting': 'another device is still booting on this Mac. Call boot_device again in about 30 seconds.',
+  'host-memory-critical': 'this Mac is critically short of memory. Call boot_device again in about a minute, or stop a device you no longer need.',
+}
 
 /**
  * The caller left this session while a request was still in flight (#514).
@@ -895,10 +899,13 @@ export class TapflowClient {
       // The relay's boot gate: the Mac is busy, not broken. Said so plainly, with what to do, because the caller
       // is an agent that will otherwise read a failure and give up on the device.
       const reason = msg['reason']
-      if (typeof reason === 'string' && Object.hasOwn(BOOT_REFUSALS, reason)) {
+      // Any reason, not only the ones this build knows: only the gate sets one, and a reason a newer relay added is
+      // still a busy Mac.
+      if (typeof reason === 'string') {
+        const known = Object.hasOwn(BOOT_REFUSALS, reason) ? reason as BootRefusalReason : null
         throw new AdmissionRefusedError(
-          `boot refused (${reason}): another device is still booting on this Mac. Call boot_device again in about 30 seconds.`,
-          reason as BootRefusalReason,
+          `boot refused (${reason}): ${known ? BOOT_REFUSALS[known] : 'this Mac is not taking boots right now. Call boot_device again in about a minute.'}`,
+          known ?? 'unrecognised-refusal',
         )
       }
       throw this.failed(sessionId, (msg['message'] as string) ?? 'Boot failed')

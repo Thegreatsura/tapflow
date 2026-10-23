@@ -573,6 +573,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
         slotsAvailable: Math.max(0, slotsTotal - bootedCount),
         slotsTotal,
         reportedAt: Date.now(),
+        memoryPressure: this.resources.getMemoryPressure(),
       },
     })
   }

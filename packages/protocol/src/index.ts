@@ -19,7 +19,17 @@ export interface AgentResources {
   slotsTotal: number
   /** Date.now() */
   reportedAt: number
+  /** The kernel's own memory pressure on the agent's Mac. Absent where the agent cannot read it (not macOS) and
+   *  from agents that predate it. */
+  memoryPressure?: MemoryPressure
 }
+
+/**
+ * macOS `kern.memorystatus_vm_pressure_level` (1, 2, 4). An 8 GB Mac idles at `warn` with no simulator running,
+ * so only `critical` means anything to admission: the relay refuses automated cold boots on it
+ * (`host-memory-critical`).
+ */
+export type MemoryPressure = 'normal' | 'warn' | 'critical'
 
 /** What kind of device it is, for what the viewer draws around it. A string literal union, not a
  *  runtime list, so it erases under `import type`; the one runtime copy is the register schema in
@@ -678,8 +688,10 @@ export interface DeviceBootError extends SessionScoped {
  *
  * - `host-booting`: another boot on the same Mac has not settled yet. One boot at a time is the rule,
  *   because a boot is what slows the other sessions on that Mac (`contributing/simulator-boot-contention.md`).
+ * - `host-memory-critical`: the Mac's kernel reports critical memory pressure (`AgentResources.memoryPressure`).
+ *   Another device started now would push the running ones into swap, so automated boots wait it out.
  */
-export type BootRefusalReason = 'host-booting'
+export type BootRefusalReason = 'host-booting' | 'host-memory-critical'
 
 /**
  * Every refusal a client may meet on its way to a booted device that means "the Mac is busy, not broken" —
@@ -1230,8 +1242,9 @@ export interface WatchAction {
 
 /** Messages the relay originates and no agent sends. */
 /**
- * A person's boot the relay is holding until another boot on the same Mac has settled. Sent once, when
- * the boot is held; it then goes ahead by itself and `device:booting` follows. Answers the held boot,
+ * A person's boot the relay is holding until another boot on the same Mac has settled, or until the Mac's critical
+ * memory pressure has passed. Sent when the boot is held, and again with the same `until` when what it waits for
+ * changes; it then goes ahead by itself and `device:booting` follows. Answers the held boot,
  * so it carries its correlator. An automated boot is refused instead (`BootRefusalReason`) and never
  * receives this.
  */
@@ -1241,6 +1254,8 @@ export interface DeviceBootWaiting {
   requestId: string
   /** Epoch ms after which the boot goes ahead even if the other has not settled. */
   until: number
+  /** What it waits for. Read absence as `host-booting`, the only wait there was before the field. */
+  reason?: BootRefusalReason
 }
 
 export type RelayToBrowser =
