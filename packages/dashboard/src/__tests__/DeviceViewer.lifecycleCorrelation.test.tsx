@@ -340,6 +340,16 @@ describe('DeviceViewer says when a device came up with most services off', () =>
     expect(screen.queryByText(NOTE)).toBeNull()
   })
 
+  it('ignores the tier on a late ready from a boot it has replaced', () => {
+    render(<DeviceViewer sessionId="s1" deviceId="dev-1" />)
+    join()
+    const replaced = lastBootId()
+    join()
+    act(() => { deliver!({ type: 'device:ready', sessionId: 's1', requestId: lastBootId(), payload: { deviceId: 'dev-1', serviceTier: { name: 'lean', keep: [] } } }) })
+    act(() => { deliver!({ type: 'device:ready', sessionId: 's1', requestId: replaced, payload: { deviceId: 'dev-1', serviceTier: { name: 'slim', keep: [] } } }) })
+    expect(screen.queryByText(NOTE)).toBeNull()
+  })
+
   it('says nothing for a device on its usual services', () => {
     render(<DeviceViewer sessionId="s1" deviceId="dev-1" />)
     join()

@@ -100,9 +100,10 @@ export class LeanStore {
           rmSync(this.markerPath(udid))
           return true
         } catch (storeError) {
-          // The store cannot be read either. Keeping the marker would fail every revert from here on, as below.
-          rmSync(this.markerPath(udid))
-          throw new Error(`the Lean mode marker for ${udid} was unreadable and the store could not be repaired either (${(storeError as Error).message})`)
+          // The store cannot be read either. **The marker stays**, unlike the branch below: this recovery needs nothing
+          // from it, so the next revert can retry once the store reads again — while dropping it would leave the device
+          // reported as stock with its overrides still on and nothing left to say so.
+          throw new Error(`the Lean mode marker for ${udid} was unreadable and the store could not be repaired yet (${(storeError as Error).message})`)
         }
       }
       // Nothing can be put back without it, and keeping it would fail every revert from here on.

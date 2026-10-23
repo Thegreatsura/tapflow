@@ -114,12 +114,19 @@ describe('revert', () => {
     expect(read()).toEqual({ 'com.apple.nanonewscd': false })
   })
 
-  it('with the managed labels known but the store unreadable too, still drops the marker and says so', () => {
+  it('with the managed labels known but the store unreadable too, keeps the marker so a later revert can finish', () => {
     const managed = new LeanStore(root, LABELS)
+    seed({ 'com.apple.nanonewscd': false })
     managed.setTier(UDID, LEAN, LABELS)
     writeFileSync(join(dir(), 'tapflow-lean.json'), '{not json')
-    writeFileSync(storePath(), readFileSync(storePath(), 'utf8').replace('<true/>', '<string>x</string>'))
-    expect(() => managed.revert(UDID)).toThrow(/could not be repaired/)
+    const good = readFileSync(storePath(), 'utf8')
+    writeFileSync(storePath(), good.replace('<true/>', '<string>x</string>'))
+    expect(() => managed.revert(UDID)).toThrow(/could not be repaired yet/)
+    expect(managed.isApplied(UDID)).toBe(true)
+    // The store reads again: the same revert now completes.
+    writeFileSync(storePath(), good)
+    expect(managed.revert(UDID)).toBe(true)
+    expect(read()).toEqual({ 'com.apple.nanonewscd': false })
     expect(managed.isApplied(UDID)).toBe(false)
   })
 

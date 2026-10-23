@@ -812,7 +812,7 @@ Body (JSON):
   flows    array   required  The flows to run [{ name, file? }], at most 500
   buildId  number  optional  The build under test
   ci       object  optional  { provider?, branch?, commit?, jobUrl? }. jobUrl is kept only for an http(s) address
-  serviceTier  object  optional  { name: "stock" | "lean" | "slim", keep: [feature] } the run booted with. Not kept when it is not one
+  serviceTier  object  optional  { name: "stock" | "lean" | "slim", keep: [feature] } the run asked its device to boot with. Recorded as requested, before any device boots. Not kept when it is not one
 ```
 
 **Response `201`**

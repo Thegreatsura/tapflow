@@ -429,9 +429,6 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
       // reinstate the defect the replay exists to prevent.
       setDeviceReady(true);
       setBootWaiting(false);
-      // Only when the ready says so: the relay's replay carries no tier, and must not clear one an earlier ready set.
-      const tier = msg.payload?.serviceTier;
-      if (tier !== undefined) setServicesOff(tier !== 'unsupported' && tier.name === 'slim');
       // Everything below is a reaction to *our* boot, so it is gated. Absent is accepted, so what this
       // rejects is exactly one thing: a ready **carrying** an id that is not one this mount is waiting
       // for. That is a straggler from an earlier boot cycle, which would otherwise release the current
@@ -443,6 +440,10 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
       // Telling them apart needs the replay to be identifiable in its own right, which is the deferred
       // `sessionId` tightening; until then that case is unchanged rather than fixed.
       if (msg.requestId !== undefined && !bootIdsRef.current.delete(msg.requestId)) return;
+      // After the gate: a superseded boot's late ready must not put back a tier the current boot replaced. And only
+      // when the ready says so: the relay's replay carries no tier, and must not clear one an earlier ready set.
+      const tier = msg.payload?.serviceTier;
+      if (tier !== undefined) setServicesOff(tier !== 'unsupported' && tier.name === 'slim');
       if (rebindRef.current.pending > 0) {
         const { appInstalled } = rebindRef.current;
         rebindRef.current = { pending: rebindRef.current.pending - 1, appInstalled };
