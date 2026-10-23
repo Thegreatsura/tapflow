@@ -8,8 +8,8 @@ related: [measurement, relay-resource-rejection, workshop-lab-fork-observations]
 # What a simulator boot does to the other sessions on the same Mac
 
 > Read this before adding a resource gate, a memory threshold, or a priority trick meant to protect a
-> person's session from automated runs on the same Mac. The measurements below say where the harm is,
-> and it is not where a memory percentage points.
+> person's session from automated runs on the same Mac. The measurements below show where the harm is,
+> and a memory percentage does not find it.
 
 ## The question
 
@@ -121,8 +121,9 @@ widgets and Live Activities (`searchd`, `spotlightknowledged`, `suggestd`, `mlho
 - **Lean mode barely changes the boot.** Its ranges cover the unmodified boot on every column, and its worst
   run was worse than the unmodified one. An earlier single run that looked better was the lucky end of
   the range.
-- **The full list separates from lean on every host-side column** (CPU saturation 7–14 s against 20–49 s,
-  no overlap) and on the person's p95 for most runs; the ranges touch at one run each.
+- **The full list separates from lean on CPU saturation and decompressions** (7–14 s against 20–49 s, and
+  165–973 thousand against 398–2,100 thousand, no overlap on either boot) and on the person's p95 for most
+  runs; those ranges touch at one run each. Swapouts overlap on the first boot, where both reach zero.
 - **The 14 middle labels carry most of the first boot.** Adding them took the first boot to the full
   list's level on host cost. On the second boot, with memory already fuller, the middle list harmed the
   person as much as lean did. The remaining 55 labels of the full list are what holds the second boot down.
@@ -173,9 +174,11 @@ after it would start from the state where finding 4's second boots were measured
 
 ## What this rules out, and what it leaves
 
-- **Ruled out: admitting automated work by a memory percentage or by pressure level.** Neither predicts
-  the harm, and a tighter automated threshold would refuse most of the day on an idle Mac (the relay's
-  per-minute history put the metric above 60 % for 40–62 % of minutes on two Macs).
+- **Ruled out: admitting automated work by a memory percentage or by pressure level.** Once devices have
+  settled, neither separates a harmed session from an unharmed one (finding 1). During a boot the harm
+  follows the boot itself, which a gate can see directly, so a percentage adds nothing there either; this
+  was not tested as a threshold. A tighter automated threshold would also refuse most of the day on an
+  idle Mac (the relay's per-minute history put the metric above 60 % for 40–62 % of minutes on two Macs).
 - **Ruled out: demoting the booting device.** It protects the person by not booting.
 - **Left: fewer boots, one at a time, each lighter.** A boot is the cost, so the levers are not overlapping
   boots, not repeating them (keeping finished devices up), and booting with fewer services where the
