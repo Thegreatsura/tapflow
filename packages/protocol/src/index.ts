@@ -538,7 +538,25 @@ export interface DeviceReady {
   sessionId?: string
   /** Absent = this is not the answer to a `device:boot`. See 「Lifecycle correlation」 in AGENTS.md. */
   requestId?: string
-  payload: { deviceId: string }
+  payload: {
+    deviceId: string
+    /**
+     * Whether this boot brought the device up, as opposed to finding it already running. Only the agent
+     * can say: it reads the device list after `device:booting` has gone out, and the relay's own
+     * `deviceStatus` is a snapshot from registration. A boot that brings a device up is what costs the
+     * host 30–90 s of memory pressure (`contributing/simulator-boot-contention.md`), so this is the fact
+     * a per-host boot gate needs.
+     *
+     * Judged from the agent's device-list read at the start of this boot, so a device stopped after
+     * that read and booted again reports `false` — an undercharge the gate accepts. A device found
+     * mid-transition counts as cold where the agent can see that state (iOS `unknown`); Android's adb
+     * cannot, and reports `false` for an emulator it can already see.
+     *
+     * Absent = unknown: an agent that predates the field, or the relay's own replay of a ready it
+     * already forwarded. A reader must not treat absent as `false`.
+     */
+    cold?: boolean
+  }
 }
 
 /**

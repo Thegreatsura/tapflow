@@ -368,6 +368,35 @@ describe('AndroidAgent', () => {
       browser.close()
     })
 
+    // The relay's boot gate charges a boot by this (L2 admission plan, S2): an emulator this boot
+    // launched costs the host 30-90 s of memory pressure, one adb already sees costs nothing. Full
+    // reset is covered with its own suite below, since it launches whatever adb said.
+    it.each([
+      { booted: false, cold: true },
+      { booted: true, cold: false },
+    ])('reports cold=$cold on device:ready when the emulator was booted=$booted', async ({ booted, cold }) => {
+      const agent = new AndroidAgent({}, mockAdb(booted))
+      await agent.connect(`ws://localhost:${port}`)
+
+      const browser = new WebSocket(`ws://localhost:${port}`)
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'session:start', sessionId: agent.sessionId }))
+      await waitForType(browser, 'session:joined')
+
+      const readyPromise = waitForType(browser, 'device:ready')
+      browser.send(JSON.stringify({
+        type: 'device:boot',
+        requestId: 'rq-cold',
+        sessionId: agent.sessionId,
+        payload: { deviceId: 'avd:Pixel_8_API_34' },
+      }))
+      const ready = await readyPromise
+      expect((ready['payload'] as { cold?: boolean }).cold).toBe(cold)
+
+      agent.disconnect()
+      browser.close()
+    })
+
   })
 
   // ── Lean mode: bundled apps kept disabled, reconciled after every boot ──────────────────────
@@ -1186,10 +1215,12 @@ describe('AndroidAgent', () => {
         const agent = new AndroidAgent({}, adb)
         await agent.connect(`ws://localhost:${port}`)
         const browser = await boot(agent, 'full-erase')
-        await waitForType(browser, 'device:ready')
+        const ready = await waitForType(browser, 'device:ready')
 
         expect(shutdown).toHaveBeenCalledWith('emulator-5554')
         expect(wipedOnFirstLaunch(agent)).toBe(true)
+        // adb saw it running, and the boot still brought it up from off: the gate must charge it.
+        expect((ready['payload'] as { cold?: boolean }).cold).toBe(true)
 
         agent.disconnect(); browser.close()
       })

@@ -836,6 +836,9 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
 
       const target = devices.find((d) => d.id === deviceId)
       if (!target) throw new PlatformError(`Device not found: ${deviceId}`)
+      // Read before anything below changes it: a Full reset shuts the device down itself, and `unknown`
+      // (booting, shutting down) is a device paying a boot's cost now.
+      const cold = fullErase || target.status !== 'booted'
 
       if (fullErase) {
         // `simctl erase` only accepts a shut-down device, and a device is often already running —
@@ -950,7 +953,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
       // every path precisely so that case reaches here. Requiring an off→on transition would leave
       // that device unowned and put the resolvers back to refusing between two live simulators.
       this.ownedDevices.add(deviceId)
-      this.sendMsg({ type: 'device:ready', sessionId, requestId, payload: { deviceId } })
+      this.sendMsg({ type: 'device:ready', sessionId, requestId, payload: { deviceId, cold } })
       // The unsolicited report the protocol names on `device:ready`. It follows the ready rather than
       // riding inside it: a tester whose device just came up can arm the toggle in the same breath, and
       // a boot that armed nothing still has to say so rather than leaving the control blank.

@@ -1967,7 +1967,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
       this.sendChrome(state)
       void this.sendPostures(state)
       state.booted = true
-      this.sendMsg({ type: 'device:ready', sessionId, requestId, payload: { deviceId: avdId } })
+      this.sendMsg({ type: 'device:ready', sessionId, requestId, payload: { deviceId: avdId, cold: launched } })
       // Clear a network condition the last session left behind, then report (#607).
       //
       // **At boot rather than at teardown**, because airplane mode lives in the AVD's userdata and
