@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import type { ServiceTier } from '@tapflowio/protocol'
 
 /**
  * A simulator's launchd disable overrides, and the record of which of them Lean mode set.
@@ -21,11 +22,43 @@ export class LeanStore {
   constructor(private readonly root = '/private/var/tmp') {}
 
   /**
+   * Put a shut-down device on `tier`: exactly `labels` disabled by us, nothing left from an earlier tier.
+   *
+   * **The one way in.** `apply` alone only adds, so a device left slim and then booted lean kept slim's extra
+   * labels off — a person got a device without push or photos and nothing said so (L2 review R3-8, R4-S1). So
+   * every change goes back to what the device had before tapflow touched it, then applies the new set, and the
+   * marker names the tier so the next boot can tell whether anything needs to change. `stock` is the revert
+   * alone. A crash between the two halves leaves the device stock, which is the safe side.
+   */
+  setTier(udid: string, tier: ServiceTier, labels: readonly string[]): void {
+    this.revert(udid)
+    if (labels.length === 0) return
+    this.apply(udid, labels)
+    const marker = JSON.parse(readFileSync(this.markerPath(udid), 'utf8')) as { prior: Record<string, boolean | null> }
+    atomicWrite(this.markerPath(udid), JSON.stringify({ ...marker, tier }, null, 2) + '\n')
+  }
+
+  /**
+   * The tier the device boots with, as the marker records it. No marker is `stock`. A marker from before tiers
+   * carries none: only Lean mode wrote those, so it is `lean`.
+   */
+  currentTier(udid: string): ServiceTier {
+    if (!existsSync(this.markerPath(udid))) return { name: 'stock', allow: [] }
+    try {
+      const { tier } = JSON.parse(readFileSync(this.markerPath(udid), 'utf8')) as { tier?: ServiceTier }
+      return tier ?? { name: 'lean', allow: [] }
+    } catch {
+      // Unreadable: `revert` will clear it on the next change. Until then nobody can say what it disabled.
+      return { name: 'lean', allow: [] }
+    }
+  }
+
+  /**
    * Disable `labels` on a shut-down device. Safe to repeat: a label already recorded keeps its first
    * record, and one the marker does not have yet — a newer list booting a device an older one marked —
-   * is recorded now, before it is overwritten.
+   * is recorded now, before it is overwritten. Private: callers change tiers through `setTier`.
    */
-  apply(udid: string, labels: readonly string[]): void {
+  private apply(udid: string, labels: readonly string[]): void {
     const dir = this.dir(udid)
     mkdirSync(dir, { recursive: true, mode: 0o700 })
     const entries = this.readStore(udid)

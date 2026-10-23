@@ -70,6 +70,64 @@ describe('the relay routes boots through the per-Mac boot gate', () => {
     resources: { cpuPercent, memUsedMB: 4000, memTotalMB: 16000, slotsAvailable: 1, slotsTotal: 2, reportedAt: Date.now() },
   })
 
+  it('forwards the tier a run asks for, and charges a running device on another tier as a cold boot', async () => {
+    await start()
+    const ws = await open()
+    const lean = { name: 'lean', allow: [] }
+    ws.send(JSON.stringify({
+      type: 'agent:register', agentId: 'mac-1', agentName: 'mac-1-ios', platform: 'ios',
+      devices: [
+        { id: 'a', name: 'a', platform: 'ios', status: 'booted', serviceTier: lean },
+        { id: 'b', name: 'b', platform: 'ios', status: 'shutdown' },
+      ],
+    }))
+    const reply = await waitForType<AgentRegistered>(ws, 'agent:registered')
+    const session = new Map(reply.registeredSessions.map((r) => [r.deviceId, r.sessionId]))
+    const slim = { name: 'slim', allow: ['push'] }
+    const robot = await join(session.get('a')!, 'flow-runner')
+    robot.send(JSON.stringify({ type: 'device:boot', sessionId: session.get('a'), requestId: 'r-a', payload: { deviceId: 'a', serviceTier: slim } }))
+    const forwarded = await waitForType<DeviceBoot>(ws, 'device:boot')
+    expect(forwarded.payload.serviceTier).toEqual(slim)
+
+    // `a` is booted, but on lean: moving it to slim restarts it, so the Mac's slot is taken.
+    const second = await join(session.get('b')!, 'flow-runner')
+    boot(second, session.get('b')!, 'b')
+    expect((await waitForType<DeviceBootError>(second, 'device:boot-error')).reason).toBe('host-booting')
+  })
+
+  it('does not charge a running device already on the asked tier, which it learns from the ready', async () => {
+    await start()
+    const ws = await open()
+    ws.send(JSON.stringify({
+      type: 'agent:register', agentId: 'mac-1', agentName: 'mac-1-ios', platform: 'ios',
+      devices: [{ id: 'a', name: 'a', platform: 'ios', status: 'shutdown' }, { id: 'b', name: 'b', platform: 'ios', status: 'shutdown' }],
+    }))
+    const reply = await waitForType<AgentRegistered>(ws, 'agent:registered')
+    const session = new Map(reply.registeredSessions.map((r) => [r.deviceId, r.sessionId]))
+    const slim = { name: 'slim', allow: [] }
+    const robot = await join(session.get('a')!, 'flow-runner')
+    robot.send(JSON.stringify({ type: 'device:boot', sessionId: session.get('a'), requestId: 'r1', payload: { deviceId: 'a', serviceTier: slim } }))
+    await waitForType<DeviceBoot>(ws, 'device:boot')
+    ws.send(JSON.stringify({ type: 'device:ready', sessionId: session.get('a'), requestId: 'r1', payload: { deviceId: 'a', cold: false, serviceTier: slim } }))
+    await waitForType(robot, 'device:ready')
+
+    const listed = async () => {
+      robot.send(JSON.stringify({ type: 'agents:list' }))
+      return (await waitForType<AgentsListed>(robot, 'agents:listed')).sessions[0]!.devices.find((d) => d.id === 'a')!.serviceTier
+    }
+    expect(await listed()).toEqual(slim)
+
+    // The same tier again: warm, so it does not take the slot and the other device can boot.
+    robot.send(JSON.stringify({ type: 'device:boot', sessionId: session.get('a'), requestId: 'r2', payload: { deviceId: 'a', serviceTier: slim } }))
+    await waitForType<DeviceBoot>(ws, 'device:boot')
+    boot(await join(session.get('b')!, 'flow-runner'), session.get('b')!, 'b')
+    expect((await waitForType<DeviceBoot>(ws, 'device:boot')).sessionId).toBe(session.get('b'))
+
+    // Off, the recorded tier goes with it: the agent reverts the overrides on shutdown, and the next ready says anew.
+    ws.send(JSON.stringify({ type: 'device:shutdown-done', sessionId: session.get('a'), payload: { deviceId: 'a' } }))
+    await vi.waitFor(async () => expect(await listed()).toBeUndefined())
+  })
+
   it('refuses a second automated cold boot on the same Mac with host-booting', async () => {
     await start()
     const mac = await agent('mac-1', ['a', 'b'])

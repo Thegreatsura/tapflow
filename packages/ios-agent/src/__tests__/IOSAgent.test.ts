@@ -112,7 +112,9 @@ import { ScreenCaptureStreamer } from '../ScreenCaptureStreamer'
 import { AudioCaptureStreamer } from '../AudioCaptureStreamer'
 import { launchAudioHelper } from '@tapflowio/audiotap-helper'
 import { SimctlWrapper } from '../SimctlWrapper'
-import { LeanStore } from '../LeanStore'
+import { LeanStore, parseDisabledStore } from '../LeanStore'
+import { labelsFor } from '../serviceTiers'
+import type { ServiceTier } from '@tapflowio/protocol'
 import { LEAN_LABELS } from '../leanLabels'
 import { TouchHelper } from '../TouchHelper'
 import { XCUITreeReader } from '../XCUITreeReader'
@@ -4458,10 +4460,18 @@ describe('IOSAgent', () => {
       leanRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'tapflow-lean-agent-'))
       store = new LeanStore(leanRoot)
       order = []
-      const apply = store.apply.bind(store)
+      lastReady = { promise: Promise.resolve({}), resolve: () => {} }
+      // `setTier` reverts before it applies; only the top-level calls are the agent's decisions, so a revert made
+      // inside one is not recorded on its own.
+      let inSetTier = false
+      const setTier = store.setTier.bind(store)
       const revert = store.revert.bind(store)
-      vi.spyOn(store, 'apply').mockImplementation((udid, labels) => { order.push('apply'); apply(udid, labels) })
-      vi.spyOn(store, 'revert').mockImplementation((udid) => { order.push('revert'); return revert(udid) })
+      vi.spyOn(store, 'setTier').mockImplementation((udid, tier, labels) => {
+        order.push(`tier:${tier.name}`)
+        inSetTier = true
+        try { setTier(udid, tier, labels) } finally { inSetTier = false }
+      })
+      vi.spyOn(store, 'revert').mockImplementation((udid) => { if (!inSetTier) order.push('revert'); return revert(udid) })
     })
     afterEach(() => fs.rmSync(leanRoot, { recursive: true, force: true }))
 
@@ -4486,14 +4496,23 @@ describe('IOSAgent', () => {
       browser.send(JSON.stringify({ type: 'session:start', sessionId: agent.sessionId }))
       await waitForType(browser, 'session:joined')
       browser.send(JSON.stringify({ type: 'device:boot', requestId: 'rq-lean', sessionId: agent.sessionId, payload: { deviceId: 'dev-1', ...payload } }))
-      await waitForType(browser, 'device:ready')
+      const ready = await waitForType(browser, 'device:ready')
+      lastReady.resolve(ready['payload'] as Record<string, unknown>)
       return { agent, browser }
+    }
+    /** The payload of the next boot's ready, read by `boot` from the frame it already waits for. */
+    let lastReady: { promise: Promise<Record<string, unknown>>; resolve: (p: Record<string, unknown>) => void }
+    function waitForReadyPayload(): Promise<Record<string, unknown>> {
+      let resolve!: (p: Record<string, unknown>) => void
+      const promise = new Promise<Record<string, unknown>>((r) => { resolve = r })
+      lastReady = { promise, resolve }
+      return promise
     }
 
     it('disables the labels before booting a device that is shut down', async () => {
       const { agent, browser } = await boot(simctlOn('shutdown'), true)
-      expect(order).toEqual(['apply', 'boot'])
-      expect(store.apply).toHaveBeenCalledWith('dev-1', LEAN_LABELS)
+      expect(order).toEqual(['tier:lean', 'boot'])
+      expect(store.setTier).toHaveBeenCalledWith('dev-1', { name: 'lean', allow: [] }, LEAN_LABELS)
       expect(store.isApplied('dev-1')).toBe(true)
       agent.disconnect(); browser.close()
     })
@@ -4506,9 +4525,25 @@ describe('IOSAgent', () => {
       agent.disconnect(); browser.close()
     })
 
-    it('applies after a full erase has shut the device down, before it boots again', async () => {
+    it('sets the tier after a full erase has succeeded, before the device boots again', async () => {
       const { agent, browser } = await boot(simctlOn('booted'), true, { resetMode: 'full-erase' })
-      expect(order).toEqual(['shutdown', 'apply', 'erase', 'boot'])
+      expect(order).toEqual(['shutdown', 'erase', 'tier:lean', 'boot'])
+      agent.disconnect(); browser.close()
+    })
+
+    it('leaves the tier alone when the erase fails, so the device comes back as it was found', async () => {
+      const simctl = simctlOn('booted')
+      ;(simctl.erase as ReturnType<typeof vi.fn>).mockImplementation(async () => { order.push('erase'); throw new Error('disk full') })
+      const agent = new IOSAgent({ intervalMs: 50, lean: true, leanStore: store }, simctl)
+      await agent.connect(`ws://localhost:${port}`)
+      const browser = new WebSocket(`ws://localhost:${port}`)
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'session:start', sessionId: agent.sessionId }))
+      await waitForType(browser, 'session:joined')
+      browser.send(JSON.stringify({ type: 'device:boot', requestId: 'rq-erase', sessionId: agent.sessionId, payload: { deviceId: 'dev-1', resetMode: 'full-erase', serviceTier: { name: 'slim', allow: [] } } }))
+      await waitForType(browser, 'device:boot-error')
+      expect(order).toEqual(['shutdown', 'erase', 'boot'])
+      expect(store.isApplied('dev-1')).toBe(false)
       agent.disconnect(); browser.close()
     })
 
@@ -4528,10 +4563,10 @@ describe('IOSAgent', () => {
     })
 
     it('boots anyway when the store cannot be written', async () => {
-      vi.mocked(store.apply).mockImplementation(() => { order.push('apply'); throw new Error('EACCES') })
+      vi.mocked(store.setTier).mockImplementation(() => { order.push('tier:lean'); throw new Error('EACCES') })
       vi.spyOn(console, 'warn').mockImplementation(() => {})
       const { agent, browser } = await boot(simctlOn('shutdown'), true)
-      expect(order).toEqual(['apply', 'boot'])
+      expect(order).toEqual(['tier:lean', 'boot'])
       agent.disconnect(); browser.close()
     })
 
@@ -4540,7 +4575,7 @@ describe('IOSAgent', () => {
       const { agent, browser } = await boot(simctl, true)
       browser.send(JSON.stringify({ type: 'device:shutdown', requestId: 'rq-off', sessionId: agent.sessionId, payload: { deviceId: 'dev-1' } }))
       await waitForType(browser, 'device:shutdown-done')
-      expect(order).toEqual(['apply', 'boot', 'shutdown', 'revert'])
+      expect(order).toEqual(['tier:lean', 'boot', 'shutdown', 'revert'])
       expect(store.isApplied('dev-1')).toBe(false)
       agent.disconnect(); browser.close()
     })
@@ -4552,24 +4587,87 @@ describe('IOSAgent', () => {
       vi.spyOn(console, 'warn').mockImplementation(() => {})
       browser.send(JSON.stringify({ type: 'device:shutdown', requestId: 'rq-off', sessionId: agent.sessionId, payload: { deviceId: 'dev-1' } }))
       await waitForType(browser, 'device:shutdown-done')
-      expect(order).toEqual(['apply', 'boot', 'shutdown', 'revert'])
+      expect(order).toEqual(['tier:lean', 'boot', 'shutdown', 'revert'])
       agent.disconnect(); browser.close()
     })
 
     it('with Lean mode off, puts back a device it left lean before booting it', async () => {
       // Marked after connect, so it is the boot path doing this and not the sweep below.
       const { agent, browser } = await boot(simctlOn('shutdown'), false, {}, () => {
-        store.apply('dev-1', LEAN_LABELS)
+        store.setTier('dev-1', { name: 'lean', allow: [] }, LEAN_LABELS)
         order = []
       })
-      expect(order).toEqual(['revert', 'boot'])
+      expect(order).toEqual(['tier:stock', 'boot'])
       expect(store.isApplied('dev-1')).toBe(false)
       agent.disconnect(); browser.close()
     })
 
+    describe('service tiers', () => {
+      const SLIM: ServiceTier = { name: 'slim', allow: ['push'] }
+      const LEAN: ServiceTier = { name: 'lean', allow: [] }
+
+      it('boots a shut-down device onto the tier a run asked for, and says so on ready', async () => {
+        const ready = waitForReadyPayload()
+        const { agent, browser } = await boot(simctlOn('shutdown'), true, { serviceTier: SLIM })
+        expect(order).toEqual(['tier:slim', 'boot'])
+        expect(store.setTier).toHaveBeenCalledWith('dev-1', SLIM, labelsFor(SLIM))
+        expect(labelsFor(SLIM)).not.toContain('com.apple.apsd') // push kept on
+        expect(await ready).toMatchObject({ cold: true, serviceTier: SLIM })
+        agent.disconnect(); browser.close()
+      })
+
+      it('restarts a running device that is on another tier', async () => {
+        const ready = waitForReadyPayload()
+        const { agent, browser } = await boot(simctlOn('booted'), true, { serviceTier: SLIM }, () => {
+          store.setTier('dev-1', LEAN, labelsFor(LEAN))
+          order = []
+        })
+        expect(order).toEqual(['shutdown', 'tier:slim', 'boot'])
+        expect(await ready).toMatchObject({ cold: true, serviceTier: SLIM })
+        agent.disconnect(); browser.close()
+      })
+
+      it('leaves a running device that is already on the tier', async () => {
+        const ready = waitForReadyPayload()
+        const { agent, browser } = await boot(simctlOn('booted'), true, { serviceTier: SLIM }, () => {
+          store.setTier('dev-1', SLIM, labelsFor(SLIM))
+          order = []
+        })
+        expect(order).toEqual(['boot'])
+        expect(await ready).toMatchObject({ cold: false, serviceTier: SLIM })
+        agent.disconnect(); browser.close()
+      })
+
+      it('puts a device a run left slim back on exactly the default tier for a boot that asks for none', async () => {
+        // R4-S1: adding Lean mode's labels to slim's would leave slim's on, and hand a person a device without push.
+        const { agent, browser } = await boot(simctlOn('shutdown'), true, {}, () => {
+          store.setTier('dev-1', SLIM, labelsFor(SLIM))
+          order = []
+        })
+        expect(order).toEqual(['tier:lean', 'boot'])
+        expect(store.currentTier('dev-1')).toEqual(LEAN)
+        const disabled = parseDisabledStore(fs.readFileSync(path.join(leanRoot, 'com.apple.CoreSimulator.SimDevice.dev-1', 'disabled.plist'), 'utf8'))
+        expect(Object.keys(disabled).sort()).toEqual([...LEAN_LABELS].sort())
+        agent.disconnect(); browser.close()
+      })
+
+      it('reports each device\'s tier when it registers', async () => {
+        store.setTier('dev-1', SLIM, labelsFor(SLIM))
+        const agent = new IOSAgent({ intervalMs: 50, lean: true, leanStore: store }, simctlOn('booted'))
+        const listed = new WebSocket(`ws://localhost:${port}`)
+        await waitForOpen(listed)
+        await agent.connect(`ws://localhost:${port}`)
+        listed.send(JSON.stringify({ type: 'agents:list' }))
+        const msg = await waitForType(listed, 'agents:listed')
+        const devices = (msg['sessions'] as Array<{ devices: Array<{ serviceTier?: unknown }> }>)[0]!.devices
+        expect(devices[0]!.serviceTier).toEqual(SLIM)
+        agent.disconnect(); listed.close()
+      })
+    })
+
     describe('on connect', () => {
       it('puts back a shut-down device an earlier run left lean', async () => {
-        store.apply('dev-1', LEAN_LABELS)
+        store.setTier('dev-1', { name: 'lean', allow: [] }, LEAN_LABELS)
         const agent = new IOSAgent({ intervalMs: 50, lean: true, leanStore: store }, simctlOn('shutdown'))
         await agent.connect(`ws://localhost:${port}`)
         expect(store.isApplied('dev-1')).toBe(false)
@@ -4578,8 +4676,8 @@ describe('IOSAgent', () => {
 
       it('leaves one that is still running, and one that no longer exists', async () => {
         // The twin of the case above.
-        store.apply('dev-1', LEAN_LABELS)
-        store.apply('gone-1', LEAN_LABELS)
+        store.setTier('dev-1', { name: 'lean', allow: [] }, LEAN_LABELS)
+        store.setTier('gone-1', { name: 'lean', allow: [] }, LEAN_LABELS)
         const agent = new IOSAgent({ intervalMs: 50, lean: true, leanStore: store }, simctlOn('booted'))
         await agent.connect(`ws://localhost:${port}`)
         expect(store.isApplied('dev-1')).toBe(true)

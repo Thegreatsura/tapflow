@@ -25,8 +25,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@tapflowio/flow-runner', async (importOriginal) => ({
   // The real tap and token resolution: these tests feed it frames and tokens and check what reaches the relay.
-  ...(({ VideoTap, resolveToken, tokenRefusal, fetchWithToken, fixedToken, isEligible, lookupBuild, parseTagList, retryAdmission, admissionRefusalOf, AdmissionRefusedError }) => ({
-    VideoTap, resolveToken, tokenRefusal, fetchWithToken, fixedToken, isEligible, lookupBuild, parseTagList, retryAdmission, admissionRefusalOf, AdmissionRefusedError,
+  ...(({ VideoTap, resolveToken, tokenRefusal, fetchWithToken, fixedToken, isEligible, lookupBuild, parseTagList, retryAdmission, admissionRefusalOf, AdmissionRefusedError, parseServiceTier }) => ({
+    VideoTap, resolveToken, tokenRefusal, fetchWithToken, fixedToken, isEligible, lookupBuild, parseTagList, retryAdmission, admissionRefusalOf, AdmissionRefusedError, parseServiceTier,
   }))(
     await importOriginal<typeof import('@tapflowio/flow-runner')>(),
   ),
@@ -169,6 +169,31 @@ describe('cmdFlowRun exit codes (#543)', () => {
       mocks.bootDevice.mockRejectedValueOnce(new Error('Device not found: dev1'))
       await run([flowFile('a.yaml')])
       expect(mocks.joinSession).toHaveBeenCalledTimes(1)
+      expect(process.exitCode).toBe(2)
+    })
+  })
+
+  describe('--service-tier', () => {
+    it('asks for the tier on the boot', async () => {
+      mocks.runFlow.mockResolvedValue(resultOf('passed'))
+      await run([flowFile('a.yaml')], { serviceTier: 'slim', allow: 'push,photos' })
+      expect(mocks.bootDevice).toHaveBeenCalledWith('s1', 'dev1', expect.objectContaining({ serviceTier: { name: 'slim', allow: ['push', 'photos'] } }))
+    })
+
+    it('asks for none without the flag', async () => {
+      mocks.runFlow.mockResolvedValue(resultOf('passed'))
+      await run([flowFile('a.yaml')])
+      expect((mocks.bootDevice.mock.calls[0] as unknown[])[2]).not.toHaveProperty('serviceTier')
+    })
+
+    it('stops with exit 2 on an unknown feature, before choosing a device', async () => {
+      await run([flowFile('a.yaml')], { serviceTier: 'slim', allow: 'pushh' })
+      expect(process.exitCode).toBe(2)
+      expect(mocks.listDevices).not.toHaveBeenCalled()
+    })
+
+    it('refuses --allow without a tier', async () => {
+      await run([flowFile('a.yaml')], { allow: 'push' })
       expect(process.exitCode).toBe(2)
     })
   })

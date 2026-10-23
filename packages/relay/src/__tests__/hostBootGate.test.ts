@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
+import type { ServiceTier } from '@tapflowio/protocol'
 import { HostBootGate, GATE_DEFAULTS, type BootRequest, type Effect } from '../admission/HostBootGate.js'
 import { isSettled } from '../admission/settle.js'
 import { classifyBoot } from '../admission/classifyBoot.js'
@@ -38,12 +39,23 @@ describe('isSettled', () => {
 })
 
 describe('classifyBoot', () => {
+  const slim: ServiceTier = { name: 'slim', allow: [] }
+  const lean: ServiceTier = { name: 'lean', allow: [] }
   it('charges only a boot that brings a device up', () => {
-    expect(classifyBoot('booted', undefined)).toBe('warm')
-    expect(classifyBoot('booted', 'app-only')).toBe('warm')
-    expect(classifyBoot('booted', 'full-erase')).toBe('cold')
-    expect(classifyBoot('shutdown', undefined)).toBe('cold')
-    expect(classifyBoot('unknown', 'app-only')).toBe('cold')
+    expect(classifyBoot('booted', {}, undefined)).toBe('warm')
+    expect(classifyBoot('booted', { resetMode: 'app-only' }, undefined)).toBe('warm')
+    expect(classifyBoot('booted', { resetMode: 'full-erase' }, undefined)).toBe('cold')
+    expect(classifyBoot('shutdown', {}, undefined)).toBe('cold')
+    expect(classifyBoot('unknown', { resetMode: 'app-only' }, undefined)).toBe('cold')
+  })
+  it('charges a running device asked onto another tier, and only when both sides are known', () => {
+    expect(classifyBoot('booted', { serviceTier: slim }, lean)).toBe('cold')
+    expect(classifyBoot('booted', { serviceTier: { name: 'slim', allow: ['push'] } }, slim)).toBe('cold')
+    expect(classifyBoot('booted', { serviceTier: slim }, slim)).toBe('warm')
+    expect(classifyBoot('booted', { serviceTier: { name: 'slim', allow: ['push', 'photos'] } }, { name: 'slim', allow: ['photos', 'push'] })).toBe('warm')
+    expect(classifyBoot('booted', { serviceTier: slim }, 'unsupported')).toBe('warm')
+    expect(classifyBoot('booted', { serviceTier: slim }, undefined)).toBe('warm')
+    expect(classifyBoot('booted', {}, slim)).toBe('warm')
   })
 })
 

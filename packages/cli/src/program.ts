@@ -133,6 +133,8 @@ export function createCli(): CAC {
     .option('--junit <path>', 'Write a JUnit XML report')
     .option('--artifacts <dir>', 'Failure screenshot directory (default: .tapflow/artifacts)')
     .option('--timeout <seconds>', 'Default per-selector wait (default: 10)')
+    .option('--service-tier <tier>', 'Services the device boots with: stock, lean or slim (iOS 18.5+; default: the agent\'s setting)')
+    .option('--allow <features>', 'Features to keep on under --service-tier (comma-separated, e.g. push,photos)')
     .option('--admission-timeout <seconds>', 'How long to wait while another device boots on the same Mac, or the Mac is over its CPU or memory limit (default: 600)')
     .option('--no-record', 'Do not record this run on the relay')
     .option('--include-tags <tags>', 'Run only flows tagged with at least one of these (comma-separated)')

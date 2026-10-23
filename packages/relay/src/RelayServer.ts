@@ -13,7 +13,7 @@ import { gestureAction, keyForWatchers } from './lib/watchActions.js'
 import { HostBootGate, GATE_DEFAULTS, type Effect, type GateEvent, type GateTiming } from './admission/HostBootGate.js'
 import { classifyBoot } from './admission/classifyBoot.js'
 import { hostKeyOf } from './admission/hostKey.js'
-import { directionOf, parseInbound, readyCold } from '@tapflowio/protocol/validate'
+import { directionOf, parseInbound, readyFacts } from '@tapflowio/protocol/validate'
 import type { ParsedInbound, ParseFailure, ParseResult } from '@tapflowio/protocol/validate'
 import { Router, json } from './router.js'
 import { requireViewAuth, requireAuth, getAuth, verifyPat, touchPat, findPat, findUser } from './middleware/auth.js'
@@ -1686,6 +1686,7 @@ export class RelayServer {
         const session = this.sessions.get(msg.sessionId)
         if (!session) break
         this.sessions.clearDeviceCache(session.id)
+        this.sessions.setDeviceServiceTier(session.id, undefined)
         if (session.browserSocket?.readyState === WebSocket.OPEN) {
           session.browserSocket.send(JSON.stringify(raw))
         }
@@ -1710,6 +1711,7 @@ export class RelayServer {
         if (!session) break
         this.sessions.updateDeviceStatus(session.id, 'shutdown')
         this.sessions.setReadySent(session.id, false)
+        this.sessions.setDeviceServiceTier(session.id, undefined)
         if (session.browserSocket?.readyState === WebSocket.OPEN) {
           session.browserSocket.send(JSON.stringify(raw))
         }
@@ -1736,7 +1738,9 @@ export class RelayServer {
         this.settleBoot(msg.sessionId, msg.requestId)
         const session = this.sessions.get(msg.sessionId)
         if (!session) break
-        this.gateEvent({ kind: 'ready', hostKey: hostKeyOf(session), sessionId: session.id, cold: readyCold(raw) })
+        const facts = readyFacts(raw)
+        if (facts.serviceTier !== undefined) this.sessions.setDeviceServiceTier(session.id, facts.serviceTier)
+        this.gateEvent({ kind: 'ready', hostKey: hostKeyOf(session), sessionId: session.id, cold: facts.cold })
         this.sessions.updateDeviceStatus(session.id, 'booted')
         this.sessions.setReadySent(session.id, true)
         if (session.browserSocket?.readyState === WebSocket.OPEN) {
@@ -1836,7 +1840,7 @@ export class RelayServer {
           hostKey: hostKeyOf(boot.session),
           sessionId: msg.sessionId,
           requestId: msg.requestId,
-          cost: classifyBoot(boot.session.deviceStatus, msg.payload.resetMode),
+          cost: classifyBoot(boot.session.deviceStatus, msg.payload, boot.session.deviceServiceTier),
           booterClass: isAiClientKind(boot.session.holderKind) ? 'automated' : 'interactive',
           message: { ws, msg },
         }))
