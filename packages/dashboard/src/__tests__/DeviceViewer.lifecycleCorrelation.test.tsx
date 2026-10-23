@@ -262,3 +262,64 @@ describe('DeviceViewer correlates the lifecycle replies, selectively', () => {
     expect(installs()).toHaveLength(1)
   })
 })
+
+// L2 S2-c. The relay holds a person's boot while another device on the same Mac is starting, and says so with
+// `device:boot-waiting`. Correlated strictly: there is no unsolicited producer, and a reconnect re-sends the boot,
+// so the waiting notice of a boot this viewer replaced must not be shown.
+describe('DeviceViewer says when its boot is waiting for another device on the Mac', () => {
+  beforeEach(() => { send.mockClear(); deliver = null })
+  const WAITING = 'Another device is starting on this Mac. Yours starts next…'
+
+  it('shows the wait for its own boot, and drops it when the boot starts', () => {
+    render(<DeviceViewer sessionId="s1" deviceId="dev-1" />)
+    join()
+    act(() => { deliver!({ type: 'device:boot-waiting', sessionId: 's1', requestId: lastBootId(), until: Date.now() + 60_000 }) })
+    expect(screen.getByText(WAITING)).toBeTruthy()
+
+    act(() => { deliver!({ type: 'device:booting', sessionId: 's1' }) })
+    expect(screen.queryByText(WAITING)).toBeNull()
+    expect(screen.getByText('Starting device…')).toBeTruthy()
+  })
+
+  // A restart: the device was up, the viewer re-boots it, and the relay holds that boot. The wait must show even
+  // though the last cycle left the viewer ready.
+  it('shows the wait for a re-boot of a device that was up', () => {
+    render(<DeviceViewer sessionId="s1" deviceId="dev-1" />)
+    join()
+    act(() => { deliver!({ type: 'device:ready', sessionId: 's1', requestId: lastBootId(), payload: { deviceId: 'dev-1' } }) })
+    expect(screen.queryByText('Starting device…')).toBeNull()
+    join() // re-boot with a new correlator
+    act(() => { deliver!({ type: 'device:boot-waiting', sessionId: 's1', requestId: lastBootId(), until: Date.now() + 60_000 }) })
+    expect(screen.getByText(WAITING)).toBeTruthy()
+  })
+
+  it('drops the last cycle\'s failure when a new boot starts waiting', () => {
+    render(<DeviceViewer sessionId="s1" deviceId="dev-1" />)
+    join()
+    act(() => { deliver!({ type: 'device:boot-error', sessionId: 's1', message: 'scrcpy failed to restart' }) })
+    join() // the tester restarts: a new boot, held behind another device
+    act(() => { deliver!({ type: 'device:boot-waiting', sessionId: 's1', requestId: lastBootId(), until: Date.now() + 60_000 }) })
+    expect(screen.queryByText(/Boot failed/)).toBeNull()
+    expect(screen.getByText(WAITING)).toBeTruthy()
+  })
+
+  it('ignores the wait of a boot it has replaced', () => {
+    render(<DeviceViewer sessionId="s1" deviceId="dev-1" />)
+    join()
+    const replaced = lastBootId()
+    join()
+    expect(lastBootId()).not.toBe(replaced)
+    act(() => { deliver!({ type: 'device:boot-waiting', sessionId: 's1', requestId: replaced, until: Date.now() + 60_000 }) })
+    expect(screen.queryByText(WAITING)).toBeNull()
+  })
+
+  it('lets a failure replace the wait', () => {
+    render(<DeviceViewer sessionId="s1" deviceId="dev-1" />)
+    join()
+    const id = lastBootId()
+    act(() => { deliver!({ type: 'device:boot-waiting', sessionId: 's1', requestId: id, until: Date.now() + 60_000 }) })
+    act(() => { deliver!({ type: 'device:boot-error', sessionId: 's1', requestId: id, message: 'agent offline' }) })
+    expect(screen.queryByText(WAITING)).toBeNull()
+    expect(screen.getByText(/Boot failed: agent offline/)).toBeTruthy()
+  })
+})

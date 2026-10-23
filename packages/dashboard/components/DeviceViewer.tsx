@@ -103,6 +103,9 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
   const [installed, setInstalled] = useState(false);
   const [installError, setInstallError] = useState<string | null>(null);
   const [bootError, setBootError] = useState<string | null>(null);
+  // Set while the relay holds this viewer's boot behind another on the same Mac; cleared by anything that
+  // ends the wait — the boot starting, finishing or failing.
+  const [bootWaiting, setBootWaiting] = useState(false);
   const [launching, setLaunching] = useState(false);
   // What the agent on the other end implements. Absent ⇒ an agent predating the capability,
   // so the viewer degrades on purpose rather than inferring anything from a timeout.
@@ -271,6 +274,7 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
       setInstalling(false);
       setInstallError(null);
       setBootError(null);
+      setBootWaiting(false);
       setLaunching(false);
       setSwKeyboardPending(false);
       if (kbdDeadlineRef.current) clearTimeout(kbdDeadlineRef.current);
@@ -318,7 +322,18 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
       // Release the rebind: without this a failed re-boot would suppress every later install for
       // the life of the mount.
       rebindRef.current = { pending: 0, appInstalled: false };
+      setBootWaiting(false);
       setBootError(msg.message);
+    }
+    // Only for the boot this viewer is waiting on: a reconnect re-sends its boot, and the relay answers the one it
+    // replaced as well as the new one.
+    // Not-ready too: a restart reaches this with the last boot's chrome still up and `deviceReady` still true, and
+    // the device is off until the held boot goes ahead. And a failure from the last cycle (an Android stream that
+    // died) is not this boot's: left set, it outranks the wait and the tester reads "Boot failed" throughout.
+    if (msg.type === 'device:boot-waiting' && msg.requestId === latestBootIdRef.current) {
+      setBootWaiting(true);
+      setDeviceReady(false);
+      setBootError(null);
     }
     // An input the device never got. Deliberately no session-level state behind this: the acks are
     // per-input, unordered (a dispatch is awaited before its ack while a refusal is not) and do not
@@ -369,6 +384,7 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
     // and there is no latch.
 
     if (msg.type === 'device:booting') {
+      setBootWaiting(false);
       setDeviceReady(false);
       setInstalling(false);
       setInstalled(false);
@@ -408,6 +424,7 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
       // clearing the spinner is exactly what it is for (#440). Gating this line on the correlator would
       // reinstate the defect the replay exists to prevent.
       setDeviceReady(true);
+      setBootWaiting(false);
       // Everything below is a reaction to *our* boot, so it is gated. Absent is accepted, so what this
       // rejects is exactly one thing: a ready **carrying** an id that is not one this mount is waiting
       // for. That is a straggler from an earlier boot cycle, which would otherwise release the current
@@ -686,7 +703,7 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
 
   const commonProps = {
     sessionId, buildId, send, openUrl, launchApp, connected, joined,
-    deviceReady, installing, installed, installError, bootError,
+    deviceReady, installing, installed, installError, bootError, bootWaiting,
     launching,
     binaryFrameHandlerRef,
     clipboardHandlerRef,
@@ -747,7 +764,7 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
           </div>
           <SimulatorInfoCard
             joined={joined} fps={0} connected={connected}
-            deviceReady={deviceReady} bootError={bootError}
+            deviceReady={deviceReady} bootError={bootError} bootWaiting={bootWaiting}
             installing={installing} installError={installError}
             decoderUnsupported={false}
             keyboardActive={false} agentAway={agentAway}

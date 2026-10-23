@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
@@ -6,7 +6,7 @@ import { WebSocket } from 'ws'
 import { RelayServer } from '../RelayServer'
 import { initDb, closeDb } from '../db'
 import { waitForOpen, waitForType, waitForTypeOrNull } from '@tapflowio/test-utils'
-import type { AgentRegistered, DeviceBoot, DeviceBootError, GenericError, SessionJoined } from '@tapflowio/protocol'
+import type { AgentRegistered, AgentsListed, DeviceBoot, DeviceBootError, DeviceBootWaiting, GenericError, SessionJoined } from '@tapflowio/protocol'
 
 // The wiring half of `admission/HostBootGate.ts`. The gate's rules are in `hostBootGate.test.ts`; these check
 // that the relay's messages reach it, and the claims a unit test cannot make — that the paths which must *not*
@@ -114,6 +114,68 @@ describe('the relay routes boots through the per-Mac boot gate', () => {
     mac.ws.send(JSON.stringify({ type: 'device:ready', sessionId: mac.session.get('a'), requestId: `${mac.session.get('a')}-boot`, payload: { deviceId: 'a', cold: false } }))
     const forwarded = await waitForType<DeviceBoot>(mac.ws, 'device:boot')
     expect(forwarded.sessionId).toBe(mac.session.get('b'))
+  })
+
+  it('tells a held person their boot is waiting, and until when', async () => {
+    await start()
+    const mac = await agent('mac-1', ['a', 'b'])
+    boot(await join(mac.session.get('a')!, 'flow-runner'), mac.session.get('a')!, 'a')
+    await waitForType<DeviceBoot>(mac.ws, 'device:boot')
+    const person = await join(mac.session.get('b')!)
+    const before = Date.now()
+    boot(person, mac.session.get('b')!, 'b')
+    const waiting = await waitForType<DeviceBootWaiting>(person, 'device:boot-waiting')
+    expect(waiting.requestId).toBe(`${mac.session.get('b')}-boot`)
+    expect(waiting.until).toBeGreaterThanOrEqual(before + 60_000)
+  })
+
+  it('reports each Mac\'s admission on the device listing, the same on both of its agents', async () => {
+    await start()
+    const ios = await agent('mac-1', ['a'])
+    const android = await agent('mac-1', ['p'], 'android')
+    ios.ws.send(resources(95))
+    await new Promise((r) => setTimeout(r, 50))
+    const lister = await open()
+    const list = async () => {
+      lister.send(JSON.stringify({ type: 'agents:list' }))
+      return (await waitForType<AgentsListed>(lister, 'agents:listed')).sessions.map((s) => [s.platform, s.admission])
+    }
+    // CPU over the line and no boot: a new join would be refused, on the Mac's iOS agent; Android's own reading is idle.
+    await vi.waitFor(async () => expect(await list()).toEqual(expect.arrayContaining([['ios', { booting: false, overloaded: true, memoryRefuses: [] }]])))
+
+    boot(await join(android.session.get('p')!, 'flow-runner'), android.session.get('p')!, 'p')
+    await waitForType<DeviceBoot>(android.ws, 'device:boot')
+    // A boot holds the Mac: both agents say so, and the CPU is the boot's, so the join gate is paused.
+    await vi.waitFor(async () => expect(await list()).toEqual(expect.arrayContaining([
+      ['ios', { booting: true, overloaded: false, memoryRefuses: [] }],
+      ['android', { booting: true, overloaded: false, memoryRefuses: [] }],
+    ])))
+  })
+
+  it('keeps a Mac short of memory open while it has a device up to rejoin, and names the devices it would refuse', async () => {
+    await start()
+    const mac = await agent('mac-1', ['a', 'b'])
+    const memFull = JSON.stringify({ type: 'agent:resources', resources: { cpuPercent: 10, memUsedMB: 15_500, memTotalMB: 16_000, slotsAvailable: 1, slotsTotal: 2, reportedAt: Date.now() } })
+    mac.ws.send(memFull)
+    await new Promise((r) => setTimeout(r, 50))
+    const lister = await open()
+    const admission = async () => {
+      lister.send(JSON.stringify({ type: 'agents:list' }))
+      return (await waitForType<AgentsListed>(lister, 'agents:listed')).sessions[0]!.admission
+    }
+    // Nothing up: a person could not get in anywhere on this Mac.
+    await vi.waitFor(async () => expect(await admission()).toEqual({ booting: false, overloaded: true, memoryRefuses: ['a', 'b'] }))
+
+    // Bring one device up through the relay (memory was fine then), and the Mac opens again — for that device.
+    mac.ws.send(resources(10))
+    await new Promise((r) => setTimeout(r, 50))
+    const person = await join(mac.session.get('a')!)
+    boot(person, mac.session.get('a')!, 'a')
+    await waitForType<DeviceBoot>(mac.ws, 'device:boot')
+    mac.ws.send(JSON.stringify({ type: 'device:ready', sessionId: mac.session.get('a'), requestId: `${mac.session.get('a')}-boot`, payload: { deviceId: 'a', cold: false } }))
+    mac.ws.send(memFull)
+    await new Promise((r) => setTimeout(r, 50))
+    await vi.waitFor(async () => expect(await admission()).toEqual({ booting: false, overloaded: false, memoryRefuses: ['b'] }))
   })
 
   it('sends a held person after the longest wait even with the slot still taken', async () => {

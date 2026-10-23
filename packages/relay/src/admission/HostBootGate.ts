@@ -65,7 +65,6 @@ export interface BootRequest<M> {
 
 export type GateLogEvent =
   | 'overlap'
-  | 'held'
   | 'boot-timeout'
   | 'settle-timeout'
   | 'no-samples'
@@ -78,6 +77,8 @@ export type Effect<M> =
   | { kind: 'deliver'; sessionId: string; requestId: string; message: M }
   /** Answer this automated boot with `device:boot-error` and the reason; it was never forwarded. */
   | { kind: 'refuse'; sessionId: string; requestId: string; reason: BootRefusalReason; message: M }
+  /** A person's boot is now held; tell them, and when it goes ahead regardless. */
+  | { kind: 'waiting'; sessionId: string; requestId: string; until: number; message: M }
   /** A held boot that will not go ahead: answer it with `device:boot-error`. */
   | { kind: 'withdraw'; sessionId: string; requestId: string; why: 'cancelled' | 'replaced'; message: M }
   | { kind: 'log'; event: GateLogEvent; hostKey: string; sessionId?: string }
@@ -154,6 +155,7 @@ export class HostBootGate<M> {
         fx.push(this.deliverOf(req))
       } else {
         host.reservation = { ...host.reservation, requestId: req.requestId, message: req.message }
+        fx.push({ kind: 'waiting', sessionId: req.sessionId, requestId: req.requestId, until: host.reservation.since + this.timing.humanWaitMs, message: req.message })
       }
       return fx
     }
@@ -191,7 +193,7 @@ export class HostBootGate<M> {
       fx.push(this.deliverOf(req))
     } else if (host.reservation === null) {
       host.reservation = { sessionId: req.sessionId, requestId: req.requestId, message: req.message, since: now }
-      fx.push({ kind: 'log', event: 'held', hostKey: req.hostKey, sessionId: req.sessionId })
+      fx.push({ kind: 'waiting', sessionId: req.sessionId, requestId: req.requestId, until: now + this.timing.humanWaitMs, message: req.message })
     } else {
       // The one place is taken. A second person at once is rare enough to let through rather than queue.
       fx.push({ kind: 'log', event: 'overlap', hostKey: req.hostKey, sessionId: req.sessionId })
