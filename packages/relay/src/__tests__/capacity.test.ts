@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { planCapacity, defaultCap, type CapacityDevice } from '../admission/capacity.js'
+import { planCapacity, defaultCap, idleToFree, type CapacityDevice } from '../admission/capacity.js'
 
 const dev = (sessionId: string, over: Partial<CapacityDevice> = {}): CapacityDevice => ({
   sessionId, platform: 'ios', automated: true, booted: true, inUse: false, reachable: true, bootedAt: 0, ...over,
@@ -50,5 +50,19 @@ describe('planCapacity', () => {
 
   it('does not count the requester twice when it re-boots a device automation already runs', () => {
     expect(planCapacity([dev('a'), dev('b'), dev('c'), dev('new')], ios, 4)).toEqual({ ok: true, evict: [] })
+  })
+})
+
+describe('idleToFree', () => {
+  it('names the oldest idle automation device, never the requester, one in use, or a person\'s', () => {
+    const devices = [
+      dev('held', { inUse: true, bootedAt: 1 }),
+      dev('person', { automated: false, bootedAt: 2 }),
+      dev('me', { bootedAt: 3 }),
+      dev('newer', { bootedAt: 9 }),
+      dev('older', { bootedAt: 5 }),
+    ]
+    expect(idleToFree(devices, 'me')).toBe('older')
+    expect(idleToFree([dev('held', { inUse: true })], 'me')).toBeNull()
   })
 })

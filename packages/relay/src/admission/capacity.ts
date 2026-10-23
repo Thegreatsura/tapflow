@@ -42,6 +42,17 @@ export function defaultCap(memTotalMB: number): number {
  * Whether `requester` may cold-boot under `cap`, and which idle automation devices must go first. The requester's
  * own weight is left out of what is already up: a re-boot of a device automation already runs adds nothing.
  */
+/**
+ * The one device to shut down when an automated boot is refused because the Mac's memory is critical: the oldest idle
+ * automation device, or none. One per refusal, so memory is freed a device at a time while the client retries, and
+ * stops as soon as the pressure lifts.
+ */
+export function idleToFree(devices: readonly CapacityDevice[], requesterId: string): string | null {
+  const idle = devices.filter((d) => d.automated && d.booted && !d.inUse && d.reachable && d.sessionId !== requesterId)
+  if (idle.length === 0) return null
+  return idle.reduce((a, b) => (b.bootedAt < a.bootedAt ? b : a)).sessionId
+}
+
 export function planCapacity(devices: readonly CapacityDevice[], requester: { sessionId: string; platform: string }, cap: number): CapacityPlan {
   const counted = devices.filter((d) => d.automated && d.sessionId !== requester.sessionId)
   let over = counted.reduce((sum, d) => sum + deviceWeight(d.platform), 0) + deviceWeight(requester.platform) - cap

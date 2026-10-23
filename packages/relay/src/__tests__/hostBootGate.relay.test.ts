@@ -476,16 +476,40 @@ describe('the relay routes boots through the per-Mac boot gate', () => {
       expect(await waitForTypeOrNull(mac.ws, 'device:shutdown', 100)).toBeNull()
     })
 
-    it('shuts nothing down for a boot the gate refuses', async () => {
+    it('shuts nothing down for a boot the gate holds back behind another boot', async () => {
       process.env['TAPFLOW_MAX_AUTOMATED_DEVICES'] = '1'
-      await start(quickGate)
-      const mac = await agent('mac-1', ['a', 'b'])
-      await runAndLeave(mac, 'a')
-      mac.ws.send(resources(40, 'critical'))
+      await start() // the slot stays taken until settled
+      const mac = await agent('mac-1', ['a', 'b', 'c'])
+      await runAndLeave(mac, 'a') // a is up, idle, and still holds the slot while it settles
       const robot = await join(mac.session.get('b')!, 'flow-runner')
       boot(robot, mac.session.get('b')!, 'b')
-      expect((await waitForType<DeviceBootError>(robot, 'device:boot-error')).reason).toBe('host-memory-critical')
+      expect((await waitForType<DeviceBootError>(robot, 'device:boot-error')).reason).toBe('host-booting')
       expect(await waitForTypeOrNull(mac.ws, 'device:shutdown', 100)).toBeNull()
+    })
+
+    // Idle automation devices are what fills a Mac, and while it is critical no boot gets far enough to free one
+    // for the cap. The refusal frees the oldest idle one, one at a time.
+    it('frees the oldest idle automation device when a boot is refused for critical memory, one at a time', async () => {
+      await start(quickGate)
+      const mac = await agent('mac-1', ['a', 'b', 'c', 'd'])
+      await runAndLeave(mac, 'a')
+      await runAndLeave(mac, 'b')
+      mac.ws.send(resources(40, 'critical'))
+      const robot = await join(mac.session.get('c')!, 'flow-runner')
+      boot(robot, mac.session.get('c')!, 'c', 'c-1')
+      expect((await waitForType<DeviceBootError>(robot, 'device:boot-error')).reason).toBe('host-memory-critical')
+      expect((await waitForType<{ type: 'device:shutdown'; sessionId: string }>(mac.ws, 'device:shutdown')).sessionId).toBe(mac.session.get('a'))
+      // A retry while that shutdown is still on its way frees nothing more.
+      boot(robot, mac.session.get('c')!, 'c', 'c-2')
+      await waitForType<DeviceBootError>(robot, 'device:boot-error')
+      expect(await waitForTypeOrNull(mac.ws, 'device:shutdown', 100)).toBeNull()
+      // Once it is done, the next refusal frees the next one.
+      mac.ws.send(JSON.stringify({ type: 'device:shutdown-done', sessionId: mac.session.get('a') }))
+      await new Promise((r) => setTimeout(r, 20))
+      mac.ws.send(resources(40, 'critical'))
+      boot(robot, mac.session.get('c')!, 'c', 'c-3')
+      await waitForType<DeviceBootError>(robot, 'device:boot-error')
+      expect((await waitForType<{ type: 'device:shutdown'; sessionId: string }>(mac.ws, 'device:shutdown')).sessionId).toBe(mac.session.get('b'))
     })
 
     it('a run that borrowed a device in a person\'s idle countdown starts the countdown again when it leaves', async () => {

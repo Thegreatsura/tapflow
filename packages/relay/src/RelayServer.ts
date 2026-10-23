@@ -12,7 +12,7 @@ import type { DeviceDetails, UIElement } from './types.js'
 import type { BootRefusalReason, ChromePayload, InputErrorReason, MacAdmission, RelayOutbound, PosturesPayload, WatchActionKind, WatchRefusal } from '@tapflowio/protocol'
 import { gestureAction, keyForWatchers } from './lib/watchActions.js'
 import { HostBootGate, GATE_DEFAULTS, type BooterClass, type Effect, type GateEvent, type GateTiming } from './admission/HostBootGate.js'
-import { defaultCap, planCapacity, type CapacityDevice, type CapacityPlan } from './admission/capacity.js'
+import { defaultCap, idleToFree, planCapacity, type CapacityDevice, type CapacityPlan } from './admission/capacity.js'
 import { classifyBoot } from './admission/classifyBoot.js'
 import { hostKeyOf } from './admission/hostKey.js'
 import { directionOf, parseInbound, readyFacts } from '@tapflowio/protocol/validate'
@@ -1889,8 +1889,13 @@ export class RelayServer {
           message: { ws, msg, cost, booterClass },
         })
         const goes = effects.some((fx) => fx.kind === 'deliver' && fx.requestId === msg.requestId)
+        const critical = effects.some((fx) => fx.kind === 'refuse' && fx.requestId === msg.requestId && fx.reason === 'host-memory-critical')
         this.applyGate(effects)
         if (goes) for (const id of capacity.evict) this.evictForCapacity(id)
+        // Idle automation devices are what fills a Mac this way, and while it is critical no boot gets far enough to
+        // shut one down for the cap. So the refusal itself frees one — the oldest idle, never one in use, and not
+        // while an earlier one on this Mac is still shutting down.
+        else if (critical) this.freeOneForMemory(boot.session)
         break
       }
       case 'device:shutdown': {
@@ -2914,10 +2919,13 @@ export class RelayServer {
   }
 
   private planCapacityFor(requester: Session): CapacityPlan {
-    const hostKey = hostKeyOf(requester)
-    const onHost = this.sessions.getAllOnHost(hostKey, hostKeyOf)
+    const onHost = this.sessions.getAllOnHost(hostKeyOf(requester), hostKeyOf)
+    return planCapacity(this.capacityDevices(onHost), { sessionId: requester.id, platform: requester.devicePlatform }, this.automatedCap(onHost))
+  }
+
+  private capacityDevices(onHost: Session[]): CapacityDevice[] {
     const now = Date.now()
-    const devices: CapacityDevice[] = onHost
+    return onHost
       // A device being shut down to make room is neither up nor available, until the agent says otherwise.
       .filter((s) => s.evictingAt === undefined || now - s.evictingAt >= EVICTION_GRACE_MS)
       .map((s) => ({
@@ -2931,7 +2939,14 @@ export class RelayServer {
         reachable: s.agentSocket.readyState === WebSocket.OPEN,
         bootedAt: s.lastBoot?.at ?? 0,
       }))
-    return planCapacity(devices, { sessionId: requester.id, platform: requester.devicePlatform }, this.automatedCap(onHost))
+  }
+
+  private freeOneForMemory(requester: Session): void {
+    const onHost = this.sessions.getAllOnHost(hostKeyOf(requester), hostKeyOf)
+    const now = Date.now()
+    if (onHost.some((s) => s.evictingAt !== undefined && now - s.evictingAt < EVICTION_GRACE_MS)) return
+    const victim = idleToFree(this.capacityDevices(onHost), requester.id)
+    if (victim) this.evictForCapacity(victim)
   }
 
   /** Shut down an idle automation device to make room. Marked first, so nothing replays it as up or picks it again
@@ -2942,7 +2957,7 @@ export class RelayServer {
     session.evictingAt = Date.now()
     this.sessions.updateDeviceStatus(session.id, 'shutdown')
     this.sessions.setReadySent(session.id, false)
-    logger.info(`automation cap: shutting down idle ${session.deviceName} on ${hostKeyOf(session)} to make room`)
+    logger.info(`boot gate: shutting down idle automation device ${session.deviceName} on ${hostKeyOf(session)} to make room`)
     this.sendTo(session.agentSocket, { type: 'device:shutdown', sessionId: session.id, payload: { deviceId: session.deviceId } })
   }
 
