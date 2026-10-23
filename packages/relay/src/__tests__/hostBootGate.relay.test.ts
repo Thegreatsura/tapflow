@@ -73,7 +73,7 @@ describe('the relay routes boots through the per-Mac boot gate', () => {
   it('forwards the tier a run asks for, and charges a running device on another tier as a cold boot', async () => {
     await start()
     const ws = await open()
-    const lean = { name: 'lean', allow: [] }
+    const lean = { name: 'lean', keep: [] }
     ws.send(JSON.stringify({
       type: 'agent:register', agentId: 'mac-1', agentName: 'mac-1-ios', platform: 'ios',
       devices: [
@@ -83,7 +83,7 @@ describe('the relay routes boots through the per-Mac boot gate', () => {
     }))
     const reply = await waitForType<AgentRegistered>(ws, 'agent:registered')
     const session = new Map(reply.registeredSessions.map((r) => [r.deviceId, r.sessionId]))
-    const slim = { name: 'slim', allow: ['push'] }
+    const slim = { name: 'slim', keep: ['push'] }
     const robot = await join(session.get('a')!, 'flow-runner')
     robot.send(JSON.stringify({ type: 'device:boot', sessionId: session.get('a'), requestId: 'r-a', payload: { deviceId: 'a', serviceTier: slim } }))
     const forwarded = await waitForType<DeviceBoot>(ws, 'device:boot')
@@ -104,7 +104,7 @@ describe('the relay routes boots through the per-Mac boot gate', () => {
     }))
     const reply = await waitForType<AgentRegistered>(ws, 'agent:registered')
     const session = new Map(reply.registeredSessions.map((r) => [r.deviceId, r.sessionId]))
-    const slim = { name: 'slim', allow: [] }
+    const slim = { name: 'slim', keep: [] }
     const robot = await join(session.get('a')!, 'flow-runner')
     robot.send(JSON.stringify({ type: 'device:boot', sessionId: session.get('a'), requestId: 'r1', payload: { deviceId: 'a', serviceTier: slim } }))
     await waitForType<DeviceBoot>(ws, 'device:boot')

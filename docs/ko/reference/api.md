@@ -814,6 +814,7 @@ Body (JSON):
   flows    array   필수  실행할 플로우 [{ name, file? }], 최대 500개
   buildId  number  선택  테스트하는 빌드
   ci       object  선택  { provider?, branch?, commit?, jobUrl? }. jobUrl은 http(s) 주소만 저장합니다
+  serviceTier  object  선택  실행이 기기를 켤 때 쓴 서비스 범위 { name: "stock" | "lean" | "slim", keep: [기능] }. 형식이 맞지 않으면 저장하지 않습니다
 ```
 
 **응답 `201`**
@@ -892,6 +893,7 @@ Query:
       "exitCode": 1,
       "isCi": true,
       "ci": { "provider": "github", "branch": "main", "commit": "abc1234", "jobUrl": "https://github.com/acme/app/actions/runs/1" },
+      "serviceTier": null,
       "build": { "id": 7, "appName": "Coffee", "versionName": "1.2.0", "buildNumber": "42", "platform": "ios" },
       "createdBy": "ci-bot",
       "flowsTotal": 2,

@@ -39,8 +39,8 @@ describe('isSettled', () => {
 })
 
 describe('classifyBoot', () => {
-  const slim: ServiceTier = { name: 'slim', allow: [] }
-  const lean: ServiceTier = { name: 'lean', allow: [] }
+  const slim: ServiceTier = { name: 'slim', keep: [] }
+  const lean: ServiceTier = { name: 'lean', keep: [] }
   it('charges only a boot that brings a device up', () => {
     expect(classifyBoot('booted', {}, undefined)).toBe('warm')
     expect(classifyBoot('booted', { resetMode: 'app-only' }, undefined)).toBe('warm')
@@ -50,9 +50,9 @@ describe('classifyBoot', () => {
   })
   it('charges a running device asked onto another tier, and only when both sides are known', () => {
     expect(classifyBoot('booted', { serviceTier: slim }, lean)).toBe('cold')
-    expect(classifyBoot('booted', { serviceTier: { name: 'slim', allow: ['push'] } }, slim)).toBe('cold')
+    expect(classifyBoot('booted', { serviceTier: { name: 'slim', keep: ['push'] } }, slim)).toBe('cold')
     expect(classifyBoot('booted', { serviceTier: slim }, slim)).toBe('warm')
-    expect(classifyBoot('booted', { serviceTier: { name: 'slim', allow: ['push', 'photos'] } }, { name: 'slim', allow: ['photos', 'push'] })).toBe('warm')
+    expect(classifyBoot('booted', { serviceTier: { name: 'slim', keep: ['push', 'photos'] } }, { name: 'slim', keep: ['photos', 'push'] })).toBe('warm')
     expect(classifyBoot('booted', { serviceTier: slim }, 'unsupported')).toBe('warm')
     expect(classifyBoot('booted', { serviceTier: slim }, undefined)).toBe('warm')
     expect(classifyBoot('booted', {}, slim)).toBe('warm')

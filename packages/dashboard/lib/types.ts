@@ -7,13 +7,13 @@ import type { VideoSummary } from './runVideo'
 import type {
   AgentResources, AndroidButton, ChromeButton, ChromeData, ChromeRect,
   AndroidChrome, BrowserInbound, ChromePayload, DeviceDetails, DevicePosture, DeviceSummary,
-  PosturesPayload, SessionInfo,
+  PosturesPayload, ServiceTier, SessionInfo,
 } from '@tapflowio/protocol'
 
 export type {
   AgentResources, AndroidButton, ChromeButton, ChromeData, ChromeRect,
   AndroidChrome, BrowserInbound, ChromePayload, DeviceDetails, DeviceSummary, SessionInfo,
-  DevicePosture, PosturesPayload,
+  DevicePosture, PosturesPayload, ServiceTier,
 }
 
 export interface Comment {
@@ -134,6 +134,8 @@ export interface RunSummary {
   exitCode: number | null
   isCi: boolean
   ci: { provider: string | null; branch: string | null; commit: string | null; jobUrl: string | null } | null
+  /** The services the run asked its device to boot with; null when it asked for none (the agent's own setting). */
+  serviceTier: ServiceTier | null
   build: RunBuild | null
   createdBy: string | null
   flowsTotal: number

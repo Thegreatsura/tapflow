@@ -53,7 +53,7 @@ export interface DeviceReport {
  * - `stock`: nothing off.
  * - `lean`: what the agent's Lean mode turns off — services apps rarely need. A person's default when Lean mode is on.
  * - `slim`: almost everything, including widgets, Spotlight, push, StoreKit, photos and contacts. Only for an
- *   automated run that asked for it, with `allow` naming what its app needs back.
+ *   automated run that asked for it, with `keep` naming what its app needs back.
  *
  * Asked for by a run (`device:boot.payload.serviceTier`), never chosen from who is booting, so the same flow
  * replays on the same services every time. A boot without one gets the agent's own setting.
@@ -70,7 +70,7 @@ export type ServiceFeature =
  *  exceptions alone, which would boot slim with services the app needs switched off. */
 export interface ServiceTier {
   name: ServiceTierName
-  allow: ServiceFeature[]
+  keep: ServiceFeature[]
 }
 
 /** A device as the relay lists it, after adding what only the relay knows. Named `DeviceSummary`

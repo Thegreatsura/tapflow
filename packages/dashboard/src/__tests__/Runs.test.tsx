@@ -13,6 +13,7 @@ function listItem(overrides: Partial<RunListItem> = {}): RunListItem {
   return {
     id: 'r1', status: 'passed', finishedBy: 'client', failureKind: null, errorMessage: null, exitCode: 0,
     isCi: true, ci: { provider: 'github', branch: 'main', commit: 'abcdef123456', jobUrl: 'https://github.com/o/r/actions/runs/1' },
+    serviceTier: null,
     build: { id: 7, appName: 'Coffee', versionName: '1.2.0', buildNumber: '42', platform: 'ios' },
     createdBy: 'ci', flowsTotal: 2, createdAt: '2026-10-11 01:00:00', finishedAt: '2026-10-11 01:01:05',
     flowsPassed: 2, flowsFailed: 0, flowsSkipped: 0,
@@ -252,6 +253,17 @@ describe('Run detail', () => {
       ...overrides,
     }
   }
+
+  it('says which services the run asked its device to boot with, and nothing when it asked for none', async () => {
+    stubRelay(() => Response.json(detail({ serviceTier: { name: 'slim', keep: ['push', 'photos'] } })))
+    const { unmount } = renderAt('/automation/runs/r1')
+    expect(await screen.findByText('slim, keeping push, photos')).toBeTruthy()
+    unmount()
+    stubRelay(() => Response.json(detail()))
+    renderAt('/automation/runs/r1')
+    await screen.findByRole('status')
+    expect(screen.queryByText(/^Services/)).toBeNull()
+  })
 
   it('offers to watch only while the relay says which session the runner holds', async () => {
     stubRelay(() => Response.json(detail({ status: 'running', finishedAt: null, exitCode: null, watchSessionId: 's1' })))

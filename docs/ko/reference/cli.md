@@ -362,7 +362,7 @@ tapflow flow run .tapflow/flows/login-smoke.yaml
 | `--artifacts <dir>` | `.tapflow/artifacts` | 실패 스크린샷을 저장할 디렉터리 |
 | `--timeout <seconds>` | `10` | 셀렉터마다 기다리는 기본 시간(초) |
 | `--service-tier <tier>` | 에이전트 설정 | 기기가 켜질 때 끌 백그라운드 서비스 범위. `stock`(모두 켬), `lean`, `slim`(거의 모두 끔). iOS 18.5 이상. 아래 설명을 참고하세요. |
-| `--allow <features>` | — | `--service-tier`에서 켜 둘 기능(쉼표로 구분). 예: `push,photos` |
+| `--keep <features>` | — | `--service-tier`에서 켜 둘 기능(쉼표로 구분). 예: `push,photos` |
 | `--admission-timeout <seconds>` | `600` | 같은 Mac에서 다른 기기가 부팅 중이거나 Mac이 CPU·메모리 한도를 넘었을 때 기다리는 최대 시간(초). 넘으면 종료 코드 `2`로 멈춥니다. |
 | `--no-record` | — | 이 실행을 릴레이에 기록하지 않음 |
 | `--include-tags <tags>` | — | 이 태그 중 하나라도 있는 플로우만 실행(쉼표로 구분) |
@@ -370,7 +370,7 @@ tapflow flow run .tapflow/flows/login-smoke.yaml
 
 `--session`과 `--device`를 모두 생략하면 부팅된 기기가 정확히 하나일 때 그 기기를 씁니다. 부팅된 기기가 없거나 여러 대면 환경 오류로 멈춥니다.
 
-`--service-tier slim`으로 실행하면 기기를 켤 때 백그라운드 서비스를 거의 모두 끕니다. 8GB Mac에서 측정했을 때 부팅 중 CPU가 포화된 시간이 `lean`의 20~49초에서 7~14초로 줄었습니다. 그만큼 같은 Mac의 다른 세션이 덜 느려집니다. 대신 푸시, StoreKit, Wallet, 사진, 연락처, 위젯, Spotlight, 기기 안에서 도는 AI 모델도 꺼지므로 앱에 필요한 기능은 `--allow`로 지정하세요. 지정할 수 있는 기능은 `push`, `storekit`, `app-store`, `universal-links`, `spotlight`, `siri`, `icloud`, `keychain-sync`, `contacts`, `calendar`, `reminders`, `mail`, `photos`, `health`, `homekit`, `imessage`, `widgets`, `wallet`, `maps`, `weather`, `news`, `game-center`, `find-my`, `screen-time`입니다. 이미 다른 범위로 켜져 있는 기기는 요청한 범위로 다시 켭니다. 옵션을 주지 않으면 사람이 기기를 고를 때처럼 에이전트 설정(`agent.lean`)대로 켭니다.
+`--service-tier slim`으로 실행하면 기기를 켤 때 백그라운드 서비스를 거의 모두 끕니다. 8GB Mac에서 측정했을 때 부팅 중 CPU가 포화된 시간이 `lean`의 20~49초에서 7~14초로 줄었습니다. 그만큼 같은 Mac의 다른 세션이 덜 느려집니다. 대신 푸시, StoreKit, Wallet, 사진, 연락처, 위젯, Spotlight, 기기 안에서 도는 AI 모델도 꺼지므로 앱에 필요한 기능은 `--keep`으로 지정하세요. 지정할 수 있는 기능은 `push`, `storekit`, `app-store`, `universal-links`, `spotlight`, `siri`, `icloud`, `keychain-sync`, `contacts`, `calendar`, `reminders`, `mail`, `photos`, `health`, `homekit`, `imessage`, `widgets`, `wallet`, `maps`, `weather`, `news`, `game-center`, `find-my`, `screen-time`입니다. 이미 다른 범위로 켜져 있는 기기는 요청한 범위로 다시 켭니다. 옵션을 주지 않으면 사람이 기기를 고를 때처럼 에이전트 설정(`agent.lean`)대로 켭니다.
 
 한 Mac에서는 기기를 한 번에 하나씩 부팅합니다. 부팅 중인 기기는 같은 Mac의 다른 세션을 느리게 만들기 때문입니다. 다른 기기가 부팅 중이면 실행은 세션을 놓고 기다렸다가 다시 시도합니다. 기다리는 동안에는 이유를 출력합니다. 사람이 시작한 부팅은 기다리던 실행보다 먼저 진행됩니다.
 

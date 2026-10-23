@@ -284,6 +284,27 @@ describe('QASession — the Mac card follows the relay\'s admission reading', ()
     expect(screen.getByText('iPhone 13').closest('button')!.disabled).toBe(true)
   })
 
+  it('marks a running device a run left with most services off', async () => {
+    const user = userEvent.setup()
+    render(withQuery(
+      <MemoryRouter initialEntries={['/qa?id=7']}>
+        <BreadcrumbProvider><Harness /></BreadcrumbProvider>
+      </MemoryRouter>,
+    ))
+    await vi.waitFor(() => expect(deliver).not.toBeNull())
+    const sessions: SessionInfo[] = [{
+      ...AGENTS[0]!,
+      devices: [
+        { ...device('dev-a', 'iPhone 15'), status: 'booted', serviceTier: { name: 'slim', keep: [] } },
+        { ...device('dev-b', 'iPhone SE'), status: 'booted', serviceTier: { name: 'lean', keep: [] } },
+      ],
+    }]
+    await act(async () => { deliver!({ type: 'agents:listed', sessions }) })
+    await user.click(await screen.findByText('studio-mac'))
+    expect(screen.getByText('iPhone 15').closest('button')!.textContent).toContain('Most services off')
+    expect(screen.getByText('iPhone SE').closest('button')!.textContent).not.toContain('Most services off')
+  })
+
   it('blocks the Mac the relay would refuse', async () => {
     const card = await macCard({ booting: false, overloaded: true, memoryRefuses: ['dev-a', 'dev-b'] })
     expect(card.disabled).toBe(true)

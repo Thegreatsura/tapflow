@@ -23,6 +23,8 @@ interface SimulatorInfoCardProps {
   bootError: string | null;
   /** The relay is holding this boot until another device on the same Mac has settled (`device:boot-waiting`). */
   bootWaiting?: boolean;
+  /** An automated run started this device with most background services off (`slim`), and it is still that way. */
+  servicesOff?: boolean;
   installing: boolean;
   installError: string | null;
   /** H.264 decode path is unavailable in this browser — the viewer can render the device chrome but
@@ -165,6 +167,11 @@ export function SimulatorInfoCard(props: SimulatorInfoCardProps) {
       )}
       </div>
 
+      {props.servicesOff && (
+        <p className="text-[12px] text-muted-foreground leading-relaxed break-words">
+          An automated run started this device with most background services off, apart from any it asked to keep. Restart the device to turn them back on.
+        </p>
+      )}
       {props.note && (
         <p className="text-[12px] text-muted-foreground leading-relaxed break-words">{props.note}</p>
       )}

@@ -15,7 +15,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import { directionOf, parseInbound, readyFacts } from '../validate/index.js'
+import { directionOf, parseInbound, readServiceTier, readyFacts } from '../validate/index.js'
 
 /** The narrowing every test does. Written once because `parseInbound` returns a union and each test
  *  would otherwise repeat the same four lines to reach `msg`. */
@@ -367,13 +367,13 @@ describe('readyFacts reads the checked fields the boot gate needs off a forwarde
   const ready = (payload: Record<string, unknown>) => ({ type: 'device:ready', sessionId: 's', payload: { deviceId: 'd', ...payload } })
   it('returns cold and the tier when they are well formed', () => {
     expect(readyFacts(ready({ cold: true }))).toEqual({ cold: true })
-    expect(readyFacts(ready({ cold: false, serviceTier: { name: 'slim', allow: ['push'] } }))).toEqual({ cold: false, serviceTier: { name: 'slim', allow: ['push'] } })
+    expect(readyFacts(ready({ cold: false, serviceTier: { name: 'slim', keep: ['push'] } }))).toEqual({ cold: false, serviceTier: { name: 'slim', keep: ['push'] } })
     expect(readyFacts(ready({ serviceTier: 'unsupported' }))).toEqual({ serviceTier: 'unsupported' })
   })
   it('drops each field it cannot read, alone', () => {
     expect(readyFacts(ready({}))).toEqual({})
-    expect(readyFacts(ready({ cold: 'yes', serviceTier: { name: 'slim', allow: [] } }))).toEqual({ serviceTier: { name: 'slim', allow: [] } })
-    expect(readyFacts(ready({ cold: true, serviceTier: { name: 'turbo', allow: [] } }))).toEqual({ cold: true })
+    expect(readyFacts(ready({ cold: 'yes', serviceTier: { name: 'slim', keep: [] } }))).toEqual({ serviceTier: { name: 'slim', keep: [] } })
+    expect(readyFacts(ready({ cold: true, serviceTier: { name: 'turbo', keep: [] } }))).toEqual({ cold: true })
     expect(readyFacts({ type: 'device:ready', sessionId: 's' })).toEqual({})
   })
 })
@@ -381,9 +381,20 @@ describe('readyFacts reads the checked fields the boot gate needs off a forwarde
 describe('a boot can ask for a service tier', () => {
   const boot = (serviceTier: unknown) => parseInbound({ type: 'device:boot', sessionId: 's', requestId: 'r', payload: { deviceId: 'd', serviceTier } })
   it('takes a known tier and features', () => {
-    expect(boot({ name: 'slim', allow: ['push', 'photos'] }).ok).toBe(true)
+    expect(boot({ name: 'slim', keep: ['push', 'photos'] }).ok).toBe(true)
   })
   it('refuses an unknown feature rather than booting slim without it', () => {
-    expect(boot({ name: 'slim', allow: ['push', 'teleport'] }).ok).toBe(false)
+    expect(boot({ name: 'slim', keep: ['push', 'teleport'] }).ok).toBe(false)
+  })
+})
+
+describe('readServiceTier checks a tier from outside a frame against the boot\'s schema', () => {
+  it('takes a tier, and nothing else', () => {
+    expect(readServiceTier({ name: 'slim', keep: ['push'] })).toEqual({ name: 'slim', keep: ['push'] })
+    expect(readServiceTier({ name: 'turbo', keep: [] })).toBeUndefined()
+    expect(readServiceTier({ name: 'slim', keep: ['teleport'] })).toBeUndefined()
+    expect(readServiceTier({ name: 'slim' })).toBeUndefined()
+    expect(readServiceTier('slim')).toBeUndefined()
+    expect(readServiceTier(undefined)).toBeUndefined()
   })
 })

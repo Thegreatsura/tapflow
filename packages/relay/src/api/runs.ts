@@ -1,4 +1,6 @@
 import http from 'http'
+import { readServiceTier } from '@tapflowio/protocol/validate'
+import type { ServiceTier } from '@tapflowio/protocol'
 import fs from 'fs'
 import path from 'path'
 import { randomUUID } from 'crypto'
@@ -136,6 +138,7 @@ export interface RunRow {
   ci_branch: string | null
   ci_commit: string | null
   ci_job_url: string | null
+  service_tier_json: string | null
   status: 'running' | 'passed' | 'failed' | 'aborted'
   finished_by: 'client' | 'relay' | null
   failure_kind: string | null
@@ -287,11 +290,13 @@ export async function handleCreateRun(req: http.IncomingMessage, res: http.Serve
   }
 
   const ci = isObj(body.ci) ? body.ci : null
+  // Dropped rather than refused when it is not a tier, as `ci`'s fields are: recording never fails a run.
+  const serviceTier = readServiceTier(body.serviceTier)
   const id = randomUUID()
   getDb().prepare(`
     INSERT INTO flow_runs (id, build_id, holder_client, created_by, pat_id, is_ci, ci_provider, ci_branch, ci_commit,
-                           ci_job_url, flows_json, flows_total, delete_after)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? IS NULL THEN datetime('now', ?) END)
+                           ci_job_url, service_tier_json, flows_json, flows_total, delete_after)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? IS NULL THEN datetime('now', ?) END)
   `).run(
     id, buildId, client,
     auth.userId, auth.patId ?? null,
@@ -300,6 +305,7 @@ export async function handleCreateRun(req: http.IncomingMessage, res: http.Serve
     ci ? str(ci.branch, MAX_NAME) : null,
     ci ? str(ci.commit, 100) : null,
     ci ? httpUrl(ci.jobUrl) : null,
+    serviceTier ? JSON.stringify(serviceTier) : null,
     JSON.stringify(flows), flows.length,
     buildId, `+${BUILDLESS_TTL_DAYS} days`,
   )
@@ -512,6 +518,7 @@ function runSummary(run: RunRow) {
     ci: run.is_ci === 1
       ? { provider: run.ci_provider, branch: run.ci_branch, commit: run.ci_commit, jobUrl: run.ci_job_url }
       : null,
+    serviceTier: run.service_tier_json ? JSON.parse(run.service_tier_json) as ServiceTier : null,
     build: buildSummary(run.build_id),
     createdBy: creatorName(run.created_by),
     flowsTotal: run.flows_total,

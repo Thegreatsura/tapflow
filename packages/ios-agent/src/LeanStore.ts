@@ -19,7 +19,14 @@ import type { ServiceTier } from '@tapflowio/protocol'
  *   them on, so a revert puts back what each label was — which is why applying records it.
  */
 export class LeanStore {
-  constructor(private readonly root = '/private/var/tmp') {}
+  /**
+   * `managed` is every label a tier can disable (`LEAN_LABELS` ∪ `SLIM_LABELS`). Only used to recover from a marker
+   * that cannot be read; without it that case throws, as before tiers.
+   */
+  constructor(
+    private readonly root = '/private/var/tmp',
+    private readonly managed: readonly string[] = [],
+  ) {}
 
   /**
    * Put a shut-down device on `tier`: exactly `labels` disabled by us, nothing left from an earlier tier.
@@ -43,13 +50,13 @@ export class LeanStore {
    * carries none: only Lean mode wrote those, so it is `lean`.
    */
   currentTier(udid: string): ServiceTier {
-    if (!existsSync(this.markerPath(udid))) return { name: 'stock', allow: [] }
+    if (!existsSync(this.markerPath(udid))) return { name: 'stock', keep: [] }
     try {
       const { tier } = JSON.parse(readFileSync(this.markerPath(udid), 'utf8')) as { tier?: ServiceTier }
-      return tier ?? { name: 'lean', allow: [] }
+      return tier ?? { name: 'lean', keep: [] }
     } catch {
       // Unreadable: `revert` will clear it on the next change. Until then nobody can say what it disabled.
-      return { name: 'lean', allow: [] }
+      return { name: 'lean', keep: [] }
     }
   }
 
@@ -81,6 +88,23 @@ export class LeanStore {
       prior = (JSON.parse(readFileSync(this.markerPath(udid), 'utf8')) as { prior: Record<string, boolean | null> }).prior
       if (typeof prior !== 'object' || prior === null) throw new Error('no prior values')
     } catch (e) {
+      // What each label was is gone with the marker. Without a recovery the next `setTier` would record what it finds
+      // now — our own `true`s — as what the device had before, and those labels would stay off for good. So every label
+      // a tier can touch loses its entry, which hands it back to its own plist's default: the runtime's state for a
+      // label we never wrote, and correct for the two that are off by default, where writing `false` would not be.
+      if (this.managed.length > 0) {
+        try {
+          const entries = this.readStore(udid)
+          for (const label of this.managed) delete entries[label]
+          atomicWrite(this.storePath(udid), renderDisabledStore(entries))
+          rmSync(this.markerPath(udid))
+          return true
+        } catch (storeError) {
+          // The store cannot be read either. Keeping the marker would fail every revert from here on, as below.
+          rmSync(this.markerPath(udid))
+          throw new Error(`the Lean mode marker for ${udid} was unreadable and the store could not be repaired either (${(storeError as Error).message})`)
+        }
+      }
       // Nothing can be put back without it, and keeping it would fail every revert from here on.
       rmSync(this.markerPath(udid))
       throw new Error(`the Lean mode marker for ${udid} was unreadable and has been removed; its services may still be disabled (${(e as Error).message})`)

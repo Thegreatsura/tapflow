@@ -13,7 +13,7 @@ import {
   SKIP_REASON_LABEL, UNREPORTED_FLOW_LABEL, failureBadge, formatAgo, formatDuration, runBuildLabel,
   pollWhileRunning, runDuration, runOutcomeText, runSourceLabel, shortCommit,
 } from '@/lib/runs'
-import type { RunDetail as Run, RunFlow, RunStep } from '@/lib/types'
+import type { RunDetail as Run, RunFlow, RunStep, ServiceTier } from '@/lib/types'
 import { RunVideo } from '@/components/runs/RunVideo'
 
 /**
@@ -74,6 +74,8 @@ function RunBody({ run }: { run: Run }) {
           <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
             <span>{runSourceLabel(run)}</span>
             {run.ci?.commit && <TechLabel>{shortCommit(run.ci.commit)}</TechLabel>}
+            {/* A flow failing under slim for want of a service is not the app's regression: say what it ran on. */}
+            {run.serviceTier && <span>Services <TechLabel>{serviceTierLabel(run.serviceTier)}</TechLabel></span>}
             <span>Started {formatAgo(run.createdAt)}</span>
             <span>{run.finishedAt ? 'Took' : 'Running for'} <TechLabel>{runDuration(run)}</TechLabel></span>
             {run.exitCode !== null && <span>Exit code <TechLabel>{run.exitCode}</TechLabel></span>}
@@ -223,4 +225,9 @@ function LastScreen({ runId, flow }: { runId: string; flow: ReportedFlow }) {
       />
     </a>
   )
+}
+
+/** `slim`, or `slim, keeping push, photos`. */
+function serviceTierLabel(tier: ServiceTier): string {
+  return tier.keep.length > 0 ? `${tier.name}, keeping ${tier.keep.join(', ')}` : tier.name
 }

@@ -3,9 +3,10 @@ import { parseServiceTier, SERVICE_FEATURES } from '../serviceTier.js'
 
 describe('parseServiceTier', () => {
   it('reads a name and a comma-separated feature list, deduplicated', () => {
-    expect(parseServiceTier('slim', 'push, photos,push')).toEqual({ name: 'slim', allow: ['push', 'photos'] })
-    expect(parseServiceTier('lean', undefined)).toEqual({ name: 'lean', allow: [] })
-    expect(parseServiceTier('stock', '')).toEqual({ name: 'stock', allow: [] })
+    expect(parseServiceTier('slim', 'push, photos,push')).toEqual({ name: 'slim', keep: ['push', 'photos'] })
+    expect(parseServiceTier('lean', undefined)).toEqual({ name: 'lean', keep: [] })
+    expect(parseServiceTier('stock', '')).toEqual({ name: 'stock', keep: [] })
+    expect(() => parseServiceTier('stock', 'push')).toThrow(/nothing to keep/)
   })
 
   it('refuses an unknown tier or feature rather than dropping it', () => {

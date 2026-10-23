@@ -76,7 +76,7 @@ import type { AudioFrame } from '@tapflowio/agent-core'
 import { SimctlWrapper, isDeviceMissingError, ClipboardTooLargeError, firstLine, launchFailureReason } from './SimctlWrapper.js'
 import { SimulatorNetwork } from './SimulatorNetwork.js'
 import { LeanStore } from './LeanStore.js'
-import { labelsFor } from './serviceTiers.js'
+import { MANAGED_LABELS, labelsFor } from './serviceTiers.js'
 import {
   MAX_CLIPBOARD_BYTES, clipboardByteLength,
   CLIPBOARD_SENTINEL_PREFIX as SENTINEL_PREFIX, isClipboardSentinel as isSentinel,
@@ -299,7 +299,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     // reason, as `sleepBlocker` below.
     this.lean = options.lean ?? false
     // Never the host's real store under vitest, for the reason given for `network` just below.
-    this.leanStore = options.leanStore ?? new LeanStore(process.env.VITEST ? path.join(tmpdir(), 'tapflow-no-lean-store') : undefined)
+    this.leanStore = options.leanStore ?? new LeanStore(process.env.VITEST ? path.join(tmpdir(), 'tapflow-no-lean-store') : undefined, MANAGED_LABELS)
     this.network = options.network ?? new SimulatorNetwork(
       this.simctl,
       process.env.VITEST ? { filterHostBinary: path.join(tmpdir(), 'tapflow-no-filter-host') } : {},
@@ -1018,7 +1018,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
 
   /** The tier a boot gets when it does not ask for one: Lean mode's setting. A person's boot is always this. */
   private defaultTier(): ServiceTier {
-    return { name: this.lean ? 'lean' : 'stock', allow: [] }
+    return { name: this.lean ? 'lean' : 'stock', keep: [] }
   }
 
   /** What the device boots with now, for the relay: the marker's tier, or `unsupported` on a runtime that cannot take one. */
