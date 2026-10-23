@@ -1707,7 +1707,10 @@ export class RelayServer {
         this.gateEvent({ kind: 'boot-error', sessionId: msg.sessionId, requestId: msg.requestId })
         const session = this.sessions.get(msg.sessionId)
         if (session?.browserSocket?.readyState === WebSocket.OPEN) {
-          session.browserSocket.send(JSON.stringify(raw))
+          // `reason` is the relay's word that the Mac is busy, and clients wait out any frame carrying one. An agent's
+          // boot failure is a failure, so a `reason` an agent put on it does not reach them.
+          const { reason: _agentReason, ...fromAgent } = raw
+          session.browserSocket.send(JSON.stringify(fromAgent))
         }
         break
       }

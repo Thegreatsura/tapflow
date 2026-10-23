@@ -335,11 +335,16 @@ describe('HostBootGate', () => {
       expect(gate.admit(req('a', 'automated'))[0]).toMatchObject({ kind: 'refuse', reason: 'host-booting' })
     })
 
-    it('a second person while one waits takes the free slot too', () => {
+    it('a second person sends the first one waiting into the free slot, and waits in their place', () => {
       critical()
       gate.admit(req('p', 'interactive'))
-      expect(kinds(gate.admit(req('q', 'interactive')))).toEqual(['deliver:q'])
+      now += 5_000
+      const fx = gate.admit(req('q', 'interactive'))
+      expect(kinds(fx)).toEqual(['deliver:p', 'waiting:q'])
+      expect(fx.find((e) => e.kind === 'waiting')).toMatchObject({ until: now + GATE_DEFAULTS.humanWaitMs, reason: 'host-memory-critical' })
       expect(gate.isBooting(HOST)).toBe(true)
+      // A third finds the slot taken, which is the rare overlap the gate lets through rather than queue.
+      expect(kinds(gate.admit(req('r', 'interactive')))).toEqual(['deliver:r'])
     })
 
     it('does not let an aging window run out while automation cannot use it', () => {
@@ -369,6 +374,42 @@ describe('HostBootGate', () => {
       now += 5_000
       expect(delivered(gate.tick())).toEqual([])
       expect(kinds(gate.admit(req('auto', 'automated')))).toEqual(['deliver:auto'])
+    })
+
+    /** Opens an aging window: agingCount people in a row while automation is refused. */
+    function openWindow(): void {
+      gate.admit(req('first', 'interactive'))
+      gate.admit(req('auto', 'automated'))
+      settle('first')
+      for (let i = 0; i < GATE_DEFAULTS.agingCount; i++) {
+        gate.admit(req(`p${i}`, 'interactive'))
+        gate.admit(req('auto', 'automated'))
+        expect(logged(settle(`p${i}`)).includes('aging-window')).toBe(i === GATE_DEFAULTS.agingCount - 1)
+      }
+    }
+
+    it('a person whose wait runs out behind a window frozen by critical takes the slot', () => {
+      openWindow()
+      gate.admit(req('late', 'interactive'))
+      let fx: Effect<string>[] = []
+      for (let t = 0; t < GATE_DEFAULTS.humanWaitMs; t += 10_000) { now += 10_000; fx = [...critical(), ...gate.tick()] }
+      expect(delivered(fx)).toEqual(['late'])
+      expect(gate.isBooting(HOST)).toBe(true)
+      critical(false)
+      expect(gate.admit(req('auto', 'automated'))[0]).toMatchObject({ kind: 'refuse', reason: 'host-booting' })
+    })
+
+    it('a window paused by a short spell of critical resumes with what it had left', () => {
+      openWindow()
+      gate.admit(req('late', 'interactive'))
+      now += 40_000
+      critical()
+      now += 5_000
+      critical(false)
+      now += GATE_DEFAULTS.agingWindowMs - 40_000 - 1
+      expect(delivered(gate.tick())).toEqual([])
+      now += 1
+      expect(delivered(gate.tick())).toEqual(['late'])
     })
   })
 })

@@ -139,6 +139,8 @@ interface Host<M> {
   agingWindowUntil: number | null
   /** Critical memory pressure holds until this, unless a report says otherwise first. */
   criticalUntil: number | null
+  /** What an aging window had left when pressure turned critical; it resumes with that much. */
+  windowLeftMs: number | null
 }
 
 /**
@@ -217,7 +219,15 @@ export class HostBootGate<M> {
     } else {
       // The one place is taken. A second person at once is rare enough to let through rather than queue.
       fx.push({ kind: 'log', event: 'overlap', hostKey: req.hostKey, sessionId: req.sessionId })
-      this.deliverAnyway(host, req, fx)
+      const held = host.reservation
+      if (host.slot === null && critical) {
+        // The free slot goes to whoever asked first: the held person goes now, and this one takes their place.
+        host.reservation = { sessionId: req.sessionId, requestId: req.requestId, message: req.message, since: now, reason: this.waitReason(host) }
+        this.deliverAnyway(host, held, fx)
+        fx.push(this.waitingOf(host.reservation))
+      } else {
+        this.deliverAnyway(host, req, fx)
+      }
     }
     return fx
   }
@@ -266,6 +276,7 @@ export class HostBootGate<M> {
           host.criticalUntil = now + SETTLE.freshMs
           if (!was) {
             fx.push({ kind: 'log', event: 'memory-critical', hostKey: ev.hostKey })
+            if (host.agingWindowUntil !== null) host.windowLeftMs = Math.max(0, host.agingWindowUntil - now)
             this.refreshWaiting(host, fx)
           }
         } else if (host.criticalUntil !== null) {
@@ -367,7 +378,9 @@ export class HostBootGate<M> {
   }
 
   private criticalEnded(host: Host<M>, fx: Effect<M>[]): void {
-    if (host.agingWindowUntil !== null) host.agingWindowUntil = this.now() + this.timing.agingWindowMs
+    // A window that opened during critical gets its whole length; one that was running gets what it had left.
+    if (host.agingWindowUntil !== null) host.agingWindowUntil = this.now() + (host.windowLeftMs ?? this.timing.agingWindowMs)
+    host.windowLeftMs = null
     this.dispatchReservation(host, fx)
     this.refreshWaiting(host, fx)
   }
@@ -376,10 +389,11 @@ export class HostBootGate<M> {
    * A boot let through regardless — a second person while the reservation is taken, or a person whose wait ran
    * out. With the slot free it takes the slot, so the boot is tracked to its settle like any other: free here means
    * the Mac was critical, and letting it through slotless would let the next automated boot start beside it the
-   * moment pressure cleared. Only an open aging window keeps it slotless, since that free slot is automation's.
+   * moment pressure cleared. An open aging window keeps it slotless only while automation can use that slot; under
+   * critical pressure it cannot, and a window frozen by critical can outlast a person's wait.
    */
   private deliverAnyway(host: Host<M>, req: { sessionId: string; requestId: string; message: M }, fx: Effect<M>[]): void {
-    if (host.slot === null && host.agingWindowUntil === null) {
+    if (host.slot === null && (host.agingWindowUntil === null || this.isCritical(host))) {
       this.takeSlot(host, req)
       this.noteHumanGrant(host)
     }
@@ -447,7 +461,7 @@ export class HostBootGate<M> {
   private host(key: string): Host<M> {
     let host = this.hosts.get(key)
     if (!host) {
-      host = { slot: null, reservation: null, humanStreak: 0, lastAutomatedRefusalAt: null, agingWindowUntil: null, criticalUntil: null }
+      host = { slot: null, reservation: null, humanStreak: 0, lastAutomatedRefusalAt: null, agingWindowUntil: null, criticalUntil: null, windowLeftMs: null }
       this.hosts.set(key, host)
     }
     return host

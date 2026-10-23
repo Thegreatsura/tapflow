@@ -187,6 +187,19 @@ describe('the relay routes boots through the per-Mac boot gate', () => {
     expect(waiting.until).toBeGreaterThanOrEqual(before + 60_000)
   })
 
+  // Clients wait out any boot error that carries a `reason`, so only the relay's gate may set one.
+  it('strips a reason an agent put on its own boot failure', async () => {
+    await start()
+    const mac = await agent('mac-1', ['a'])
+    const person = await join(mac.session.get('a')!)
+    boot(person, mac.session.get('a')!, 'a')
+    await waitForType<DeviceBoot>(mac.ws, 'device:boot')
+    mac.ws.send(JSON.stringify({ type: 'device:boot-error', sessionId: mac.session.get('a'), requestId: `${mac.session.get('a')}-boot`, reason: 'host-booting', message: 'simctl failed' }))
+    const failed = await waitForType<DeviceBootError>(person, 'device:boot-error')
+    expect(failed.message).toBe('simctl failed')
+    expect(failed.reason).toBeUndefined()
+  })
+
   // The memory safety valve, end to end: the agent's own report is what closes and reopens the Mac.
   it('refuses automation and holds a person while an agent reports critical memory, and lets the person go when it clears', async () => {
     await start()

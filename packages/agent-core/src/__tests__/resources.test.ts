@@ -134,7 +134,7 @@ describe('createResourceSampler', () => {
       vi.spyOn(os, 'platform').mockReturnValue('darwin')
       spawnSyncMock.mockReturnValue({ stdout: `${raw}\n`, status: 0 })
       expect(createResourceSampler().getMemoryPressure()).toBe(level)
-      expect(spawnSyncMock).toHaveBeenLastCalledWith('sysctl', ['-n', 'kern.memorystatus_vm_pressure_level'], { encoding: 'utf8' })
+      expect(spawnSyncMock).toHaveBeenLastCalledWith('sysctl', ['-n', 'kern.memorystatus_vm_pressure_level'], { encoding: 'utf8', timeout: 1_000 })
     })
 
     it('gives no reading for a level it does not know, or when sysctl fails', () => {
