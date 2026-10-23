@@ -8,7 +8,7 @@ import { WebSocketServer, WebSocket } from 'ws'
 import { SessionManager, isAiClientKind } from './SessionManager.js'
 import type { Session } from './SessionManager.js'
 import type { DeviceDetails, UIElement } from './types.js'
-import type { ChromePayload, InputErrorReason, RelayOutbound, PosturesPayload, WatchActionKind, WatchRefusal } from '@tapflowio/protocol'
+import type { ChromePayload, InputErrorReason, MacAdmission, RelayOutbound, PosturesPayload, WatchActionKind, WatchRefusal } from '@tapflowio/protocol'
 import { gestureAction, keyForWatchers } from './lib/watchActions.js'
 import { HostBootGate, GATE_DEFAULTS, type Effect, type GateEvent, type GateTiming } from './admission/HostBootGate.js'
 import { classifyBoot } from './admission/classifyBoot.js'
@@ -1559,7 +1559,7 @@ export class RelayServer {
       case 'agents:list': {
         this.sendTo(ws, {
           type: 'agents:listed',
-          sessions: this.sessions.list(this.ownerOf(ws), (holder) => this.isAlive(holder)),
+          sessions: this.sessions.list(this.ownerOf(ws), (holder) => this.isAlive(holder), (group) => this.macAdmission(group)),
         })
         break
       }
@@ -2126,6 +2126,41 @@ export class RelayServer {
     }
   }
 
+  /**
+   * The `session:start` resource gate's reading of a session's Mac, before the per-join memory exemption.
+   * One reading for the gate and the device listing, so the dashboard's Mac card shows what a join would meet
+   * rather than a threshold of its own (the card used to recompute 80 % and block on it, which disagreed with the
+   * relay as soon as the relay grew exceptions). Null when the agent has sent no sample, or is away — its last
+   * sample is the dead socket's, and an overloaded Mac is a common reason to restart an agent: fail open.
+   *
+   * While a boot holds this Mac's slot the CPU is that boot's, and the boot gate already decides when the next one
+   * may start. A join is not a boot: refusing it would lock a person out of a device that is already up for the
+   * 30–90 s the boot takes to settle.
+   */
+  private resourceLoad(session: Session): { cpuOver: boolean; memOver: boolean; over: boolean } | null {
+    if (session.agentSocket.readyState !== WebSocket.OPEN) return null
+    const resources = this.sessions.getResources(session.agentSocket)
+    if (!resources) return null
+    const cpuOver = resources.cpuPercent > RESOURCE_THRESHOLD && !this.bootGate.isBooting(hostKeyOf(session))
+    const memOver = (resources.memUsedMB / resources.memTotalMB) * 100 > RESOURCE_THRESHOLD
+    return { cpuOver, memOver, over: cpuOver || memOver }
+  }
+
+  /**
+   * What a person picking one of this agent's devices would meet, summarised for the Mac card. The same reading
+   * `handleSessionStart` applies, with its memory exemption: a person rejoining a device the relay has up
+   * (`readySent`) is not held to memory, so memory alone blocks the Mac only when there is no such device.
+   */
+  private macAdmission(group: Session[]): MacAdmission {
+    const load = this.resourceLoad(group[0]!)
+    const memOver = load?.memOver ?? false
+    return {
+      booting: this.bootGate.isBooting(hostKeyOf(group[0]!)),
+      overloaded: (load?.cpuOver ?? false) || (memOver && !group.some((s) => s.readySent)),
+      runningOnly: memOver,
+    }
+  }
+
   private gateEvent(ev: GateEvent): void {
     this.applyGate(this.bootGate.onEvent(ev))
   }
@@ -2142,6 +2177,9 @@ export class RelayServer {
             type: 'device:boot-error', sessionId: fx.sessionId, requestId: fx.requestId, reason: fx.reason,
             message: 'Another device is still booting on this Mac. Try again once it has settled.',
           })
+          break
+        case 'waiting':
+          this.sendTo(fx.message.ws, { type: 'device:boot-waiting', sessionId: fx.sessionId, requestId: fx.requestId, until: fx.until })
           break
         case 'withdraw':
           this.sendTo(fx.message.ws, {
@@ -2536,16 +2574,10 @@ export class RelayServer {
     // memory on a device already up. The CPU half applies to every join — a join usually starts a stream, and a
     // stream's encoding is the load #107 is about.
     const agentAway = session.agentSocket.readyState !== WebSocket.OPEN
-    const resources = agentAway ? undefined : this.sessions.getResources(session.agentSocket)
-    if (resources) {
-      const memPercent = (resources.memUsedMB / resources.memTotalMB) * 100
+    const load = this.resourceLoad(session)
+    if (load) {
       const memSpent = session.readySent && !isAiClientKind(msg.clientKind)
-      const memOver = !memSpent && memPercent > RESOURCE_THRESHOLD
-      // While a boot holds this Mac's slot the CPU is that boot's, and the gate already decides when the next one
-      // may start. A join is not a boot: refusing it would lock a person out of a device that is already up for the
-      // 30–90 s the boot takes to settle.
-      const cpuOver = resources.cpuPercent > RESOURCE_THRESHOLD && !this.bootGate.isBooting(hostKeyOf(session))
-      if (cpuOver || memOver) {
+      if (load.cpuOver || (load.memOver && !memSpent)) {
         this.sendTo(ws, { type: 'error', sessionId: msg.sessionId, message: 'Agent resources exhausted', reason: 'agent-resources-exhausted' })
         return
       }

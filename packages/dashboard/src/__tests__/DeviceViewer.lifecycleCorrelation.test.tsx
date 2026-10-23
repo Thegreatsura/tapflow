@@ -262,3 +262,42 @@ describe('DeviceViewer correlates the lifecycle replies, selectively', () => {
     expect(installs()).toHaveLength(1)
   })
 })
+
+// L2 S2-c. The relay holds a person's boot while another device on the same Mac is starting, and says so with
+// `device:boot-waiting`. Correlated strictly: there is no unsolicited producer, and a reconnect re-sends the boot,
+// so the waiting notice of a boot this viewer replaced must not be shown.
+describe('DeviceViewer says when its boot is waiting for another device on the Mac', () => {
+  beforeEach(() => { send.mockClear(); deliver = null })
+  const WAITING = 'Another device is starting on this Mac. Yours starts next…'
+
+  it('shows the wait for its own boot, and drops it when the boot starts', () => {
+    render(<DeviceViewer sessionId="s1" deviceId="dev-1" />)
+    join()
+    act(() => { deliver!({ type: 'device:boot-waiting', sessionId: 's1', requestId: lastBootId(), until: Date.now() + 60_000 }) })
+    expect(screen.getByText(WAITING)).toBeTruthy()
+
+    act(() => { deliver!({ type: 'device:booting', sessionId: 's1' }) })
+    expect(screen.queryByText(WAITING)).toBeNull()
+    expect(screen.getByText('Starting device…')).toBeTruthy()
+  })
+
+  it('ignores the wait of a boot it has replaced', () => {
+    render(<DeviceViewer sessionId="s1" deviceId="dev-1" />)
+    join()
+    const replaced = lastBootId()
+    join()
+    expect(lastBootId()).not.toBe(replaced)
+    act(() => { deliver!({ type: 'device:boot-waiting', sessionId: 's1', requestId: replaced, until: Date.now() + 60_000 }) })
+    expect(screen.queryByText(WAITING)).toBeNull()
+  })
+
+  it('lets a failure replace the wait', () => {
+    render(<DeviceViewer sessionId="s1" deviceId="dev-1" />)
+    join()
+    const id = lastBootId()
+    act(() => { deliver!({ type: 'device:boot-waiting', sessionId: 's1', requestId: id, until: Date.now() + 60_000 }) })
+    act(() => { deliver!({ type: 'device:boot-error', sessionId: 's1', requestId: id, message: 'agent offline' }) })
+    expect(screen.queryByText(WAITING)).toBeNull()
+    expect(screen.getByText(/Boot failed: agent offline/)).toBeTruthy()
+  })
+})

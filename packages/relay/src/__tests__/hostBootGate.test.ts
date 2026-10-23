@@ -74,8 +74,7 @@ describe('HostBootGate', () => {
   it('holds a person behind a boot and lets them through when it settles', () => {
     gate.admit(req('a', 'automated'))
     const held = gate.admit(req('p', 'interactive'))
-    expect(kinds(held)).toEqual([])
-    expect(logged(held)).toEqual(['held'])
+    expect(held).toEqual([{ kind: 'waiting', sessionId: 'p', requestId: 'p-r', until: now + GATE_DEFAULTS.humanWaitMs, message: 'boot p' }])
     expect(delivered(settle('a'))).toEqual(['p'])
     expect(gate.isBooting(HOST)).toBe(true) // the person's boot now holds it
   })
@@ -110,7 +109,10 @@ describe('HostBootGate', () => {
     gate.admit(req('p', 'interactive'))
     now += 10_000
     const again = gate.admit(req('p', 'interactive', { requestId: 'p-r2', message: 'boot p again' }))
-    expect(again).toEqual([{ kind: 'withdraw', sessionId: 'p', requestId: 'p-r', why: 'replaced', message: 'boot p' }])
+    expect(again).toEqual([
+      { kind: 'withdraw', sessionId: 'p', requestId: 'p-r', why: 'replaced', message: 'boot p' },
+      { kind: 'waiting', sessionId: 'p', requestId: 'p-r2', until: t0 + GATE_DEFAULTS.humanWaitMs, message: 'boot p again' },
+    ])
     expect(gate.nextDeadline()).toBe(t0 + GATE_DEFAULTS.humanWaitMs) // the clock did not restart
     const fx = settle('a')
     expect(fx).toContainEqual({ kind: 'deliver', sessionId: 'p', requestId: 'p-r2', message: 'boot p again' })
@@ -229,7 +231,7 @@ describe('HostBootGate', () => {
       for (let i = 0; i < GATE_DEFAULTS.agingCount; i++) fx = personRound(`p${i}`)
       expect(logged(fx)).toContain('aging-window')
       // a person now waits, and the next automated retry gets the slot
-      expect(logged(gate.admit(req('late', 'interactive')))).toEqual(['held'])
+      expect(gate.admit(req('late', 'interactive'))[0]).toMatchObject({ kind: 'waiting', sessionId: 'late' })
       expect(kinds(gate.admit(req('auto', 'automated')))).toEqual(['deliver:auto'])
     })
 

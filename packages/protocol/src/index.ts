@@ -146,7 +146,22 @@ export interface SessionInfo {
    *  absent; the door already defaults it that way (`validate/index.ts`). Optional here would
    *  describe a frame nobody sends and hand every consumer a `?.` to carry for good. */
   capabilities: string[]
+  /** What the relay would do with this Mac now, so the picker shows the relay's judgement instead of
+   *  recomputing a threshold of its own. The same value on every agent of one Mac. Required: one
+   *  producer (`SessionManager.list()`), and the dashboard ships inside the relay package. */
+  admission: MacAdmission
   devices: DeviceSummary[]
+}
+
+export interface MacAdmission {
+  /** A cold boot holds this Mac's boot slot (`relay/src/admission/`). Another boot waits or is refused. */
+  booting: boolean
+  /** No person's `session:start` on this Mac would be let in now (`agent-resources-exhausted`): CPU is over the
+   *  line, or memory is and the relay has no device up here to rejoin. */
+  overloaded: boolean
+  /** Memory is over the line, so only a device the relay already has up can be joined; one that would have to
+   *  start is refused. The picker marks the rest. */
+  runningOnly: boolean
 }
 
 export interface ChromeRect {
@@ -1176,9 +1191,24 @@ export interface WatchAction {
 }
 
 /** Messages the relay originates and no agent sends. */
+/**
+ * A person's boot the relay is holding until another boot on the same Mac has settled. Sent once, when
+ * the boot is held; it then goes ahead by itself and `device:booting` follows. Answers the held boot,
+ * so it carries its correlator. An automated boot is refused instead (`BootRefusalReason`) and never
+ * receives this.
+ */
+export interface DeviceBootWaiting {
+  type: 'device:boot-waiting'
+  sessionId: string
+  requestId: string
+  /** Epoch ms after which the boot goes ahead even if the other has not settled. */
+  until: number
+}
+
 export type RelayToBrowser =
   | RelayOrAgentToBrowser
   | AgentsListed
+  | DeviceBootWaiting
   | SessionJoined
   | SessionTerminated
   | SessionAgentAway

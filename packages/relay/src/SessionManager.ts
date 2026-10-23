@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto'
 import { WebSocket } from 'ws'
 import type { DeviceStatus } from '@tapflowio/agent-core'
 import type { AgentResources, SessionInfo } from './types.js'
-import type { AiClientKind, ChromePayload, ClientKind, DeviceDetails, DeviceReport, FormFactor, Point, PosturesPayload, WatchEndReason } from '@tapflowio/protocol'
+import type { AiClientKind, ChromePayload, MacAdmission, ClientKind, DeviceDetails, DeviceReport, FormFactor, Point, PosturesPayload, WatchEndReason } from '@tapflowio/protocol'
 
 export interface Session {
   id: string
@@ -546,7 +546,8 @@ export class SessionManager {
       isAlive(s.browserSocket)
   }
 
-  list(asker: string, isAlive: (ws: WebSocket) => boolean): SessionInfo[] {
+  /** `admissionOf` is asked once per agent, with that agent's sessions. */
+  list(asker: string, isAlive: (ws: WebSocket) => boolean, admissionOf: (sessions: Session[]) => MacAdmission): SessionInfo[] {
     // Group sessions by agentSocket
     const agentMap = new Map<WebSocket, Session[]>()
     for (const session of this.sessions.values()) {
@@ -571,6 +572,7 @@ export class SessionManager {
       // "advertises nothing", and the viewer gates on membership. Leaving it undefined would make
       // every consumer repeat the same fallback, and one of them would forget.
       capabilities: group[0].agentCapabilities ?? [],
+      admission: admissionOf(group),
       devices: group.map((s) => ({
         id: s.deviceId,
         name: s.deviceName,
