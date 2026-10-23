@@ -130,14 +130,29 @@ widgets and Live Activities (`searchd`, `spotlightknowledged`, `suggestd`, `mlho
 The labels lean mode keeps on purpose (widgets, Spotlight, on-device ML, push, payments) are the
 difference, and an app under test can need any of them, which is why lean mode keeps them.
 
-### 5. Android: a snapshot boot is four times faster, with a catch
+### 5. Android: a cold boot costs less than a simulator's; a snapshot boot is faster, with a catch
 
 The agent starts every emulator with `-no-snapshot`, so every boot is cold
 (`packages/android-agent/src/EmulatorLauncher.ts`). On the MacBook a quickboot snapshot of the same AVD
 booted in 2.7 s against 11.9 s cold. Saving the snapshot failed with `UNSUPPORTED_VK_APP` until the guest's
 Vulkan was turned off (`-feature -Vulkan`) under `-gpu host`, which changes the rendering path of the app
 under test. The effect on the person's session could not be read on the 32 GB host: the cold boot never
-took the host above 60 % CPU, and the run was mixed with the unexplained dip below. Not measured on 8 GB.
+took the host above 60 % CPU, and the run was mixed with the unexplained dip below.
+
+On the 8 GB Mac, a cold boot with the agent's arguments (`-no-snapshot -gpu host`; the harness also passed `-no-boot-anim`),
+API 35, 2 GB guest,
+beside the person's iOS session, three runs, read the same way as finding 4:
+
+| | Boot | Person p95 (ms) | Min fps (10 s) | CPU > 90 % (s) | Decompressions (thousands) | Pageins (thousands) | `memorystatus_level` after |
+|---|---|---|---|---|---|---|---|
+| iOS simulator, no overrides (one run) | 13 | 479 | 9.8 | 34 | 1,395 | 836 | 32 |
+| Android emulator, cold | 14–16 | 128–197 | 9.9–14.7 | 8–11 | 1,625–2,620 | 201–383 | 30–33 |
+
+The emulator decompresses as much as an unmodified simulator boot or more, but pages in about a third as
+much and saturates the CPU for about a quarter as long, and the person's p95 stays near the full-list
+simulator boot. One run in three dipped to 10 fps. Once settled, the person's session was at baseline
+(p95 99–135 ms, 15 fps). The emulator leaves memory as full as two simulators do, so a second device
+after it would start from the state where finding 4's second boots were measured. That was not run.
 
 ## Pitfalls
 
@@ -169,7 +184,8 @@ took the host above 60 % CPU, and the run was mixed with the unexplained dip bel
 ## Limits
 
 Three or four runs per list and one with no overrides, idle simulators with no app beyond Settings, one
-8 GB host, iOS only on 8 GB. The full list was not checked against the apps it would break. The steady
+8 GB host, and on 8 GB Android only as a single device beside the person's. The full list was not checked
+against the apps it would break. The steady
 state was measured up to 4 devices on 8 GB and 9 on 32 GB.
 
 ## Related work
