@@ -381,6 +381,9 @@ export class RelayServer {
   private readonly pendingBootTtlMs: number
   /** One cold boot at a time per Mac (`admission/HostBootGate.ts`). */
   private readonly bootGate: HostBootGate<HeldBoot>
+  /** `TAPFLOW_MAX_AUTOMATED_DEVICES`, when it is usable; otherwise each Mac's cap comes from its memory. */
+  private readonly automatedCapOverride: number | null
+  private readonly evictionGraceMs: number
   private bootGateTimer: ReturnType<typeof setTimeout> | null = null
   private readonly corsAllowed: Set<string>
   // One-shot warning when XFF arrives on a loopback socket but TAPFLOW_TRUSTED_PROXIES is unset.
@@ -447,7 +450,7 @@ export class RelayServer {
     timer: ReturnType<typeof setTimeout>
   }>()
 
-  constructor(private readonly options: { port: number; publicDir?: string; uploadsDir?: string; idleTimeoutMs?: number; wsBackpressureBytes?: number; screenshotTimeoutMs?: number; uiTreeTimeoutMs?: number; trustedProxies?: string[]; corsOrigins?: string[]; tls?: { cert: string; key: string }; agentGraceMs?: number; pendingBootTtlMs?: number; bootGate?: Partial<GateTiming>; tunnel?: TunnelRuntime; tunnelPort?: number }) {
+  constructor(private readonly options: { port: number; publicDir?: string; uploadsDir?: string; idleTimeoutMs?: number; wsBackpressureBytes?: number; screenshotTimeoutMs?: number; uiTreeTimeoutMs?: number; trustedProxies?: string[]; corsOrigins?: string[]; tls?: { cert: string; key: string }; agentGraceMs?: number; pendingBootTtlMs?: number; bootGate?: Partial<GateTiming>; evictionGraceMs?: number; tunnel?: TunnelRuntime; tunnelPort?: number }) {
     // 0 on both sides is two ephemeral ports, which is what the tests ask for.
     if (options.tunnelPort !== undefined && options.tunnelPort !== 0 && options.tunnelPort === options.port) {
       throw new Error(`The tunnel port (${options.tunnelPort}) must differ from the relay port. Set TAPFLOW_TUNNEL_PORT to another port.`)
@@ -471,12 +474,20 @@ export class RelayServer {
     const graceUsable = Number.isFinite(graceEnv) && graceEnv >= 0
     this.agentGraceMs = options.agentGraceMs ?? (graceUsable ? graceEnv : DEFAULT_AGENT_GRACE_MS)
     this.pendingBootTtlMs = options.pendingBootTtlMs ?? PENDING_BOOT_TTL_MS
+    this.evictionGraceMs = options.evictionGraceMs ?? EVICTION_GRACE_MS
     this.bootGate = new HostBootGate<HeldBoot>(() => Date.now(), { ...GATE_DEFAULTS, ...options.bootGate })
     // Say so rather than only documenting it. Both times this parsing was wrong the symptom was
     // the same — the hold switched off and nothing mentioned it — and somebody who types `15s` is
     // reading their terminal, not the configuration table.
     if (options.agentGraceMs === undefined && graceRaw && !graceUsable) {
       logger.warn(`TAPFLOW_AGENT_GRACE_MS="${graceRaw}" is not a usable number of milliseconds — using ${DEFAULT_AGENT_GRACE_MS}`)
+    }
+    // Same reason: a cap someone set and mistyped would quietly become the automatic one, which may allow more.
+    const capRaw = process.env['TAPFLOW_MAX_AUTOMATED_DEVICES']?.trim()
+    const capEnv = capRaw ? Number(capRaw) : NaN
+    this.automatedCapOverride = Number.isInteger(capEnv) && capEnv > 0 ? capEnv : null
+    if (capRaw && this.automatedCapOverride === null) {
+      logger.warn(`TAPFLOW_MAX_AUTOMATED_DEVICES="${capRaw}" is not a positive whole number — using half each Mac's memory in GB`)
     }
     this.sessions = new SessionManager({
       idleTimeoutMs: options.idleTimeoutMs,
@@ -1749,8 +1760,12 @@ export class RelayServer {
         // and not confirmed, so the device may well still be running.
         const session = this.sessions.get(msg.sessionId)
         if (!session) break
-        // An eviction the agent could not carry out: the device may still be up, so it counts again.
-        session.evictingAt = undefined
+        // An eviction the agent could not carry out: the device may still be up, so it is up again as far as the cap
+        // and the next boot's classification are concerned.
+        if (session.evictingAt !== undefined) {
+          session.evictingAt = undefined
+          this.sessions.updateDeviceStatus(session.id, 'booted')
+        }
         if (session.browserSocket?.readyState === WebSocket.OPEN) {
           session.browserSocket.send(JSON.stringify(raw))
         }
@@ -2919,8 +2934,7 @@ export class RelayServer {
   /** How many automation devices this Mac may keep up: `TAPFLOW_MAX_AUTOMATED_DEVICES`, else from its memory, else
    *  no cap while no agent there has reported any. */
   private automatedCap(onHost: Session[]): number {
-    const configured = Number(process.env['TAPFLOW_MAX_AUTOMATED_DEVICES'])
-    if (Number.isInteger(configured) && configured > 0) return configured
+    if (this.automatedCapOverride !== null) return this.automatedCapOverride
     let latest: AgentResources | undefined
     for (const s of onHost) {
       const r = this.sessions.getResources(s.agentSocket)
@@ -2938,14 +2952,15 @@ export class RelayServer {
     const now = Date.now()
     return onHost
       // A device being shut down to make room is neither up nor available, until the agent says otherwise.
-      .filter((s) => s.evictingAt === undefined || now - s.evictingAt >= EVICTION_GRACE_MS)
+      .filter((s) => s.evictingAt === undefined || now - s.evictingAt >= this.evictionGraceMs)
       .map((s) => ({
         sessionId: s.id,
         platform: s.devicePlatform,
         // Up, or being started by automation now: `deviceStatus` reads `shutdown` while a boot runs, so the
-        // boot in flight is known by its pending record instead.
-        automated: s.lastBoot?.booterClass === 'automated' && (s.deviceStatus === 'booted' || s.lastBootPending !== undefined),
-        booted: s.deviceStatus === 'booted' && s.lastBootPending === undefined,
+        // boot in flight is known by its pending record instead. An eviction past its grace with no answer from
+        // the agent (filtered above while within it) is taken as not having happened: still up, and idle.
+        automated: s.lastBoot?.booterClass === 'automated' && (s.deviceStatus === 'booted' || s.evictingAt !== undefined || s.lastBootPending !== undefined),
+        booted: (s.deviceStatus === 'booted' || s.evictingAt !== undefined) && s.lastBootPending === undefined,
         inUse: s.owner !== null || this.sessions.watchersOf(s.id).length > 0,
         reachable: s.agentSocket.readyState === WebSocket.OPEN,
         bootedAt: s.lastBoot?.at ?? 0,
@@ -2955,13 +2970,13 @@ export class RelayServer {
   private freeOneForMemory(requester: Session): void {
     const onHost = this.sessions.getAllOnHost(hostKeyOf(requester), hostKeyOf)
     const now = Date.now()
-    if (onHost.some((s) => s.evictingAt !== undefined && now - s.evictingAt < EVICTION_GRACE_MS)) return
+    if (onHost.some((s) => s.evictingAt !== undefined && now - s.evictingAt < this.evictionGraceMs)) return
     const victim = idleToFree(this.capacityDevices(onHost), requester.id)
     if (victim) this.evictForCapacity(victim)
   }
 
   /** Shut down an idle automation device to make room. Marked first, so nothing replays it as up or picks it again
-   *  while the agent works; the mark lifts on `shutdown-done`, `shutdown-error` or after `EVICTION_GRACE_MS`. */
+   *  while the agent works; the mark lifts on `shutdown-done`, `shutdown-error` or after `evictionGraceMs`. */
   private evictForCapacity(sessionId: string): void {
     const session = this.sessions.get(sessionId)
     if (session?.agentSocket.readyState !== WebSocket.OPEN) return
