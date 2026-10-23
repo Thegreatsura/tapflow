@@ -7,7 +7,10 @@ export type { SkippedFlow } from './junit.js'
 export { isEligible, parseTagList, lookupBuild } from './eligibility.js'
 export type { EligibilityTarget, Eligibility, SkipReason, BuildLookup } from './eligibility.js'
 export { EnvironmentStepError, TransientQueryError, isEnvironmentStepFailure, markEnvironmentFailure } from './errors.js'
+export { retryAdmission, admissionRefusalOf, ADMISSION_BACKOFF } from './admission.js'
+export type { RetryAdmissionOptions, AdmissionWait } from './admission.js'
 export {
+  AdmissionRefusedError,
   ENVIRONMENTAL_INPUT_REASONS,
   InputRefusedError,
   InputUnconfirmedError,

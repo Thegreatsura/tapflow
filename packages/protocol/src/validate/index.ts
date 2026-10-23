@@ -593,3 +593,18 @@ type _ClipboardWriteDone = Assert<E<'clipboard:write-done', ClipboardWriteDone>>
 type _ClipboardError = Assert<E<'clipboard:error', ClipboardError>>
 type _NetworkState = Assert<E<'network:state', NetworkState>>
 type _NetworkError = Assert<E<'network:error', NetworkError>>
+
+const READY_COLD = z.object({ payload: z.object({ cold: z.boolean() }) })
+
+/**
+ * `device:ready.payload.cold`, checked, or `undefined` when the frame does not carry a boolean there.
+ *
+ * `device:ready` stays in the Envelope tier because the relay forwards it, and refusing a malformed one would
+ * leave a viewer waiting on a ready that was dropped. The boot gate reads this one field, so it gets a parse of
+ * its own rather than a cast: the field rule above holds — nothing unchecked reaches a type — without making the
+ * forward depend on the rest of the payload. Absent and malformed read the same, as "unknown".
+ */
+export function readyCold(frame: unknown): boolean | undefined {
+  const result = READY_COLD.safeParse(frame)
+  return result.success ? result.data.payload.cold : undefined
+}

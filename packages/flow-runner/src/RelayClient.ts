@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type {
-  BrowserToRelay, DeviceSummary, InputErrorReason, SessionStartFailure, SessionTerminatedReason,
+  AdmissionRefusal, BootRefusalReason, BrowserToRelay, DeviceSummary, InputErrorReason, SessionStartFailure, SessionTerminatedReason,
 } from '@tapflowio/protocol'
 import { WebSocket } from 'ws'
 import type { UIElement } from '@tapflowio/agent-core'
@@ -246,6 +246,22 @@ function asInputErrorReason(v: unknown): InputErrorReason {
  */
 export class SessionJoinError extends PlatformError {
   constructor(message: string, readonly reason: SessionStartFailure | 'unknown', options?: ErrorOptions) {
+    super(message, options)
+  }
+}
+
+/** Runtime mirror of `BootRefusalReason`, for the reason given on `SESSION_START_FAILURES`. */
+const BOOT_REFUSALS: Record<BootRefusalReason, true> = {
+  'host-booting': true,
+}
+
+/**
+ * A boot the relay refused before it reached an agent, because another boot on the same Mac has not settled
+ * (`relay/src/admission/`). The Mac is busy, not broken, and the refusal says nothing about this session — so
+ * the class is the cause and no session note is added. `retryAdmission` waits these out.
+ */
+export class AdmissionRefusedError extends PlatformError {
+  constructor(message: string, readonly reason: AdmissionRefusal, options?: ErrorOptions) {
     super(message, options)
   }
 }
@@ -787,7 +803,13 @@ export class RelayClient {
     // `session:rebound` that set `needsReboot` — so `failed()` carries the rebound cause and the
     // driver reads it as environmental. Against an older relay nothing answers it and the deadline
     // runs, which is slow rather than wrong.
-    if (msg['type'] === 'device:boot-error') throw this.failed(sessionId, (msg['message'] as string) ?? 'boot failed')
+    if (msg['type'] === 'device:boot-error') {
+      const reason = msg['reason']
+      if (typeof reason === 'string' && Object.hasOwn(BOOT_REFUSALS, reason)) {
+        throw new AdmissionRefusedError(`boot refused (${reason}): ${(msg['message'] as string) ?? 'no detail'}`, reason as BootRefusalReason)
+      }
+      throw this.failed(sessionId, (msg['message'] as string) ?? 'boot failed')
+    }
     // The one thing that clears `needsReboot`, because it is the one thing that answers it: a rebound session
     // is missing the agent-side binding a boot creates. Clearing it anywhere else would let the note go quiet
     // while the condition it describes is still true.

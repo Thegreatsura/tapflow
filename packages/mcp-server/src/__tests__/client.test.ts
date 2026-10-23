@@ -283,6 +283,13 @@ describe('TapflowClient', () => {
       await expect(client.bootDevice('sess-1', 'dev-1')).rejects.toThrow('Boot failed')
     })
 
+    it('says a boot gate refusal is a busy Mac, and to try again', async () => {
+      setTimeout(() => relay.send({ type: 'device:boot-error', sessionId: 'sess-1', reason: 'host-booting', message: 'Another device is still booting on this Mac.' }), 10)
+      const failure = client.bootDevice('sess-1', 'dev-1')
+      await expect(failure).rejects.toThrow(/host-booting.*boot_device again/)
+      await expect(failure).rejects.toMatchObject({ reason: 'host-booting' })
+    })
+
     it('ignores device:ready for a different sessionId and resolves on the correct one', async () => {
       setTimeout(() => {
         relay.send({ type: 'device:ready', sessionId: 'OTHER' })

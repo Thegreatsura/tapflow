@@ -5,6 +5,7 @@ import {
   InputUnconfirmedError,
   RelayClient,
   RelayClosedError,
+  AdmissionRefusedError,
   RelayHttpError,
   SessionEndedError,
   SessionJoinError,
@@ -506,6 +507,27 @@ describe('RelayClient.bootDevice — an optional correlator, with a fallback', (
     socket.send(Buffer.from('TFFE-frame'), { binary: true })
     socket.send(JSON.stringify({ type: 'session:chrome', sessionId: 's1', payload: {} }))
     await expect(client.bootDevice('s1', 'dev-1')).resolves.toBeUndefined()
+  })
+
+  it('reports the boot gate\'s refusal as an AdmissionRefusedError carrying its reason', async () => {
+    const { client } = await relay((m) => ({
+      type: 'device:boot-error', sessionId: 's1', requestId: m['requestId'], reason: 'host-booting', message: 'busy',
+    }))
+    const failure = client.bootDevice('s1', 'dev-1')
+    await expect(failure).rejects.toBeInstanceOf(AdmissionRefusedError)
+    await expect(failure).rejects.toMatchObject({ reason: 'host-booting' })
+  })
+
+  it('reports a boot error with no reason, or one it does not know, as a plain failure', async () => {
+    for (const extra of [{}, { reason: 'some-future-reason' }]) {
+      const { client } = await relay((m) => ({ type: 'device:boot-error', sessionId: 's1', requestId: m['requestId'], message: 'boot failed', ...extra }))
+      const failure = client.bootDevice('s1', 'dev-1')
+      await expect(failure).rejects.toThrow('boot failed')
+      await expect(failure).rejects.not.toBeInstanceOf(AdmissionRefusedError)
+      for (const c of wss!.clients) c.terminate()
+      await new Promise<void>((r) => wss!.close(() => r()))
+      wss = null
+    }
   })
 
   it('is not satisfied by a ready carrying another boot\'s correlator', async () => {
