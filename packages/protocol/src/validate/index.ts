@@ -55,7 +55,7 @@ import * as z from 'zod'
 import type {
   AgentRegister, AgentResourceReport, AgentsList, AppClearState, AppClearStateDone,
   AppClearStateError, AppInstallDone, AppInstallError, AppInstallToRelay, AppLaunchDone,
-  AppLaunchError, AppLaunchToRelay, ClipboardData, ClipboardError, ClipboardRead, ClipboardWrite,
+  AppLaunchError, AppLaunchToRelay, ServiceTier, ClipboardData, ClipboardError, ClipboardRead, ClipboardWrite,
   NetworkError, NetworkSet, NetworkState,
   ClipboardWriteDone, DeviceBoot, DeviceBootError, DeviceBooting, DeviceReady, DeviceShutdown,
   DeviceShutdownDone, DeviceShutdownError, InputButton, InputDone, InputError, InputKey, InputKeyboardToggle,
@@ -75,6 +75,15 @@ import type { Assert, EnvelopeOf, IsEmpty, SchemaExact } from './assert.js'
 // correlator is present-but-empty, which every correlating consumer discards. `.min(1)` does not
 // change what `z.output` infers (`min(minLength): this` — zod 4.4.3 `v4/classic/schemas.d.ts:95`), so
 // it costs the tier assertions nothing.
+const SERVICE_FEATURES = [
+  'push', 'storekit', 'app-store', 'universal-links', 'spotlight', 'siri', 'icloud', 'keychain-sync', 'contacts',
+  'calendar', 'reminders', 'mail', 'photos', 'health', 'homekit', 'imessage', 'widgets', 'wallet', 'maps', 'weather',
+  'news', 'game-center', 'find-my', 'screen-time',
+] as const
+const serviceTier = z.object({ name: z.enum(['stock', 'lean', 'slim']), allow: z.array(z.enum(SERVICE_FEATURES)) })
+/** A tier as an agent reports it. Anything this relay does not know reads as absent rather than refusing the frame. */
+const reportedTier = z.union([serviceTier, z.literal('unsupported')]).optional().catch(undefined)
+
 const sessionId = z.string().min(1)
 const requestId = z.string().min(1)
 
@@ -131,6 +140,7 @@ const BROWSER_INBOUND = {
       resetMode: z.enum(['app-only', 'full-erase']).optional(),
       acceptH264: z.boolean().optional(),
       secureContext: z.boolean().optional(),
+      serviceTier: serviceTier.optional(),
     }),
   }),
   'device:shutdown': z.object({
@@ -243,6 +253,7 @@ const AGENT_CONSUMED = {
       // the register stands. Anything that is not a string is still refused, the line `capabilities`
       // draws — `.catch` over the whole field would swallow that too.
       formFactor: z.union([z.enum(['phone', 'tablet', 'foldable']), z.string().transform(() => undefined)]).optional(),
+      serviceTier: reportedTier,
     })).default([]),
   }),
   'agent:resources': z.object({
@@ -594,17 +605,20 @@ type _ClipboardError = Assert<E<'clipboard:error', ClipboardError>>
 type _NetworkState = Assert<E<'network:state', NetworkState>>
 type _NetworkError = Assert<E<'network:error', NetworkError>>
 
-const READY_COLD = z.object({ payload: z.object({ cold: z.boolean() }) })
+const READY_FACTS = z.object({ payload: z.object({ cold: z.boolean().optional().catch(undefined), serviceTier: reportedTier }) })
 
 /**
- * `device:ready.payload.cold`, checked, or `undefined` when the frame does not carry a boolean there.
+ * What the boot gate reads off a forwarded `device:ready`: `cold`, and the tier the boot came up with. Each is
+ * checked, and reads as `undefined` when absent or malformed.
  *
  * `device:ready` stays in the Envelope tier because the relay forwards it, and refusing a malformed one would
  * leave a viewer waiting on a ready that was dropped. The boot gate reads this one field, so it gets a parse of
  * its own rather than a cast: the field rule above holds — nothing unchecked reaches a type — without making the
  * forward depend on the rest of the payload. Absent and malformed read the same, as "unknown".
  */
-export function readyCold(frame: unknown): boolean | undefined {
-  const result = READY_COLD.safeParse(frame)
-  return result.success ? result.data.payload.cold : undefined
+export function readyFacts(frame: unknown): { cold?: boolean; serviceTier?: ServiceTier | 'unsupported' } {
+  const result = READY_FACTS.safeParse(frame)
+  if (!result.success) return {}
+  const { cold, serviceTier: tier } = result.data.payload
+  return { ...(cold !== undefined ? { cold } : {}), ...(tier !== undefined ? { serviceTier: tier } : {}) }
 }

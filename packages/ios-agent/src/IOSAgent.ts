@@ -9,7 +9,7 @@ import type { BootAbandonReason, ClipboardErrorPayload, Device, DeviceAgent, Net
 import { createLogger, PlatformError, ValidationError, bootAbandonMessage, BOOT_NO_SESSION_STATE, SHUTDOWN_NO_SESSION_STATE, downloadBuild } from '@tapflowio/agent-core'
 import type {
   AgentControlOutbound, InputErrorReason, ClipboardReplyBody, OpenUrlReplyBody,
-  AppInstallReplyBody, AppLaunchReplyBody, AppClearStateReplyBody, FormFactor,
+  AppInstallReplyBody, AppLaunchReplyBody, AppClearStateReplyBody, FormFactor, ServiceTier,
 } from '@tapflowio/protocol'
 
 const logger = createLogger('ios-agent')
@@ -62,6 +62,7 @@ import {
   type RelayLoss,
   type SleepBlocker,
   getMachineId,
+  sameServiceTier,
   isLocalhostWss,
   DEFAULT_BACKPRESSURE_BYTES,
   writeEnvelopeHeader,
@@ -75,7 +76,7 @@ import type { AudioFrame } from '@tapflowio/agent-core'
 import { SimctlWrapper, isDeviceMissingError, ClipboardTooLargeError, firstLine, launchFailureReason } from './SimctlWrapper.js'
 import { SimulatorNetwork } from './SimulatorNetwork.js'
 import { LeanStore } from './LeanStore.js'
-import { LEAN_LABELS } from './leanLabels.js'
+import { labelsFor } from './serviceTiers.js'
 import {
   MAX_CLIPBOARD_BYTES, clipboardByteLength,
   CLIPBOARD_SENTINEL_PREFIX as SENTINEL_PREFIX, isClipboardSentinel as isSentinel,
@@ -389,6 +390,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
             status: d.status,
             osVersion: d.osVersion,
             formFactor: d.typeId ? formFactors.get(d.typeId) : undefined,
+            serviceTier: this.reportedTier(d),
           })),
         })
       })
@@ -794,7 +796,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
   // `requestId` is a parameter, never a field on `state`: `bootSeq` exists because two boots overlap,
   // and a correlator hoisted onto shared state would answer the first request with the second's id.
   // Optional because the relay's idle timer boots nothing — but every *browser* boot carries one.
-  private async handleDeviceBoot(sessionId: string, deviceId: string, fullErase = false, acceptH264 = false, tier?: { secureContext: boolean; external: boolean }, requestId?: string, automation = false): Promise<void> {
+  private async handleDeviceBoot(sessionId: string, deviceId: string, fullErase = false, acceptH264 = false, tier?: { secureContext: boolean; external: boolean }, requestId?: string, automation = false, serviceTier?: ServiceTier): Promise<void> {
     const state = this.deviceStates.get(sessionId)
     // Split, because the two halves are not the same kind of nothing. No open control channel means the
     // answer itself has nowhere to go, so this is the one abandonment that stays silent — and the caller
@@ -836,9 +838,13 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
 
       const target = devices.find((d) => d.id === deviceId)
       if (!target) throw new PlatformError(`Device not found: ${deviceId}`)
+      // A running device on another tier than the run asked for is restarted onto it: the services have to be off
+      // from launch, and replaying on whatever the last boot left is what the tier exists to stop.
+      const retier = !fullErase && target.status === 'booted' && serviceTier !== undefined && leanSupported(target.osVersion)
+        && !sameServiceTier(this.leanStore.currentTier(deviceId), serviceTier)
       // Read before anything below changes it: a Full reset shuts the device down itself, and `unknown`
       // (booting, shutting down) is a device paying a boot's cost now.
-      const cold = fullErase || target.status !== 'booted'
+      const cold = fullErase || retier || target.status !== 'booted'
 
       if (fullErase) {
         // `simctl erase` only accepts a shut-down device, and a device is often already running —
@@ -862,7 +868,6 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
         // ran. Without this check the superseded boot goes on to erase a device the tester has
         // since re-picked with the toggle off — the exact wipe-with-no-click this issue is about.
         if (seq !== state.bootSeq) { this.abandonBoot(state, seq, sessionId, requestId); return }
-        this.prepareLean(target)
         try {
           await this.simctl.erase(deviceId)
         } catch (err) {
@@ -884,6 +889,9 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
           }
           throw err
         }
+        // After the erase, not before: a failed erase boots the device back as it was found, and the tier is part of
+        // that. The overrides live on the host, so the erase does not touch them either way.
+        this.prepareTier(target, serviceTier)
         await this.simctl.boot(deviceId)
       } else {
         // Unconditionally, including when the list above said `booted`. That reading is already
@@ -893,9 +901,17 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
         // deadline to discover. `SimctlWrapper.boot` swallows `Unable to boot device in current
         // state: Booted`, so re-issuing it for a device that really is up costs one no-op
         // subprocess and makes "the wait only ever runs after a boot was accepted" true.
-        if (target.status === 'shutdown') this.prepareLean(target)
-        else if (this.lean && !this.leanStore.isApplied(deviceId)) {
-          logger.info(`Lean mode: ${target.name} is already running, so it applies from its next boot`)
+        if (retier) {
+          logger.info(`Service tier: restarting ${target.name} onto ${serviceTier!.name}`)
+          // As for a Full reset: a runner starting for this device would boot it back up mid-change.
+          this.uiTreeReader.stopIfDevice(deviceId)
+          await this.simctl.shutdown(deviceId)
+          if (seq !== state.bootSeq) { this.abandonBoot(state, seq, sessionId, requestId); return }
+          this.prepareTier(target, serviceTier)
+        } else if (target.status === 'shutdown') {
+          this.prepareTier(target, serviceTier)
+        } else if (leanSupported(target.osVersion) && !sameServiceTier(this.leanStore.currentTier(deviceId), this.defaultTier())) {
+          logger.info(`Service tier: ${target.name} is already running, so ${this.defaultTier().name} applies from its next boot`)
         }
         await this.bootWithZombieRecovery(deviceId)
       }
@@ -953,7 +969,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
       // every path precisely so that case reaches here. Requiring an off→on transition would leave
       // that device unowned and put the resolvers back to refusing between two live simulators.
       this.ownedDevices.add(deviceId)
-      this.sendMsg({ type: 'device:ready', sessionId, requestId, payload: { deviceId, cold } })
+      this.sendMsg({ type: 'device:ready', sessionId, requestId, payload: { deviceId, cold, serviceTier: this.reportedTier(target) } })
       // The unsolicited report the protocol names on `device:ready`. It follows the ready rather than
       // riding inside it: a tester whose device just came up can arm the toggle in the same breath, and
       // a boot that armed nothing still has to say so rather than leaving the control blank.
@@ -1000,24 +1016,37 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
 
   // ── Lean mode ──────────────────────────────────────────────────────────────
 
+  /** The tier a boot gets when it does not ask for one: Lean mode's setting. A person's boot is always this. */
+  private defaultTier(): ServiceTier {
+    return { name: this.lean ? 'lean' : 'stock', allow: [] }
+  }
+
+  /** What the device boots with now, for the relay: the marker's tier, or `unsupported` on a runtime that cannot take one. */
+  private reportedTier(device: Device): ServiceTier | 'unsupported' {
+    return leanSupported(device.osVersion) ? this.leanStore.currentTier(device.id) : 'unsupported'
+  }
+
   /**
    * Called only when the device is known to be shut down: `launchd_sim` reads the store when it
    * starts, and a write while it runs is not known to survive. So a device that was already up when
-   * asked for is booted as it is, and becomes lean from its next boot through tapflow.
+   * asked for is booted as it is, and takes the default tier from its next boot through tapflow —
+   * unless a run asked for a tier, which restarts it (`retier` in `handleDeviceBoot`).
    *
-   * **A failure here never stops the boot.** Lean mode is an optimisation and booting is the job.
+   * **Every boot sets an exact tier**, the asked-for one or the default. Adding to whatever the last boot left
+   * is how a device a run left slim reached a person still slim (L2 review R4-S1).
+   *
+   * **A failure here never stops the boot.** A tier is an optimisation and booting is the job.
    */
-  private prepareLean(device: Device): void {
+  private prepareTier(device: Device, requested: ServiceTier | undefined): void {
+    const tier = requested ?? this.defaultTier()
     try {
-      if (!this.lean) {
-        this.revertLean(device.id)
-      } else if (!leanSupported(device.osVersion)) {
-        logger.info(`Lean mode: not applied to ${device.name} (${device.osVersion ?? 'unknown runtime'}) — iOS 18.5 or later only`)
-      } else {
-        this.leanStore.apply(device.id, LEAN_LABELS)
+      if (!leanSupported(device.osVersion)) {
+        if (tier.name !== 'stock') logger.info(`Service tier: ${tier.name} not applied to ${device.name} (${device.osVersion ?? 'unknown runtime'}) — iOS 18.5 or later only`)
+        return
       }
+      this.leanStore.setTier(device.id, tier, labelsFor(tier))
     } catch (e) {
-      logger.warn(`Lean mode: could not update ${device.name}, booting it as it is:`, (e as Error).message)
+      logger.warn(`Service tier: could not set ${device.name} to ${tier.name}, booting it as it is:`, (e as Error).message)
     }
   }
 
@@ -1244,9 +1273,9 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     switch (msg.type) {
       case 'device:boot': {
         // `external` and `automation` are added by the relay, never by the browser (see `DeviceBoot`).
-        const { deviceId, resetMode, acceptH264, secureContext, external, automation } = msg.payload as { deviceId: string; resetMode?: string; acceptH264?: boolean; secureContext?: boolean; external?: boolean; automation?: boolean }
+        const { deviceId, resetMode, acceptH264, secureContext, external, automation, serviceTier } = msg.payload as { deviceId: string; resetMode?: string; acceptH264?: boolean; secureContext?: boolean; external?: boolean; automation?: boolean; serviceTier?: ServiceTier }
         const sessionId = msg.sessionId
-        this.handleDeviceBoot(sessionId, deviceId, resetMode === 'full-erase', acceptH264 === true, { secureContext: !!secureContext, external: !!external }, msg.requestId, automation === true)
+        this.handleDeviceBoot(sessionId, deviceId, resetMode === 'full-erase', acceptH264 === true, { secureContext: !!secureContext, external: !!external }, msg.requestId, automation === true, serviceTier)
           .catch((e) => logger.error('handleDeviceBoot failed:', e))
         break
       }

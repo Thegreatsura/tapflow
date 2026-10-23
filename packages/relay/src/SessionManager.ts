@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto'
 import { WebSocket } from 'ws'
 import type { DeviceStatus } from '@tapflowio/agent-core'
 import type { AgentResources, SessionInfo } from './types.js'
-import type { AiClientKind, ChromePayload, MacAdmission, ClientKind, DeviceDetails, DeviceReport, FormFactor, Point, PosturesPayload, WatchEndReason } from '@tapflowio/protocol'
+import type { AiClientKind, ChromePayload, MacAdmission, ServiceTier, ClientKind, DeviceDetails, DeviceReport, FormFactor, Point, PosturesPayload, WatchEndReason } from '@tapflowio/protocol'
 
 export interface Session {
   id: string
@@ -48,6 +48,9 @@ export interface Session {
   devicePlatform: string
   /** What simctl/adb reported about the device. Drives the device list and the REST guards —
    *  "is this device up", which is a different question from the one below. */
+  /** The service tier the device boots with now: from the agent's register, then from each `device:ready`, since
+   *  the register is a snapshot. Absent from an agent that predates tiers. */
+  deviceServiceTier?: ServiceTier | 'unsupported'
   deviceStatus: DeviceStatus
   /** Whether the relay has told a browser this session is streaming, and has not since taken it
    *  back. This is what the `device:ready` replay keys off. `deviceStatus` cannot answer it: it
@@ -149,7 +152,7 @@ export class SessionManager {
   private static agentFields(
     agent: AgentIdentity,
     device: DeviceReport,
-  ): Pick<Session, 'agentId' | 'agentName' | 'agentPlatform' | 'agentCapabilities' | 'deviceName' | 'devicePlatform' | 'deviceStatus' | 'deviceOsVersion' | 'deviceFormFactor'> {
+  ): Pick<Session, 'agentId' | 'agentName' | 'agentPlatform' | 'agentCapabilities' | 'deviceName' | 'devicePlatform' | 'deviceStatus' | 'deviceOsVersion' | 'deviceFormFactor' | 'deviceServiceTier'> {
     return {
       agentId: agent.agentId,
       agentName: agent.agentName,
@@ -160,6 +163,7 @@ export class SessionManager {
       deviceStatus: device.status as DeviceStatus,
       deviceOsVersion: device.osVersion,
       deviceFormFactor: device.formFactor,
+      deviceServiceTier: device.serviceTier,
     }
   }
 
@@ -519,6 +523,13 @@ export class SessionManager {
     if (session) session.readySent = value
   }
 
+  /** A `device:ready` said which tier the device came up with; `undefined` once it is off or starting again, until
+   *  the next ready says. */
+  setDeviceServiceTier(sessionId: string, tier: ServiceTier | 'unsupported' | undefined): void {
+    const session = this.sessions.get(sessionId)
+    if (session) session.deviceServiceTier = tier
+  }
+
   updateDeviceStatus(sessionId: string, status: DeviceStatus): void {
     const session = this.sessions.get(sessionId)
     if (session) session.deviceStatus = status
@@ -580,6 +591,7 @@ export class SessionManager {
         status: s.deviceStatus,
         osVersion: s.deviceOsVersion,
         formFactor: s.deviceFormFactor,
+        ...(s.deviceServiceTier !== undefined ? { serviceTier: s.deviceServiceTier } : {}),
         sessionId: s.id,
         ...(this.liveAiHolder(s, isAlive) ? { holder: { kind: s.holderKind as AiClientKind, user: s.holderLabel ?? 'unknown' } } : {}),
         busy:

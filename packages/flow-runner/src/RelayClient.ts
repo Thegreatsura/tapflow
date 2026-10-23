@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type {
-  AdmissionRefusal, BootRefusalReason, BrowserToRelay, DeviceSummary, InputErrorReason, SessionStartFailure, SessionTerminatedReason,
+  AdmissionRefusal, BootRefusalReason, BrowserToRelay, ServiceTier, DeviceSummary, InputErrorReason, SessionStartFailure, SessionTerminatedReason,
 } from '@tapflowio/protocol'
 import { WebSocket } from 'ws'
 import type { UIElement } from '@tapflowio/agent-core'
@@ -789,10 +789,11 @@ export class RelayClient {
   /**
    * `acceptH264` asks an iOS agent for H.264 rather than JPEG, as a dashboard that can decode it does. The video
    * (A4) needs it: JPEG is several times the size and cannot be kept. The agent still decides, and may send JPEG.
+   * `serviceTier` asks for the services the device boots with; absent, it gets the agent's own setting.
    */
-  async bootDevice(sessionId: string, deviceId: string, opts: { acceptH264?: boolean } = {}): Promise<void> {
+  async bootDevice(sessionId: string, deviceId: string, opts: { acceptH264?: boolean; serviceTier?: ServiceTier } = {}): Promise<void> {
     const requestId = randomUUID()
-    this.send({ type: 'device:boot', sessionId, requestId, payload: { deviceId, ...(opts.acceptH264 ? { acceptH264: true } : {}) } })
+    this.send({ type: 'device:boot', sessionId, requestId, payload: { deviceId, ...(opts.acceptH264 ? { acceptH264: true } : {}), ...(opts.serviceTier ? { serviceTier: opts.serviceTier } : {}) } })
     const msg = await this.waitFor(
       (m) => (m['type'] === 'device:ready' || m['type'] === 'device:boot-error') && m['sessionId'] === sessionId && correlatesWith(m, requestId),
       BOOT_DEADLINE_MS,

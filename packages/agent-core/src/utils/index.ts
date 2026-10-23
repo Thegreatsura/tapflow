@@ -1,4 +1,5 @@
 export { createResourceSampler } from './resources.js'
+export { sameServiceTier } from './serviceTier.js'
 export {
   registerStreamWs,
   disableNagle,

@@ -8,6 +8,8 @@ export { isEligible, parseTagList, lookupBuild } from './eligibility.js'
 export type { EligibilityTarget, Eligibility, SkipReason, BuildLookup } from './eligibility.js'
 export { EnvironmentStepError, TransientQueryError, isEnvironmentStepFailure, markEnvironmentFailure } from './errors.js'
 export { retryAdmission, admissionRefusalOf, ADMISSION_BACKOFF } from './admission.js'
+export { parseServiceTier, SERVICE_FEATURES } from './serviceTier.js'
+export type { ServiceTier, ServiceTierName, ServiceFeature } from '@tapflowio/protocol'
 export type { RetryAdmissionOptions, AdmissionWait } from './admission.js'
 export {
   AdmissionRefusedError,

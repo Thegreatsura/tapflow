@@ -38,6 +38,39 @@ export interface DeviceReport {
    *  does not know rather than refusing the register, so a newer agent's new form factor reaches an
    *  older viewer as absent — which every consumer reads as "draw it as a phone". */
   formFactor?: FormFactor
+  /** The service tier the device boots with now — what its agent last wrote for it. `'unsupported'` for a
+   *  device whose runtime cannot take one (iOS before 18.5, every Android device). Absent from an agent that
+   *  predates tiers. See `ServiceTier`. */
+  serviceTier?: ServiceTier | 'unsupported'
+}
+
+/**
+ * How many of a simulator's background services are switched off when it boots (iOS only). A boot's cost to
+ * the other sessions on its Mac falls with the list: measured on 8 GB, the full list cut the boot's CPU
+ * saturation from 20–49 s to 7–14 s, while `lean` was indistinguishable from `stock`
+ * (`contributing/simulator-boot-contention.md`).
+ *
+ * - `stock`: nothing off.
+ * - `lean`: what the agent's Lean mode turns off — services apps rarely need. A person's default when Lean mode is on.
+ * - `slim`: almost everything, including widgets, Spotlight, push, StoreKit, photos and contacts. Only for an
+ *   automated run that asked for it, with `allow` naming what its app needs back.
+ *
+ * Asked for by a run (`device:boot.payload.serviceTier`), never chosen from who is booting, so the same flow
+ * replays on the same services every time. A boot without one gets the agent's own setting.
+ */
+export type ServiceTierName = 'stock' | 'lean' | 'slim'
+
+/** Features a run can keep on under a tier, each backed by the services it needs (simslim's feature map). */
+export type ServiceFeature =
+  | 'push' | 'storekit' | 'app-store' | 'universal-links' | 'spotlight' | 'siri' | 'icloud' | 'keychain-sync'
+  | 'contacts' | 'calendar' | 'reminders' | 'mail' | 'photos' | 'health' | 'homekit' | 'imessage' | 'widgets'
+  | 'wallet' | 'maps' | 'weather' | 'news' | 'game-center' | 'find-my' | 'screen-time'
+
+/** One value, so a relay that does not know the field drops the tier and its exceptions together — never the
+ *  exceptions alone, which would boot slim with services the app needs switched off. */
+export interface ServiceTier {
+  name: ServiceTierName
+  allow: ServiceFeature[]
 }
 
 /** A device as the relay lists it, after adding what only the relay knows. Named `DeviceSummary`
@@ -573,6 +606,9 @@ export interface DeviceReady {
      * already forwarded. A reader must not treat absent as `false`.
      */
     cold?: boolean
+    /** The tier this boot came up with. The relay records it as the device's current tier, since the device
+     *  list it registered with is a snapshot. Absent from an agent that predates tiers. */
+    serviceTier?: ServiceTier | 'unsupported'
   }
 }
 
@@ -1704,7 +1740,7 @@ export interface DeviceBoot {
    * `device:shutdown` below stays optional for the opposite reason — the relay sends that one itself.
    */
   requestId: string
-  payload: { deviceId: string; resetMode?: 'app-only' | 'full-erase'; acceptH264?: boolean; secureContext?: boolean }
+  payload: { deviceId: string; resetMode?: 'app-only' | 'full-erase'; acceptH264?: boolean; secureContext?: boolean; serviceTier?: ServiceTier }
 }
 
 export interface AppInstallToRelay {

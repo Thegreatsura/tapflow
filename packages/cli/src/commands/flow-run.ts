@@ -14,6 +14,8 @@ import {
   parseTagList,
   retryAdmission,
   admissionRefusalOf,
+  parseServiceTier,
+  type ServiceTier,
   type EligibilityTarget,
   type SkippedFlow,
   type Flow,
@@ -37,6 +39,9 @@ export interface FlowRunOptions {
   timeout?: number
   /** How long to wait for a Mac that is busy booting another device, in seconds. */
   admissionTimeout?: number
+  /** The services the device boots with (`stock`, `lean`, `slim`), and the features kept on under it. */
+  serviceTier?: string
+  allow?: string
   /** `--no-record` sets it false. */
   record?: boolean
   /** Comma-separated, as typed. */
@@ -194,6 +199,12 @@ export async function cmdFlowRun(files: string[], opts: FlowRunOptions): Promise
     if (opts.timeout !== undefined && !(Number.isFinite(opts.timeout) && opts.timeout > 0 && opts.timeout <= MAX_TIMEOUT_SECONDS)) {
       envFail(`--timeout must be a positive number of seconds no greater than ${MAX_TIMEOUT_SECONDS}`)
     }
+    let serviceTier: ServiceTier | undefined
+    if (opts.serviceTier !== undefined) {
+      try { serviceTier = parseServiceTier(opts.serviceTier, opts.allow) } catch (e) { envFail(`--service-tier: ${(e as Error).message}`) }
+    } else if (opts.allow !== undefined) {
+      envFail('--allow needs --service-tier: it names the features to keep on under that tier')
+    }
     const admissionTimeout = opts.admissionTimeout ?? DEFAULT_ADMISSION_TIMEOUT_SECONDS
     if (!(Number.isFinite(admissionTimeout) && admissionTimeout >= 0 && admissionTimeout <= MAX_TIMEOUT_SECONDS)) {
       envFail(`--admission-timeout must be a number of seconds from 0 to ${MAX_TIMEOUT_SECONDS}`)
@@ -307,7 +318,7 @@ export async function cmdFlowRun(files: string[], opts: FlowRunOptions): Promise
         // what initializes the agent's touch/stream state for this session (the
         // dashboard does the same on join).
         // H.264 when there is a video to keep: JPEG is several times the size and is not kept.
-        await joining.bootDevice(sessionId, device.id, { acceptH264: video !== undefined })
+        await joining.bootDevice(sessionId, device.id, { acceptH264: video !== undefined, ...(serviceTier ? { serviceTier } : {}) })
       } catch (e) {
         if (admissionRefusalOf(e) !== null) {
           joining.leaveSession(sessionId)
