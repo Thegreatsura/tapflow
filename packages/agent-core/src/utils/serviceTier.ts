@@ -1,10 +1,16 @@
 import type { ServiceTier } from '@tapflowio/protocol'
 
 /**
- * Whether two service tiers switch off the same services: the same name and the same allowed features, in any
- * order. Shared because the agent decides from it whether a running device must restart onto a tier, and the relay
+ * Whether two service tiers switch off the same services: the same name and the same allowed features as a set
+ * (order and repeats do not count; `stock` has none). Shared because the agent decides from it whether a running device must restart onto a tier, and the relay
  * decides from it whether that boot costs a cold boot — the two must not disagree.
  */
 export function sameServiceTier(a: ServiceTier, b: ServiceTier): boolean {
-  return a.name === b.name && a.allow.length === b.allow.length && a.allow.every((f) => b.allow.includes(f))
+  if (a.name !== b.name) return false
+  // `stock` switches nothing off, so there is nothing for `allow` to keep on — and no marker records one. Compared by
+  // its features, `stock` with `allow` would differ from the device's recorded `stock` on every run and restart it.
+  if (a.name === 'stock') return true
+  const left = new Set(a.allow)
+  const right = new Set(b.allow)
+  return left.size === right.size && [...left].every((f) => right.has(f))
 }
