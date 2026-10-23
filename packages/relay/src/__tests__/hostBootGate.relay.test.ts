@@ -590,6 +590,21 @@ describe('the relay routes boots through the per-Mac boot gate', () => {
       expect((await waitForType<{ type: 'device:shutdown'; sessionId: string }>(mac.ws, 'device:shutdown')).sessionId).toBe(mac.session.get('a'))
     })
 
+    it('forgets a boot its agent never answered once the boot\'s deadline passes', async () => {
+      process.env['TAPFLOW_MAX_AUTOMATED_DEVICES'] = '1'
+      await start({ bootGate: { noSampleMs: 1, settleCapMs: 1, bootMs: 20 }, pendingBootTtlMs: 30 })
+      const mac = await agent('mac-1', ['a', 'b'])
+      const robotA = await join(mac.session.get('a')!, 'flow-runner')
+      boot(robotA, mac.session.get('a')!, 'a')
+      await waitForType<DeviceBoot>(mac.ws, 'device:boot')
+      robotA.send(JSON.stringify({ type: 'session:leave', sessionId: mac.session.get('a') }))
+      await new Promise((r) => setTimeout(r, 60)) // past both the gate's and the correlator's deadline, unanswered
+
+      const robot = await join(mac.session.get('b')!, 'flow-runner')
+      boot(robot, mac.session.get('b')!, 'b')
+      expect((await waitForType<DeviceBoot>(mac.ws, 'device:boot')).sessionId).toBe(mac.session.get('b'))
+    })
+
     it('does not count a boot that found the device already running', async () => {
       process.env['TAPFLOW_MAX_AUTOMATED_DEVICES'] = '1'
       await start(quickGate)

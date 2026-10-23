@@ -2950,6 +2950,12 @@ export class RelayServer {
 
   private capacityDevices(onHost: Session[]): CapacityDevice[] {
     const now = Date.now()
+    // A boot nobody has answered within the correlator's TTL is taken as not having happened. Checked here rather
+    // than on that timer, which a leave or an end clears with the session's other state while the record stays;
+    // a late ready still records the boot again (`settleLastBoot` on `cold: true`).
+    for (const s of onHost) {
+      if (s.lastBootPending && s.lastBoot && now - s.lastBoot.at >= this.pendingBootTtlMs) this.undoLastBoot(s, s.lastBootPending.requestId)
+    }
     return onHost
       // A device being shut down to make room is neither up nor available, until the agent says otherwise.
       .filter((s) => s.evictingAt === undefined || now - s.evictingAt >= this.evictionGraceMs)
