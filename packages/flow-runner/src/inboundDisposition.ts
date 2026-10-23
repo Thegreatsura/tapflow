@@ -37,7 +37,7 @@ export const INBOUND_DISPOSITION = {
   'session:terminated': { does: 'records the end, and rejects that session\'s waiters with the reason' },
   'device:ready': { settles: 'bootDevice' },
   'device:boot-error': { settles: 'bootDevice' },
-  'device:boot-waiting': { ignored: 'Sent only for a person\'s boot: an automated client is refused with `host-booting` instead of held.' },
+  'device:boot-waiting': { ignored: 'Sent only for a person\'s boot: an automated client is refused (`device:boot-error` with a `reason`) instead of held.' },
   'app:install-done': { settles: 'installApp' },
   'app:install-error': { settles: 'installApp' },
   'app:launch-done': { settles: 'launchApp' },

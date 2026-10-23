@@ -1,5 +1,8 @@
 import os from 'os'
 import { spawnSync } from 'child_process'
+import type { MemoryPressure } from '@tapflowio/protocol'
+
+const PRESSURE_LEVELS: Record<string, MemoryPressure> = { '1': 'normal', '2': 'warn', '4': 'critical' }
 
 export function createResourceSampler() {
   let lastCpuTimes: { idle: number; total: number } | null = null
@@ -41,5 +44,14 @@ export function createResourceSampler() {
     }
   }
 
-  return { getCpuPercent, getMemoryUsage }
+  // The kernel's verdict rather than a percentage of ours: an 8 GB Mac runs near-full and compressing all the
+  // time, and only the kernel knows when that has stopped keeping up. macOS only; elsewhere there is no answer.
+  function getMemoryPressure(): MemoryPressure | undefined {
+    if (os.platform() !== 'darwin') return undefined
+    const { stdout, status } = spawnSync('sysctl', ['-n', 'kern.memorystatus_vm_pressure_level'], { encoding: 'utf8' })
+    if (status !== 0 || typeof stdout !== 'string') return undefined
+    return PRESSURE_LEVELS[stdout.trim()]
+  }
+
+  return { getCpuPercent, getMemoryUsage, getMemoryPressure }
 }

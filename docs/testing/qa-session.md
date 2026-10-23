@@ -22,7 +22,7 @@ A QA Session is where you watch and drive an iOS simulator or Android emulator r
 
 Hovering a red card shows **This Mac is currently overloaded. Try again later.** Pick another Mac or try again shortly.
 
-While a device is starting on that Mac, the card shows **Starting a device**, and you can pick it even with CPU over 80%, because the starting device is what raised it. A Mac starts one device at a time, so if the device you pick needs starting, the info card shows **Another device is starting on this Mac. Yours starts next…** and it starts within 60 seconds.
+While a device is starting on that Mac, the card shows **Starting a device**, and you can pick it even with CPU over 80%, because the starting device is what raised it. A Mac starts one device at a time, so if the device you pick needs starting, the info card shows **Another device is starting on this Mac. Yours starts next…** and it starts within 60 seconds. When the Mac is critically short of memory, the card shows **This Mac is low on memory. Yours starts when it frees up…** instead, with the same 60-second limit.
 
 ### Pick a device {#select-device}
 

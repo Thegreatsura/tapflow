@@ -253,7 +253,15 @@ export class SessionJoinError extends PlatformError {
 /** Runtime mirror of `BootRefusalReason`, for the reason given on `SESSION_START_FAILURES`. */
 const BOOT_REFUSALS: Record<BootRefusalReason, true> = {
   'host-booting': true,
+  'host-memory-critical': true,
 }
+
+/**
+ * A refusal this client knows by name, or `unrecognised-refusal` for one a newer relay added. Only the relay's
+ * admission gate puts a `reason` on a refused boot, and it refuses only a Mac that is busy, so a reason this build
+ * has never heard of is waited out like the others rather than failing the run as broken.
+ */
+export type AdmissionReason = AdmissionRefusal | 'unrecognised-refusal'
 
 /**
  * A boot the relay refused before it reached an agent, because another boot on the same Mac has not settled
@@ -261,7 +269,7 @@ const BOOT_REFUSALS: Record<BootRefusalReason, true> = {
  * the class is the cause and no session note is added. `retryAdmission` waits these out.
  */
 export class AdmissionRefusedError extends PlatformError {
-  constructor(message: string, readonly reason: AdmissionRefusal, options?: ErrorOptions) {
+  constructor(message: string, readonly reason: AdmissionReason, options?: ErrorOptions) {
     super(message, options)
   }
 }
@@ -806,8 +814,9 @@ export class RelayClient {
     // runs, which is slow rather than wrong.
     if (msg['type'] === 'device:boot-error') {
       const reason = msg['reason']
-      if (typeof reason === 'string' && Object.hasOwn(BOOT_REFUSALS, reason)) {
-        throw new AdmissionRefusedError(`boot refused (${reason}): ${(msg['message'] as string) ?? 'no detail'}`, reason as BootRefusalReason)
+      if (typeof reason === 'string') {
+        const known = Object.hasOwn(BOOT_REFUSALS, reason) ? reason as BootRefusalReason : 'unrecognised-refusal'
+        throw new AdmissionRefusedError(`boot refused (${reason}): ${(msg['message'] as string) ?? 'no detail'}`, known)
       }
       throw this.failed(sessionId, (msg['message'] as string) ?? 'boot failed')
     }

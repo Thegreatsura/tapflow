@@ -16,6 +16,11 @@ import { isSettled, SETTLE } from './settle.js'
  * released), and a deadline returned before that would already be stale. The message a held boot carries rides in the gate as `M`, so there
  * is one owner of a held boot rather than a gate entry and a relay map that can disagree.
  *
+ * **Memory is a safety valve, not a budget.** While an agent on the Mac reports critical kernel memory pressure, no
+ * automated cold boot is let through (`host-memory-critical`) and a person's waits in the reservation as it would
+ * behind a boot. The reading counts for `SETTLE.freshMs` after the last report that said so, so a Mac whose agents
+ * went quiet is not held shut by their last word.
+ *
  * **What releases a slot is a closed list** (`GateEvent`), not a general release call. A rebind, a correlator's
  * TTL or an evicted boot record does not appear in it, because the device is still booting on that Mac through
  * all three — the slot is about the Mac, `pendingBoots` is about who is waiting for an answer.
@@ -71,14 +76,17 @@ export type GateLogEvent =
   | 'human-wait-expired'
   | 'rebound-abandoned'
   | 'aging-window'
+  | 'memory-critical'
+  | 'memory-critical-stale'
 
 export type Effect<M> =
   /** Send this boot to its agent now. */
   | { kind: 'deliver'; sessionId: string; requestId: string; message: M }
   /** Answer this automated boot with `device:boot-error` and the reason; it was never forwarded. */
   | { kind: 'refuse'; sessionId: string; requestId: string; reason: BootRefusalReason; message: M }
-  /** A person's boot is now held; tell them, and when it goes ahead regardless. */
-  | { kind: 'waiting'; sessionId: string; requestId: string; until: number; message: M }
+  /** A person's boot is now held, or held for a different reason than they were told; tell them, and when it goes
+   *  ahead regardless. */
+  | { kind: 'waiting'; sessionId: string; requestId: string; until: number; reason: BootRefusalReason; message: M }
   /** A held boot that will not go ahead: answer it with `device:boot-error`. */
   | { kind: 'withdraw'; sessionId: string; requestId: string; why: 'cancelled' | 'replaced'; message: M }
   | { kind: 'log'; event: GateLogEvent; hostKey: string; sessionId?: string }
@@ -88,6 +96,8 @@ export type GateEvent =
   | { kind: 'ready'; hostKey: string; sessionId: string; cold?: boolean }
   /** One `agent:resources` report from any agent on that Mac. */
   | { kind: 'sample'; hostKey: string; cpuPercent: number }
+  /** The memory pressure on that report, from an agent that reads it. A report without one says nothing either way. */
+  | { kind: 'pressure'; hostKey: string; critical: boolean }
   /** The agent's `device:boot-error`. No `requestId` is an Android stream that died outside a boot. */
   | { kind: 'boot-error'; sessionId: string; requestId?: string }
   | { kind: 'shutdown-done'; sessionId: string }
@@ -116,6 +126,8 @@ interface Held<M> {
   requestId: string
   message: M
   since: number
+  /** What the person was last told they are waiting for. */
+  reason: BootRefusalReason
 }
 
 interface Host<M> {
@@ -125,6 +137,8 @@ interface Host<M> {
   humanStreak: number
   lastAutomatedRefusalAt: number | null
   agingWindowUntil: number | null
+  /** Critical memory pressure holds until this, unless a report says otherwise first. */
+  criticalUntil: number | null
 }
 
 /**
@@ -154,8 +168,8 @@ export class HostBootGate<M> {
         host.reservation = null
         fx.push(this.deliverOf(req))
       } else {
-        host.reservation = { ...host.reservation, requestId: req.requestId, message: req.message }
-        fx.push({ kind: 'waiting', sessionId: req.sessionId, requestId: req.requestId, until: host.reservation.since + this.timing.humanWaitMs, message: req.message })
+        host.reservation = { ...host.reservation, requestId: req.requestId, message: req.message, reason: this.waitReason(host) }
+        fx.push(this.waitingOf(host.reservation))
       }
       return fx
     }
@@ -173,9 +187,15 @@ export class HostBootGate<M> {
       return fx
     }
 
+    // Below the same-session and warm branches on purpose: a re-boot of the slot's own device and a device already up
+    // add no boot to the Mac, and refusing the first would orphan the slot until its boot timeout.
+    const critical = this.isCritical(host)
     const windowOpen = host.agingWindowUntil !== null
     if (req.booterClass === 'automated') {
-      if (host.slot === null && (windowOpen || host.reservation === null)) {
+      if (critical) {
+        host.lastAutomatedRefusalAt = now
+        fx.push({ kind: 'refuse', sessionId: req.sessionId, requestId: req.requestId, reason: 'host-memory-critical', message: req.message })
+      } else if (host.slot === null && (windowOpen || host.reservation === null)) {
         this.takeSlot(host, req)
         host.humanStreak = 0
         host.agingWindowUntil = null
@@ -187,17 +207,17 @@ export class HostBootGate<M> {
       return fx
     }
 
-    if (host.slot === null && !windowOpen) {
+    if (host.slot === null && !windowOpen && !critical) {
       this.takeSlot(host, req)
       this.noteHumanGrant(host)
       fx.push(this.deliverOf(req))
     } else if (host.reservation === null) {
-      host.reservation = { sessionId: req.sessionId, requestId: req.requestId, message: req.message, since: now }
-      fx.push({ kind: 'waiting', sessionId: req.sessionId, requestId: req.requestId, until: now + this.timing.humanWaitMs, message: req.message })
+      host.reservation = { sessionId: req.sessionId, requestId: req.requestId, message: req.message, since: now, reason: this.waitReason(host) }
+      fx.push(this.waitingOf(host.reservation))
     } else {
       // The one place is taken. A second person at once is rare enough to let through rather than queue.
       fx.push({ kind: 'log', event: 'overlap', hostKey: req.hostKey, sessionId: req.sessionId })
-      fx.push(this.deliverOf(req))
+      this.deliverAnyway(host, req, fx)
     }
     return fx
   }
@@ -238,6 +258,22 @@ export class HostBootGate<M> {
         if (isSettled(slot.samples)) this.release(ev.hostKey, this.host(ev.hostKey), fx)
         break
       }
+      case 'pressure': {
+        const host = this.host(ev.hostKey)
+        const now = this.now()
+        if (ev.critical) {
+          const was = this.isCritical(host)
+          host.criticalUntil = now + SETTLE.freshMs
+          if (!was) {
+            fx.push({ kind: 'log', event: 'memory-critical', hostKey: ev.hostKey })
+            this.refreshWaiting(host, fx)
+          }
+        } else if (host.criticalUntil !== null) {
+          host.criticalUntil = null
+          this.criticalEnded(host, fx)
+        }
+        break
+      }
       case 'boot-error': {
         const found = this.slotOf(ev.sessionId)
         if (found && (ev.requestId === undefined || ev.requestId === found.host.slot!.requestId)) {
@@ -274,6 +310,12 @@ export class HostBootGate<M> {
     const now = this.now()
     const t = this.timing
     for (const [key, host] of this.hosts) {
+      // First, so a reservation the expiry frees goes out in this same tick.
+      if (host.criticalUntil !== null && now >= host.criticalUntil) {
+        host.criticalUntil = null
+        fx.push({ kind: 'log', event: 'memory-critical-stale', hostKey: key })
+        this.criticalEnded(host, fx)
+      }
       const slot = host.slot
       if (slot) {
         let expired: GateLogEvent | null = null
@@ -290,7 +332,9 @@ export class HostBootGate<M> {
           this.release(key, host, fx)
         }
       }
-      if (host.agingWindowUntil !== null && now >= host.agingWindowUntil) {
+      // Not while critical: automation is refused then, so the window would run out with nobody able to use it.
+      // `criticalEnded` starts it again.
+      if (host.agingWindowUntil !== null && now >= host.agingWindowUntil && !this.isCritical(host)) {
         host.agingWindowUntil = null
         host.humanStreak = 0
         this.dispatchReservation(host, fx)
@@ -299,7 +343,7 @@ export class HostBootGate<M> {
       if (held && now >= held.since + t.humanWaitMs) {
         host.reservation = null
         fx.push({ kind: 'log', event: 'human-wait-expired', hostKey: key, sessionId: held.sessionId })
-        fx.push({ kind: 'deliver', sessionId: held.sessionId, requestId: held.requestId, message: held.message })
+        this.deliverAnyway(host, held, fx)
       }
     }
     return fx
@@ -322,9 +366,52 @@ export class HostBootGate<M> {
     this.dispatchReservation(host, fx)
   }
 
+  private criticalEnded(host: Host<M>, fx: Effect<M>[]): void {
+    if (host.agingWindowUntil !== null) host.agingWindowUntil = this.now() + this.timing.agingWindowMs
+    this.dispatchReservation(host, fx)
+    this.refreshWaiting(host, fx)
+  }
+
+  /**
+   * A boot let through regardless — a second person while the reservation is taken, or a person whose wait ran
+   * out. With the slot free it takes the slot, so the boot is tracked to its settle like any other: free here means
+   * the Mac was critical, and letting it through slotless would let the next automated boot start beside it the
+   * moment pressure cleared. Only an open aging window keeps it slotless, since that free slot is automation's.
+   */
+  private deliverAnyway(host: Host<M>, req: { sessionId: string; requestId: string; message: M }, fx: Effect<M>[]): void {
+    if (host.slot === null && host.agingWindowUntil === null) {
+      this.takeSlot(host, req)
+      this.noteHumanGrant(host)
+    }
+    fx.push({ kind: 'deliver', sessionId: req.sessionId, requestId: req.requestId, message: req.message })
+  }
+
+  private isCritical(host: Host<M>): boolean {
+    return host.criticalUntil !== null && this.now() < host.criticalUntil
+  }
+
+  private waitReason(host: Host<M>): BootRefusalReason {
+    return this.isCritical(host) ? 'host-memory-critical' : 'host-booting'
+  }
+
+  /** Tell a held person when what they wait for has changed, keeping their place and clock. Called on each change of
+   *  pressure, since that is the only thing `waitReason` reads. */
+  private refreshWaiting(host: Host<M>, fx: Effect<M>[]): void {
+    const held = host.reservation
+    if (!held) return
+    const reason = this.waitReason(host)
+    if (reason === held.reason) return
+    held.reason = reason
+    fx.push(this.waitingOf(held))
+  }
+
+  private waitingOf(held: Held<M>): Effect<M> {
+    return { kind: 'waiting', sessionId: held.sessionId, requestId: held.requestId, until: held.since + this.timing.humanWaitMs, reason: held.reason, message: held.message }
+  }
+
   private dispatchReservation(host: Host<M>, fx: Effect<M>[]): void {
     const held = host.reservation
-    if (!held || host.slot !== null || host.agingWindowUntil !== null) return
+    if (!held || host.slot !== null || host.agingWindowUntil !== null || this.isCritical(host)) return
     host.reservation = null
     this.takeSlot(host, held)
     this.noteHumanGrant(host)
@@ -360,7 +447,7 @@ export class HostBootGate<M> {
   private host(key: string): Host<M> {
     let host = this.hosts.get(key)
     if (!host) {
-      host = { slot: null, reservation: null, humanStreak: 0, lastAutomatedRefusalAt: null, agingWindowUntil: null }
+      host = { slot: null, reservation: null, humanStreak: 0, lastAutomatedRefusalAt: null, agingWindowUntil: null, criticalUntil: null }
       this.hosts.set(key, host)
     }
     return host
@@ -381,7 +468,9 @@ export class HostBootGate<M> {
           if (slot.lastSampleAt === null) consider(slot.readyAt + t.noSampleMs)
         }
       }
-      if (host.agingWindowUntil !== null) consider(host.agingWindowUntil)
+      if (host.criticalUntil !== null) consider(host.criticalUntil)
+      // A window does not run out while critical, and a past deadline here would spin the relay's timer.
+      if (host.agingWindowUntil !== null && !this.isCritical(host)) consider(host.agingWindowUntil)
       if (host.reservation) consider(host.reservation.since + t.humanWaitMs)
     }
     return next

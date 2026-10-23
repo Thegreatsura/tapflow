@@ -86,7 +86,7 @@ describe('HostBootGate', () => {
   it('holds a person behind a boot and lets them through when it settles', () => {
     gate.admit(req('a', 'automated'))
     const held = gate.admit(req('p', 'interactive'))
-    expect(held).toEqual([{ kind: 'waiting', sessionId: 'p', requestId: 'p-r', until: now + GATE_DEFAULTS.humanWaitMs, message: 'boot p' }])
+    expect(held).toEqual([{ kind: 'waiting', sessionId: 'p', requestId: 'p-r', until: now + GATE_DEFAULTS.humanWaitMs, reason: 'host-booting', message: 'boot p' }])
     expect(delivered(settle('a'))).toEqual(['p'])
     expect(gate.isBooting(HOST)).toBe(true) // the person's boot now holds it
   })
@@ -123,7 +123,7 @@ describe('HostBootGate', () => {
     const again = gate.admit(req('p', 'interactive', { requestId: 'p-r2', message: 'boot p again' }))
     expect(again).toEqual([
       { kind: 'withdraw', sessionId: 'p', requestId: 'p-r', why: 'replaced', message: 'boot p' },
-      { kind: 'waiting', sessionId: 'p', requestId: 'p-r2', until: t0 + GATE_DEFAULTS.humanWaitMs, message: 'boot p again' },
+      { kind: 'waiting', sessionId: 'p', requestId: 'p-r2', until: t0 + GATE_DEFAULTS.humanWaitMs, reason: 'host-booting', message: 'boot p again' },
     ])
     expect(gate.nextDeadline()).toBe(t0 + GATE_DEFAULTS.humanWaitMs) // the clock did not restart
     const fx = settle('a')
@@ -265,6 +265,110 @@ describe('HostBootGate', () => {
       gate.admit(req('late', 'interactive'))
       now += GATE_DEFAULTS.agingWindowMs
       expect(delivered(gate.tick())).toEqual(['late'])
+    })
+  })
+
+  // The memory safety valve: critical kernel pressure on the Mac keeps new devices off it.
+  describe('critical memory pressure', () => {
+    const critical = (on = true): Effect<string>[] => gate.onEvent({ kind: 'pressure', hostKey: HOST, critical: on })
+    const waits = (fx: Effect<string>[]): string[] => fx.flatMap((e) => (e.kind === 'waiting' ? [`${e.sessionId}:${e.reason}`] : []))
+
+    it('refuses an automated cold boot even with the slot free, and lets warm boots through', () => {
+      expect(logged(critical())).toEqual(['memory-critical'])
+      expect(gate.admit(req('a', 'automated'))).toEqual([{ kind: 'refuse', sessionId: 'a', requestId: 'a-r', reason: 'host-memory-critical', message: 'boot a' }])
+      expect(kinds(gate.admit(req('w', 'automated', { cost: 'warm' })))).toEqual(['deliver:w'])
+      expect(gate.isBooting(HOST)).toBe(false)
+    })
+
+    it('names memory over a busy slot, since it is the longer wait', () => {
+      gate.admit(req('a', 'automated'))
+      critical()
+      expect(gate.admit(req('b', 'automated'))[0]).toMatchObject({ kind: 'refuse', reason: 'host-memory-critical' })
+    })
+
+    it('does not refuse a re-boot of the device already holding the slot', () => {
+      gate.admit(req('a', 'automated'))
+      critical()
+      expect(kinds(gate.admit(req('a', 'automated', { requestId: 'a-r2' })))).toEqual(['deliver:a'])
+    })
+
+    it('holds a person with the slot free, and lets them go when a report says pressure is over', () => {
+      critical()
+      expect(waits(gate.admit(req('p', 'interactive')))).toEqual(['p:host-memory-critical'])
+      expect(critical().filter((e) => e.kind !== 'log')).toEqual([]) // still critical: nothing changes
+      expect(delivered(critical(false))).toEqual(['p'])
+      expect(gate.isBooting(HOST)).toBe(true)
+    })
+
+    it('lets the person go when the agents stop saying so, at the deadline it reports', () => {
+      critical()
+      gate.admit(req('p', 'interactive'))
+      expect(gate.nextDeadline()).toBe(now + 15_000)
+      now += 15_000
+      const fx = gate.tick()
+      expect(logged(fx)).toContain('memory-critical-stale')
+      expect(delivered(fx)).toEqual(['p'])
+    })
+
+    it('keeps the person told why they wait as the reason changes', () => {
+      gate.admit(req('a', 'automated'))
+      expect(waits(gate.admit(req('p', 'interactive')))).toEqual(['p:host-booting'])
+      expect(waits(critical())).toEqual(['p:host-memory-critical'])
+      expect(waits(critical(false))).toEqual(['p:host-booting']) // the slot still holds them
+      // The slot frees while memory is short again (each report renews it): the person is told so, not let go.
+      const fx = [...critical(), ...gate.onEvent({ kind: 'ready', hostKey: HOST, sessionId: 'a', cold: true })]
+      for (const cpu of [0, 40, 42, 41]) { now += 5_000; fx.push(...critical(), ...gate.onEvent({ kind: 'sample', hostKey: HOST, cpuPercent: cpu })) }
+      expect(gate.isBooting(HOST)).toBe(false)
+      expect(delivered(fx)).toEqual([])
+      expect(waits(fx)).toEqual(['p:host-memory-critical'])
+      expect(delivered(critical(false))).toEqual(['p'])
+    })
+
+    it('a person let through after the wait limit takes the free slot, so no automated boot starts beside them', () => {
+      critical()
+      gate.admit(req('p', 'interactive'))
+      for (let t = 0; t < GATE_DEFAULTS.humanWaitMs; t += 10_000) { now += 10_000; critical() }
+      const fx = gate.tick()
+      expect(logged(fx)).toContain('human-wait-expired')
+      expect(delivered(fx)).toEqual(['p'])
+      critical(false)
+      expect(gate.admit(req('a', 'automated'))[0]).toMatchObject({ kind: 'refuse', reason: 'host-booting' })
+    })
+
+    it('a second person while one waits takes the free slot too', () => {
+      critical()
+      gate.admit(req('p', 'interactive'))
+      expect(kinds(gate.admit(req('q', 'interactive')))).toEqual(['deliver:q'])
+      expect(gate.isBooting(HOST)).toBe(true)
+    })
+
+    it('does not let an aging window run out while automation cannot use it', () => {
+      gate.admit(req('first', 'interactive'))
+      gate.admit(req('auto', 'automated'))
+      settle('first')
+      for (let i = 0; i < GATE_DEFAULTS.agingCount - 1; i++) {
+        gate.admit(req(`p${i}`, 'interactive'))
+        gate.admit(req('auto', 'automated'))
+        settle(`p${i}`)
+      }
+      gate.admit(req('last', 'interactive'))
+      critical()
+      expect(logged(settle('last'))).toContain('aging-window')
+      // A person arrives and waits behind the window as usual.
+      expect(gate.admit(req('late', 'interactive'))[0]).toMatchObject({ kind: 'waiting', sessionId: 'late' })
+      // Critical outlasts the window: it does not expire, and the timer is not asked to fire in the past.
+      // 50 s: past the 45 s window, inside the person's 60 s limit.
+      for (let t = 0; t < GATE_DEFAULTS.agingWindowMs + 5_000; t += 10_000) {
+        now += 10_000
+        critical()
+        expect(delivered(gate.tick())).toEqual([])
+      }
+      expect(gate.nextDeadline()).toBeGreaterThan(now)
+      // Pressure clears and automation gets a whole window again, not one that ran out meanwhile.
+      expect(delivered(critical(false))).toEqual([])
+      now += 5_000
+      expect(delivered(gate.tick())).toEqual([])
+      expect(kinds(gate.admit(req('auto', 'automated')))).toEqual(['deliver:auto'])
     })
   })
 })

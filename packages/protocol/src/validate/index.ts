@@ -261,6 +261,8 @@ const AGENT_CONSUMED = {
     resources: z.object({
       cpuPercent: z.number(), memUsedMB: z.number(), memTotalMB: z.number(),
       slotsAvailable: z.number(), slotsTotal: z.number(), reportedAt: z.number(),
+      // A level a newer agent adds reads as no reading, rather than costing the whole report.
+      memoryPressure: z.union([z.enum(['normal', 'warn', 'critical']), z.string().transform(() => undefined)]).optional(),
     }),
   }),
   'screenshot:done': z.object({

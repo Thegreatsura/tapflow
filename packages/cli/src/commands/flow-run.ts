@@ -15,6 +15,7 @@ import {
   retryAdmission,
   admissionRefusalOf,
   parseServiceTier,
+  type AdmissionReason,
   type ServiceTier,
   type EligibilityTarget,
   type SkippedFlow,
@@ -66,6 +67,14 @@ const MAX_TIMEOUT_SECONDS = 2_147_483_647 / 1000
  * CI job for its whole budget.
  */
 const DEFAULT_ADMISSION_TIMEOUT_SECONDS = 600
+
+/** What the run is waiting for, as the log line says it. */
+const ADMISSION_WAITS: Record<AdmissionReason, string> = {
+  'host-booting': 'another device is booting on this Mac',
+  'host-memory-critical': 'this Mac is critically short of memory',
+  'agent-resources-exhausted': 'the Mac is over its CPU or memory limit',
+  'unrecognised-refusal': 'the relay is holding boots on this Mac',
+}
 
 class FlowRunEnvironmentError extends Error {}
 
@@ -329,7 +338,7 @@ export async function cmdFlowRun(files: string[], opts: FlowRunOptions): Promise
       }
     }, {
       timeoutMs: admissionTimeout * 1000,
-      onWait: (reason, ms) => console.log(`waiting ${Math.round(ms / 1000)}s: ${reason === 'host-booting' ? 'another device is booting on this Mac' : 'the Mac is over its CPU or memory limit'}`),
+      onWait: (reason, ms) => console.log(`waiting ${Math.round(ms / 1000)}s: ${ADMISSION_WAITS[reason]}`),
     })
     if (opts.build !== undefined && opts.install !== false) {
       console.log(`installing build ${opts.build}...`)

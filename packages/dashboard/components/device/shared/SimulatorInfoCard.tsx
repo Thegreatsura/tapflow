@@ -7,6 +7,7 @@ import { Separator } from '@/components/ui/separator';
 import { performanceMode } from '@/lib/decoders/pickDecoder';
 import { PerformanceModeNotice } from '@/components/perf/PerformanceModeNotice';
 import { shouldAutoShowPerfNotice, PERF_NOTICE_KEY } from '@/lib/perfNotice';
+import type { BootRefusalReason } from '@tapflowio/protocol';
 
 // init wizard와 같은 프로파일 용어로 — 디코더 jargon(WebCodecs/WASM) 대신.
 const MODE_LABEL: Record<string, string | null> = {
@@ -21,8 +22,9 @@ interface SimulatorInfoCardProps {
   connected: boolean;
   deviceReady: boolean;
   bootError: string | null;
-  /** The relay is holding this boot until another device on the same Mac has settled (`device:boot-waiting`). */
-  bootWaiting?: boolean;
+  /** The relay is holding this boot, and why (`device:boot-waiting`): another device on the same Mac has not
+   *  settled, or the Mac is critically short of memory. */
+  bootWaiting?: BootRefusalReason | null;
   /** An automated run started this device with most background services off (`slim`), and it is still that way. */
   servicesOff?: boolean;
   installing: boolean;
@@ -47,6 +49,7 @@ function getStatusText(props: SimulatorInfoCardProps): string | null {
   if (agentAway) return 'The agent went away — waiting for it to come back…';
   if (bootError)
     return `Boot failed: ${bootError.length > 40 ? bootError.slice(0, 40) + '…' : bootError}`;
+  if (!deviceReady && bootWaiting === 'host-memory-critical') return 'This Mac is low on memory. Yours starts when it frees up…';
   if (!deviceReady && bootWaiting) return 'Another device is starting on this Mac. Yours starts next…';
   if (!deviceReady) return 'Starting device…';
   if (installing) return 'Installing app…';

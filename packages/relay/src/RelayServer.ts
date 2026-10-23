@@ -8,7 +8,7 @@ import { WebSocketServer, WebSocket } from 'ws'
 import { SessionManager, isAiClientKind } from './SessionManager.js'
 import type { Session } from './SessionManager.js'
 import type { DeviceDetails, UIElement } from './types.js'
-import type { ChromePayload, InputErrorReason, MacAdmission, RelayOutbound, PosturesPayload, WatchActionKind, WatchRefusal } from '@tapflowio/protocol'
+import type { BootRefusalReason, ChromePayload, InputErrorReason, MacAdmission, RelayOutbound, PosturesPayload, WatchActionKind, WatchRefusal } from '@tapflowio/protocol'
 import { gestureAction, keyForWatchers } from './lib/watchActions.js'
 import { HostBootGate, GATE_DEFAULTS, type Effect, type GateEvent, type GateTiming } from './admission/HostBootGate.js'
 import { classifyBoot } from './admission/classifyBoot.js'
@@ -128,6 +128,12 @@ const MIME_TYPES: Record<string, string> = {
 
 const _parsedThreshold = parseInt(process.env['TAPFLOW_RESOURCE_THRESHOLD_PERCENT'] ?? '80', 10)
 const RESOURCE_THRESHOLD = Number.isFinite(_parsedThreshold) ? _parsedThreshold : 80
+
+/** The prose on a refused boot. Clients act on `reason`; this is for the person reading a log. */
+const BOOT_REFUSAL_MESSAGES: Record<BootRefusalReason, string> = {
+  'host-booting': 'Another device is still booting on this Mac. Try again once it has settled.',
+  'host-memory-critical': 'This Mac is critically short of memory. Try again once it has recovered.',
+}
 
 // Messages that only agents are allowed to send. Authenticated browser sockets
 // that send any of these are disconnected immediately.
@@ -2039,7 +2045,12 @@ export class RelayServer {
   private handleAgentResources(ws: WebSocket, msg: Inbound<'agent:resources'>): void {
     this.sessions.setResources(ws, msg.resources)
     const first = this.sessions.getAllByAgentSocket(ws)[0]
-    if (first) this.gateEvent({ kind: 'sample', hostKey: hostKeyOf(first), cpuPercent: msg.resources.cpuPercent })
+    if (first) {
+      this.gateEvent({ kind: 'sample', hostKey: hostKeyOf(first), cpuPercent: msg.resources.cpuPercent })
+      // No reading is not "normal": an agent that cannot read pressure, beside one that can, would clear it every 5 s.
+      const pressure = msg.resources.memoryPressure
+      if (pressure !== undefined) this.gateEvent({ kind: 'pressure', hostKey: hostKeyOf(first), critical: pressure === 'critical' })
+    }
     const agentName = first?.agentName
     if (agentName) {
       const buf = this.resourceBuffers.get(agentName) ?? { cpu: [], mem: [] }
@@ -2179,18 +2190,18 @@ export class RelayServer {
         case 'refuse':
           this.sendTo(fx.message.ws, {
             type: 'device:boot-error', sessionId: fx.sessionId, requestId: fx.requestId, reason: fx.reason,
-            message: 'Another device is still booting on this Mac. Try again once it has settled.',
+            message: BOOT_REFUSAL_MESSAGES[fx.reason],
           })
           break
         case 'waiting':
-          this.sendTo(fx.message.ws, { type: 'device:boot-waiting', sessionId: fx.sessionId, requestId: fx.requestId, until: fx.until })
+          this.sendTo(fx.message.ws, { type: 'device:boot-waiting', sessionId: fx.sessionId, requestId: fx.requestId, until: fx.until, reason: fx.reason })
           break
         case 'withdraw':
           this.sendTo(fx.message.ws, {
             type: 'device:boot-error', sessionId: fx.sessionId, requestId: fx.requestId,
             message: fx.why === 'replaced'
               ? 'Replaced by a newer boot request for this session'
-              : 'The viewer left while this boot was waiting for another device on this Mac to settle',
+              : 'The viewer left while this boot was waiting its turn on this Mac',
           })
           break
         case 'log':

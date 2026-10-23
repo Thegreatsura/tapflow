@@ -1,13 +1,13 @@
-import type { AdmissionRefusal } from '@tapflowio/protocol'
-import { AdmissionRefusedError, SessionJoinError } from './RelayClient.js'
+import { AdmissionRefusedError, SessionJoinError, type AdmissionReason } from './RelayClient.js'
 
 /**
  * Waiting out a Mac that is busy rather than broken.
  *
- * Two refusals mean that: a join over the resource ceiling (`agent-resources-exhausted`) and a boot behind
- * another boot on the same Mac (`host-booting`). Both clear on their own within a minute or two, and before the
- * relay's boot gate a run met neither — it booted at once and slowed everyone else instead — so failing on them
- * would turn the gate into a source of red CI.
+ * Three refusals mean that: a join over the resource ceiling (`agent-resources-exhausted`), a boot behind
+ * another boot on the same Mac (`host-booting`), and a boot on a Mac whose kernel reports critical memory
+ * pressure (`host-memory-critical`). All clear on their own, and before the relay's boot gate a run met none of
+ * them — it booted at once and slowed everyone else instead — so failing on them would turn the gate into a
+ * source of red CI.
  *
  * **The attempt is expected to let go of the session before it throws.** A runner that waited while still
  * holding the session would make that device `session-busy` for a person who wanted it, for as long as the
@@ -15,7 +15,7 @@ import { AdmissionRefusedError, SessionJoinError } from './RelayClient.js'
  */
 
 /** The refusal behind an error, or null for any other failure — which is final. */
-export function admissionRefusalOf(e: unknown): AdmissionRefusal | null {
+export function admissionRefusalOf(e: unknown): AdmissionReason | null {
   if (e instanceof AdmissionRefusedError) return e.reason
   if (e instanceof SessionJoinError && e.reason === 'agent-resources-exhausted') return e.reason
   return null
@@ -33,7 +33,7 @@ export interface RetryAdmissionOptions {
   /** Give up once this much time has passed since the first attempt. */
   timeoutMs: number
   /** Told before each wait, so a run can say why it is not moving. */
-  onWait?: (reason: AdmissionRefusal, delayMs: number) => void
+  onWait?: (reason: AdmissionReason, delayMs: number) => void
   sleep?: (ms: number) => Promise<void>
   now?: () => number
   random?: () => number
