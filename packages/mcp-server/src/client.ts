@@ -184,6 +184,7 @@ interface Waiter {
 const BOOT_REFUSALS: Record<BootRefusalReason, string> = {
   'host-booting': 'another device is still booting on this Mac. Call boot_device again in about 30 seconds.',
   'host-memory-critical': 'this Mac is critically short of memory. Call boot_device again in about a minute, or stop a device you no longer need.',
+  'host-at-capacity': 'this Mac already runs as many automation devices as it allows, and all are in use. Call boot_device again once one is released, or use a device that is already up.',
 }
 
 /**

@@ -72,6 +72,7 @@ const DEFAULT_ADMISSION_TIMEOUT_SECONDS = 600
 const ADMISSION_WAITS: Record<AdmissionReason, string> = {
   'host-booting': 'another device is booting on this Mac',
   'host-memory-critical': 'this Mac is critically short of memory',
+  'host-at-capacity': 'every automation device this Mac allows is in use',
   'agent-resources-exhausted': 'the Mac is over its CPU or memory limit',
   'unrecognised-refusal': 'the relay is holding boots on this Mac',
 }

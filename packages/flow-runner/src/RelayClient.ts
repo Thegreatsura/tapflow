@@ -254,6 +254,7 @@ export class SessionJoinError extends PlatformError {
 const BOOT_REFUSALS: Record<BootRefusalReason, true> = {
   'host-booting': true,
   'host-memory-critical': true,
+  'host-at-capacity': true,
 }
 
 /**

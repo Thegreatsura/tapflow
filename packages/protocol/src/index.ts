@@ -690,8 +690,10 @@ export interface DeviceBootError extends SessionScoped {
  *   because a boot is what slows the other sessions on that Mac (`contributing/simulator-boot-contention.md`).
  * - `host-memory-critical`: the Mac's kernel reports critical memory pressure (`AgentResources.memoryPressure`).
  *   Another device started now would push the running ones into swap, so automated boots wait it out.
+ * - `host-at-capacity`: the Mac already runs as many automation-started devices as it is allowed, and every one
+ *   of them is in use. The relay shuts an idle one down to make room when it can, so this means none was idle.
  */
-export type BootRefusalReason = 'host-booting' | 'host-memory-critical'
+export type BootRefusalReason = 'host-booting' | 'host-memory-critical' | 'host-at-capacity'
 
 /**
  * Every refusal a client may meet on its way to a booted device that means "the Mac is busy, not broken" —

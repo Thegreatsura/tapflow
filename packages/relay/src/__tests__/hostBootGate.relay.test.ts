@@ -355,4 +355,160 @@ describe('the relay routes boots through the per-Mac boot gate', () => {
     boot(await join(mac.session.get('b')!, 'flow-runner'), mac.session.get('b')!, 'b')
     expect((await waitForType<DeviceBoot>(mac.ws, 'device:boot')).sessionId).toBe(mac.session.get('b'))
   })
+
+  // S3: the automation cap. The gate's slot is released at once (`noSampleMs`/`settleCapMs` tiny), so these test the
+  // cap and not the one-boot-at-a-time rule.
+  describe('the per-Mac automation cap', () => {
+    const quickGate = { bootGate: { noSampleMs: 1, settleCapMs: 1 } }
+    const ready = (agentWs: WebSocket, sessionId: string, deviceId: string, cold = true) =>
+      agentWs.send(JSON.stringify({ type: 'device:ready', sessionId, requestId: `${sessionId}-boot`, payload: { deviceId, cold } }))
+
+    afterEach(() => { delete process.env['TAPFLOW_MAX_AUTOMATED_DEVICES'] })
+
+    /** A flow-runner boots `id` cold, the agent brings it up, and the runner leaves. */
+    async function runAndLeave(mac: Awaited<ReturnType<typeof agent>>, id: string): Promise<void> {
+      const sessionId = mac.session.get(id)!
+      const robot = await join(sessionId, 'flow-runner')
+      boot(robot, sessionId, id)
+      await waitForType<DeviceBoot>(mac.ws, 'device:boot')
+      ready(mac.ws, sessionId, id)
+      await waitForType(robot, 'device:ready')
+      robot.send(JSON.stringify({ type: 'session:leave', sessionId }))
+      await new Promise((r) => setTimeout(r, 30))
+    }
+
+    it('shuts down the oldest idle automation device to make room, and lets the boot go', async () => {
+      process.env['TAPFLOW_MAX_AUTOMATED_DEVICES'] = '1'
+      await start(quickGate)
+      const mac = await agent('mac-1', ['a', 'b'])
+      await runAndLeave(mac, 'a')
+      const robot = await join(mac.session.get('b')!, 'flow-runner')
+      boot(robot, mac.session.get('b')!, 'b')
+      const shutdown = await waitForType<{ type: 'device:shutdown'; sessionId: string }>(mac.ws, 'device:shutdown')
+      expect(shutdown.sessionId).toBe(mac.session.get('a'))
+      expect((await waitForType<DeviceBoot>(mac.ws, 'device:boot')).sessionId).toBe(mac.session.get('b'))
+    })
+
+    it('refuses with host-at-capacity when every automation device is in use', async () => {
+      process.env['TAPFLOW_MAX_AUTOMATED_DEVICES'] = '1'
+      await start(quickGate)
+      const mac = await agent('mac-1', ['a', 'b'])
+      const holder = await join(mac.session.get('a')!, 'flow-runner')
+      boot(holder, mac.session.get('a')!, 'a')
+      await waitForType<DeviceBoot>(mac.ws, 'device:boot')
+      ready(mac.ws, mac.session.get('a')!, 'a')
+      await waitForType(holder, 'device:ready')
+      await new Promise((r) => setTimeout(r, 20))
+
+      const robot = await join(mac.session.get('b')!, 'flow-runner')
+      boot(robot, mac.session.get('b')!, 'b')
+      const refused = await waitForType<DeviceBootError>(robot, 'device:boot-error')
+      expect(refused.reason).toBe('host-at-capacity')
+      expect(await waitForTypeOrNull(mac.ws, 'device:shutdown', 100)).toBeNull()
+    })
+
+    it('does not count a boot that failed, or a device a person started', async () => {
+      process.env['TAPFLOW_MAX_AUTOMATED_DEVICES'] = '1'
+      await start(quickGate)
+      const mac = await agent('mac-1', ['a', 'p', 'b'])
+      // An automated boot that fails leaves nothing up.
+      const robotA = await join(mac.session.get('a')!, 'flow-runner')
+      boot(robotA, mac.session.get('a')!, 'a')
+      await waitForType<DeviceBoot>(mac.ws, 'device:boot')
+      mac.ws.send(JSON.stringify({ type: 'device:boot-error', sessionId: mac.session.get('a'), requestId: `${mac.session.get('a')}-boot`, message: 'simctl failed' }))
+      await waitForType(robotA, 'device:boot-error')
+      // A person starts p and leaves it up.
+      const person = await join(mac.session.get('p')!)
+      boot(person, mac.session.get('p')!, 'p')
+      await waitForType<DeviceBoot>(mac.ws, 'device:boot')
+      ready(mac.ws, mac.session.get('p')!, 'p')
+      await waitForType(person, 'device:ready')
+      await new Promise((r) => setTimeout(r, 20))
+
+      const robot = await join(mac.session.get('b')!, 'flow-runner')
+      boot(robot, mac.session.get('b')!, 'b')
+      expect((await waitForType<DeviceBoot>(mac.ws, 'device:boot')).sessionId).toBe(mac.session.get('b'))
+      expect(await waitForTypeOrNull(mac.ws, 'device:shutdown', 100)).toBeNull()
+    })
+
+    // A boot can fail on the relay's side and still bring the device up (a slow simulator past the agent's deadline).
+    // When the agent comes back reporting it running, nothing says automation started it.
+    it('forgets who asked for a boot that failed, even if the device turns up running', async () => {
+      process.env['TAPFLOW_MAX_AUTOMATED_DEVICES'] = '1'
+      await start(quickGate)
+      const mac = await agent('mac-1', ['a', 'b'])
+      const robotA = await join(mac.session.get('a')!, 'flow-runner')
+      boot(robotA, mac.session.get('a')!, 'a')
+      await waitForType<DeviceBoot>(mac.ws, 'device:boot')
+      mac.ws.send(JSON.stringify({ type: 'device:boot-error', sessionId: mac.session.get('a'), requestId: `${mac.session.get('a')}-boot`, message: 'timed out' }))
+      await waitForType(robotA, 'device:boot-error')
+      robotA.send(JSON.stringify({ type: 'session:leave', sessionId: mac.session.get('a') }))
+      // The agent restarts and finds a up.
+      const again = await open()
+      again.send(JSON.stringify({
+        type: 'agent:register', agentId: 'mac-1', agentName: 'mac-1-ios', platform: 'ios',
+        devices: [{ id: 'a', name: 'a', platform: 'ios', status: 'booted' }, { id: 'b', name: 'b', platform: 'ios', status: 'shutdown' }],
+      }))
+      await waitForType<AgentRegistered>(again, 'agent:registered')
+
+      const robot = await join(mac.session.get('b')!, 'flow-runner')
+      boot(robot, mac.session.get('b')!, 'b')
+      expect((await waitForType<DeviceBoot>(again, 'device:boot')).sessionId).toBe(mac.session.get('b'))
+      expect(await waitForTypeOrNull(again, 'device:shutdown', 100)).toBeNull()
+    })
+
+    it('does not count a boot that found the device already running', async () => {
+      process.env['TAPFLOW_MAX_AUTOMATED_DEVICES'] = '1'
+      await start(quickGate)
+      const mac = await agent('mac-1', ['a', 'b'])
+      const sessionId = mac.session.get('a')!
+      const robotA = await join(sessionId, 'flow-runner')
+      boot(robotA, sessionId, 'a')
+      await waitForType<DeviceBoot>(mac.ws, 'device:boot')
+      ready(mac.ws, sessionId, 'a', false)
+      await waitForType(robotA, 'device:ready')
+      robotA.send(JSON.stringify({ type: 'session:leave', sessionId }))
+      await new Promise((r) => setTimeout(r, 30))
+
+      const robot = await join(mac.session.get('b')!, 'flow-runner')
+      boot(robot, mac.session.get('b')!, 'b')
+      expect((await waitForType<DeviceBoot>(mac.ws, 'device:boot')).sessionId).toBe(mac.session.get('b'))
+      expect(await waitForTypeOrNull(mac.ws, 'device:shutdown', 100)).toBeNull()
+    })
+
+    it('shuts nothing down for a boot the gate refuses', async () => {
+      process.env['TAPFLOW_MAX_AUTOMATED_DEVICES'] = '1'
+      await start(quickGate)
+      const mac = await agent('mac-1', ['a', 'b'])
+      await runAndLeave(mac, 'a')
+      mac.ws.send(resources(40, 'critical'))
+      const robot = await join(mac.session.get('b')!, 'flow-runner')
+      boot(robot, mac.session.get('b')!, 'b')
+      expect((await waitForType<DeviceBootError>(robot, 'device:boot-error')).reason).toBe('host-memory-critical')
+      expect(await waitForTypeOrNull(mac.ws, 'device:shutdown', 100)).toBeNull()
+    })
+
+    it('a run that borrowed a device in a person\'s idle countdown starts the countdown again when it leaves', async () => {
+      await start({ ...quickGate, idleTimeoutMs: 150 })
+      const mac = await agent('mac-1', ['a'])
+      const sessionId = mac.session.get('a')!
+      const person = await join(sessionId)
+      boot(person, sessionId, 'a')
+      await waitForType<DeviceBoot>(mac.ws, 'device:boot')
+      ready(mac.ws, sessionId, 'a')
+      await waitForType(person, 'device:ready')
+      person.close() // the idle countdown starts
+      await new Promise((r) => setTimeout(r, 30))
+      const robot = await join(sessionId, 'flow-runner') // stops it
+      robot.send(JSON.stringify({ type: 'session:leave', sessionId }))
+      expect((await waitForType<{ type: 'device:shutdown'; sessionId: string }>(mac.ws, 'device:shutdown')).sessionId).toBe(sessionId)
+    })
+
+    it('a run that leaves a device nobody was counting down keeps it up, as before', async () => {
+      await start({ ...quickGate, idleTimeoutMs: 100 })
+      const mac = await agent('mac-1', ['a'])
+      await runAndLeave(mac, 'a')
+      expect(await waitForTypeOrNull(mac.ws, 'device:shutdown', 250)).toBeNull()
+    })
+  })
 })

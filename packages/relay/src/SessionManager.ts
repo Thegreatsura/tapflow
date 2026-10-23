@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto'
 import { WebSocket } from 'ws'
 import type { DeviceStatus } from '@tapflowio/agent-core'
 import type { AgentResources, SessionInfo } from './types.js'
+import type { BooterClass } from './admission/HostBootGate.js'
 import type { AiClientKind, ChromePayload, MacAdmission, ServiceTier, ClientKind, DeviceDetails, DeviceReport, FormFactor, Point, PosturesPayload, WatchEndReason } from '@tapflowio/protocol'
 
 export interface Session {
@@ -65,6 +66,18 @@ export interface Session {
   postures?: PosturesPayload
   deviceInfo?: DeviceDetails
   idleTimer: ReturnType<typeof setTimeout> | null
+  /** Who cold-booted the device this session drives, and when — kept after the holder leaves, since that is when
+   *  it matters: it is what the per-Mac automation cap counts and shuts down (`admission/capacity.ts`). Set when
+   *  the relay forwards a cold boot, undone if that boot fails or turns out warm, cleared on `shutdown-done`.
+   *  Absent after a relay restart, which counts nothing rather than guess. */
+  lastBoot?: { booterClass: BooterClass; at: number }
+  /** The boot `lastBoot` was set for, and what it held before, so a failure or a warm ready can put it back. */
+  lastBootPending?: { requestId: string; prev: Session['lastBoot'] }
+  /** The relay shut this device down to make room. Until the agent confirms, it is neither counted nor offered. */
+  evictingAt?: number
+  /** An automation client joined while the idle timer was running and stopped it: its leave starts it again, so a
+   *  device a person left is not kept up for good by a run that borrowed it. */
+  idleResumeOnLeave: boolean
 }
 
 /**
@@ -188,6 +201,7 @@ export class SessionManager {
         deviceId: d.id,
         readySent: false,
         idleTimer: null,
+        idleResumeOnLeave: false,
       })
       agentIds.add(id)
       this.agentSocketIndex.set(agentSocket, agentIds)
@@ -224,6 +238,11 @@ export class SessionManager {
 
   /** Sessions currently claiming a device id. More than one only while a held session (#426) has
    *  not yet been reclaimed or given up on. */
+  /** Every session whose agent runs on the Mac `hostKey` names, across that Mac's agents. */
+  getAllOnHost(hostKey: string, keyOf: (s: Session) => string): Session[] {
+    return Array.from(this.sessions.values()).filter((s) => keyOf(s) === hostKey)
+  }
+
   getAllByDeviceId(deviceId: string): Session[] {
     return Array.from(this.sessions.values()).filter((s) => s.deviceId === deviceId)
   }
@@ -288,6 +307,7 @@ export class SessionManager {
     ) {
       return { ok: false, failure: 'held-by-another' }
     }
+    session.idleResumeOnLeave = session.idleTimer !== null && isAiClientKind(holder.kind)
     if (session.idleTimer) { clearTimeout(session.idleTimer); session.idleTimer = null }
     // Unconditional, and **the order is what makes it safe**: this releases the session from whichever
     // socket held it, which on a re-join is the socket joining. Removing and re-adding the same entry is a
