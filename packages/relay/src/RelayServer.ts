@@ -2434,11 +2434,24 @@ export class RelayServer {
     // Read before the resource gate, and answered before it too. The gate would otherwise read the
     // dead socket's last sample — and an overloaded Mac is a common reason to restart an agent, so
     // the tester would be told the Mac is exhausted at the exact moment it is recovering.
+    //
+    // A person rejoining a device this relay has up is not held to the memory half. The dashboard re-sends
+    // `session:start` on every socket reconnect and the close already cleared the owner, so the tester coming
+    // back reads as a newcomer — and once other devices had pushed memory over the line, a Wi-Fi blink lost
+    // them the device they were using. Booting is what spends the memory, and this one is up.
+    //
+    // `readySent`, not `deviceStatus`: a simulator booted before the agent registered says `booted` without
+    // this relay ever bringing it up (#440), so the viewer's next `device:boot` would be a full boot let in on
+    // a full Mac. An AI client keeps the memory half: its boot warms the UI-tree runner, which does cost
+    // memory on a device already up. The CPU half applies to every join — a join usually starts a stream, and a
+    // stream's encoding is the load #107 is about.
     const agentAway = session.agentSocket.readyState !== WebSocket.OPEN
     const resources = agentAway ? undefined : this.sessions.getResources(session.agentSocket)
     if (resources) {
       const memPercent = (resources.memUsedMB / resources.memTotalMB) * 100
-      if (resources.cpuPercent > RESOURCE_THRESHOLD || memPercent > RESOURCE_THRESHOLD) {
+      const memSpent = session.readySent && !isAiClientKind(msg.clientKind)
+      const memOver = !memSpent && memPercent > RESOURCE_THRESHOLD
+      if (resources.cpuPercent > RESOURCE_THRESHOLD || memOver) {
         this.sendTo(ws, { type: 'error', sessionId: msg.sessionId, message: 'Agent resources exhausted', reason: 'agent-resources-exhausted' })
         return
       }

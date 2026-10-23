@@ -70,7 +70,7 @@ description: "tapflow.config.json 스키마와 환경 변수 재정의: relay, a
 | `TAPFLOW_MAX_UNPACKED_BYTES` | — | 업로드 상한의 4배 | iOS `.tar.gz` 빌드를 풀었을 때의 크기 상한(바이트). |
 | `TAPFLOW_MAX_COMMENT_BYTES` | — | `5242880` (5 MB) | 댓글 첨부 이미지 크기 상한(바이트). |
 | `IDLE_TIMEOUT_MS` | — | `300000` (5분) | 브라우저가 세션을 떠난 뒤 세션을 종료하기까지 기다리는 시간(밀리초). |
-| `TAPFLOW_RESOURCE_THRESHOLD_PERCENT` | — | `80` | 에이전트 Mac의 CPU나 메모리 사용률이 이 값(%)을 넘으면 새 세션 참여를 거절합니다. |
+| `TAPFLOW_RESOURCE_THRESHOLD_PERCENT` | — | `80` | 에이전트 Mac의 CPU 사용률이 이 값(%)을 넘으면 새 세션 참여를 거절합니다. 메모리 사용률이 넘을 때도 거절합니다. 다만 tapflow가 이미 띄운 기기에 사람이 연결하는 경우는 예외여서 연결이 끊겼던 테스터는 기기를 잃지 않습니다. |
 | `TAPFLOW_WS_BACKPRESSURE_BYTES` | — | `1048576` (1 MB) | 브라우저 소켓당 바이너리 프레임 드롭 임계값. 버퍼가 이 값을 초과하면 프레임이 드롭됩니다. |
 | `TAPFLOW_AGENT_GRACE_MS` | — | `15000` (15초) | 에이전트 연결이 끊긴 뒤 그 에이전트가 돌아오기를 기다리며 세션을 유지하는 시간(밀리초). 에이전트는 프로세스 시작 후 약 1초면 등록되므로 기본값은 재시작을 넉넉히 덮습니다. 이 동안 열린 탭은 멈춘 화면 대신 기다리는 중임을 표시하고, 해당 기기는 다른 사람에게 제공되지 않습니다. `0`은 유지를 끄며, 에이전트 소켓이 닫히는 즉시 세션이 종료됩니다(이 기능이 생기기 전 동작). 빈 값·숫자가 아닌 값·음수는 기본값으로 되돌아가고 시작 시 경고를 남깁니다. |
 | `TAPFLOW_CLOUDFLARE_TOKEN` | — | *(비어있음)* | `tls.dnsProvider`가 `cloudflare`일 때 DNS-01 발급에 쓰는 Cloudflare API 토큰. |
