@@ -1417,6 +1417,39 @@ describe('IOSAgent', () => {
       browser.close()
     })
 
+    // The relay's boot gate charges a boot by this (L2 admission plan, S2): a device found already
+    // running costs the host nothing, one this boot brings up costs it 30-90 s of memory pressure.
+    // `unknown` is a device mid-transition, which is paying that cost now; Full reset shuts the device
+    // down itself, so it is cold whatever the list said.
+    it.each([
+      { status: false, resetMode: undefined, cold: true },
+      { status: true, resetMode: undefined, cold: false },
+      { status: 'unknown', resetMode: undefined, cold: true },
+      { status: true, resetMode: 'full-erase', cold: true },
+      { status: true, resetMode: 'app-only', cold: false },
+    ] as const)('reports cold=$cold on device:ready for booted=$status, resetMode=$resetMode', async ({ status, resetMode, cold }) => {
+      const agent = new IOSAgent({ intervalMs: 50 }, mockSimctl(status))
+      await agent.connect(`ws://localhost:${port}`)
+
+      const browser = new WebSocket(`ws://localhost:${port}`)
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'session:start', sessionId: agent.sessionId }))
+      await waitForType(browser, 'session:joined')
+
+      const readyPromise = waitForType(browser, 'device:ready')
+      browser.send(JSON.stringify({
+        type: 'device:boot',
+        requestId: 'rq-cold',
+        sessionId: agent.sessionId,
+        payload: { deviceId: 'dev-1', ...(resetMode ? { resetMode } : {}) },
+      }))
+      const ready = await readyPromise
+      expect((ready.payload as { cold?: boolean }).cold).toBe(cold)
+
+      agent.disconnect()
+      browser.close()
+    })
+
     it('holds device:ready until the simulator has finished booting (#486)', async () => {
       // `simctl boot` returns when the boot has been *initiated* — measured 7.6s short of Booted on an
       // iPhone 17 Pro / iOS 26.5. Announcing readiness there tells `mcp-server` to install and tap a
