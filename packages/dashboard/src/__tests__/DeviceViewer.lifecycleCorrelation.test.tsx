@@ -293,6 +293,16 @@ describe('DeviceViewer says when its boot is waiting for another device on the M
     expect(screen.getByText(WAITING)).toBeTruthy()
   })
 
+  it('drops the last cycle\'s failure when a new boot starts waiting', () => {
+    render(<DeviceViewer sessionId="s1" deviceId="dev-1" />)
+    join()
+    act(() => { deliver!({ type: 'device:boot-error', sessionId: 's1', message: 'scrcpy failed to restart' }) })
+    join() // the tester restarts: a new boot, held behind another device
+    act(() => { deliver!({ type: 'device:boot-waiting', sessionId: 's1', requestId: lastBootId(), until: Date.now() + 60_000 }) })
+    expect(screen.queryByText(/Boot failed/)).toBeNull()
+    expect(screen.getByText(WAITING)).toBeTruthy()
+  })
+
   it('ignores the wait of a boot it has replaced', () => {
     render(<DeviceViewer sessionId="s1" deviceId="dev-1" />)
     join()

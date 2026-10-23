@@ -328,10 +328,12 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
     // Only for the boot this viewer is waiting on: a reconnect re-sends its boot, and the relay answers the one it
     // replaced as well as the new one.
     // Not-ready too: a restart reaches this with the last boot's chrome still up and `deviceReady` still true, and
-    // the device is off until the held boot goes ahead.
+    // the device is off until the held boot goes ahead. And a failure from the last cycle (an Android stream that
+    // died) is not this boot's: left set, it outranks the wait and the tester reads "Boot failed" throughout.
     if (msg.type === 'device:boot-waiting' && msg.requestId === latestBootIdRef.current) {
       setBootWaiting(true);
       setDeviceReady(false);
+      setBootError(null);
     }
     // An input the device never got. Deliberately no session-level state behind this: the acks are
     // per-input, unordered (a dispatch is awaited before its ack while a refusal is not) and do not
