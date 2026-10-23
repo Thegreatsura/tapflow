@@ -4612,6 +4612,10 @@ describe('IOSAgent', () => {
         expect(order).toEqual(['tier:slim', 'boot'])
         expect(store.setTier).toHaveBeenCalledWith('dev-1', SLIM, labelsFor(SLIM))
         expect(labelsFor(SLIM)).not.toContain('com.apple.apsd') // push kept on
+        // Wallet's passd crashes at start-up without financed, so keeping Wallet keeps both.
+        const wallet = labelsFor({ name: 'slim', keep: ['wallet'] })
+        expect(wallet).not.toContain('com.apple.passd')
+        expect(wallet).not.toContain('com.apple.financed')
         expect(await ready).toMatchObject({ cold: true, serviceTier: SLIM })
         agent.disconnect(); browser.close()
       })

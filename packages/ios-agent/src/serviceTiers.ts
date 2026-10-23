@@ -232,7 +232,8 @@ export const FEATURE_LABELS: Record<ServiceFeature, readonly string[]> = {
   'homekit': ['com.apple.homed'],
   'imessage': ['com.apple.identityservicesd'],
   'widgets': ['com.apple.chronod', 'com.apple.liveactivitiesd'],
-  'wallet': ['com.apple.passd'],
+  // passd crashes at start-up without financed (leanLabels.ts), so keeping Wallet keeps both.
+  'wallet': ['com.apple.passd', 'com.apple.financed'],
   'maps': ['com.apple.Maps.mapssyncd'],
   'weather': ['com.apple.weatherd'],
   'news': ['com.apple.newsd'],
