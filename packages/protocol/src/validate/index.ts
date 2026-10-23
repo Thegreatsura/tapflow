@@ -80,7 +80,7 @@ const SERVICE_FEATURES = [
   'calendar', 'reminders', 'mail', 'photos', 'health', 'homekit', 'imessage', 'widgets', 'wallet', 'maps', 'weather',
   'news', 'game-center', 'find-my', 'screen-time',
 ] as const
-const serviceTier = z.object({ name: z.enum(['stock', 'lean', 'slim']), allow: z.array(z.enum(SERVICE_FEATURES)) })
+const serviceTier = z.object({ name: z.enum(['stock', 'lean', 'slim']), keep: z.array(z.enum(SERVICE_FEATURES)) })
 /** A tier as an agent reports it. Anything this relay does not know reads as absent rather than refusing the frame. */
 const reportedTier = z.union([serviceTier, z.literal('unsupported')]).optional().catch(undefined)
 
@@ -621,4 +621,13 @@ export function readyFacts(frame: unknown): { cold?: boolean; serviceTier?: Serv
   if (!result.success) return {}
   const { cold, serviceTier: tier } = result.data.payload
   return { ...(cold !== undefined ? { cold } : {}), ...(tier !== undefined ? { serviceTier: tier } : {}) }
+}
+
+/**
+ * A service tier from anywhere outside a wire frame — a run record's body — checked against the same schema the boot
+ * is, or `undefined` when it is not one. One definition, so a record can never hold a tier a boot would refuse.
+ */
+export function readServiceTier(value: unknown): ServiceTier | undefined {
+  const result = serviceTier.safeParse(value)
+  return result.success ? result.data : undefined
 }

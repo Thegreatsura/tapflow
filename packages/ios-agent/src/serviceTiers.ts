@@ -36,7 +36,7 @@ import { LEAN_LABELS } from './leanLabels.js'
  *
  * It turns off what Lean mode keeps on purpose — widgets and Live Activities, Spotlight, on-device models, push,
  * StoreKit and Wallet, photos, contacts, CloudKit, Sign in with Apple, App Attest — so it is only ever used when a
- * run asks for it, and `allow` puts back what that run's app needs.
+ * run asks for it, and `keep` puts back what that run's app needs.
  */
 export const SLIM_LABELS: readonly string[] = [
   'com.apple.FamilyControlsAgent',
@@ -241,12 +241,15 @@ export const FEATURE_LABELS: Record<ServiceFeature, readonly string[]> = {
   'screen-time': ['com.apple.ScreenTimeAgent'],
 }
 
+/** Every label any tier can switch off — what an unreadable marker is recovered against (`LeanStore`). */
+export const MANAGED_LABELS: readonly string[] = [...new Set([...LEAN_LABELS, ...SLIM_LABELS])]
+
 /**
- * The labels a tier switches off on a device: the tier's list, less every service an allowed feature needs.
+ * The labels a tier switches off on a device: the tier's list, less every service a kept feature needs.
  * `stock` is the empty list, which is how "put everything back" is expressed to the store.
  */
 export function labelsFor(tier: ServiceTier): readonly string[] {
   const base = tier.name === 'slim' ? SLIM_LABELS : tier.name === 'lean' ? LEAN_LABELS : []
-  const kept = new Set(tier.allow.flatMap((f) => FEATURE_LABELS[f]))
+  const kept = new Set(tier.keep.flatMap((f) => FEATURE_LABELS[f]))
   return base.filter((label) => !kept.has(label))
 }

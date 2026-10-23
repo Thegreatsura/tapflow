@@ -176,8 +176,8 @@ describe('cmdFlowRun exit codes (#543)', () => {
   describe('--service-tier', () => {
     it('asks for the tier on the boot', async () => {
       mocks.runFlow.mockResolvedValue(resultOf('passed'))
-      await run([flowFile('a.yaml')], { serviceTier: 'slim', allow: 'push,photos' })
-      expect(mocks.bootDevice).toHaveBeenCalledWith('s1', 'dev1', expect.objectContaining({ serviceTier: { name: 'slim', allow: ['push', 'photos'] } }))
+      await run([flowFile('a.yaml')], { serviceTier: 'slim', keep: 'push,photos' })
+      expect(mocks.bootDevice).toHaveBeenCalledWith('s1', 'dev1', expect.objectContaining({ serviceTier: { name: 'slim', keep: ['push', 'photos'] } }))
     })
 
     it('asks for none without the flag', async () => {
@@ -187,13 +187,13 @@ describe('cmdFlowRun exit codes (#543)', () => {
     })
 
     it('stops with exit 2 on an unknown feature, before choosing a device', async () => {
-      await run([flowFile('a.yaml')], { serviceTier: 'slim', allow: 'pushh' })
+      await run([flowFile('a.yaml')], { serviceTier: 'slim', keep: 'pushh' })
       expect(process.exitCode).toBe(2)
       expect(mocks.listDevices).not.toHaveBeenCalled()
     })
 
-    it('refuses --allow without a tier', async () => {
-      await run([flowFile('a.yaml')], { allow: 'push' })
+    it('refuses --keep without a tier', async () => {
+      await run([flowFile('a.yaml')], { keep: 'push' })
       expect(process.exitCode).toBe(2)
     })
   })

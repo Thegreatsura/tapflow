@@ -383,7 +383,7 @@ tapflow flow run .tapflow/flows/login-smoke.yaml
 | `--artifacts <dir>` | `.tapflow/artifacts` | Directory for failure screenshots |
 | `--timeout <seconds>` | `10` | Default wait per selector (seconds) |
 | `--service-tier <tier>` | the agent's setting | Background services the device boots with: `stock` (all on), `lean`, or `slim` (almost all off). iOS 18.5 and later. See below. |
-| `--allow <features>` | — | Features to keep on under `--service-tier` (comma-separated), such as `push,photos` |
+| `--keep <features>` | — | Features to keep on under `--service-tier` (comma-separated), such as `push,photos` |
 | `--admission-timeout <seconds>` | `600` | Longest wait while another device boots on the same Mac, or the Mac is over its CPU or memory limit (seconds). Past it, the run stops with exit code `2`. |
 | `--no-record` | — | Do not record this run on the relay |
 | `--include-tags <tags>` | — | Run only flows tagged with at least one of these (comma-separated) |
@@ -391,7 +391,7 @@ tapflow flow run .tapflow/flows/login-smoke.yaml
 
 With neither `--session` nor `--device`, it uses the booted device when exactly one is booted. With none booted, or more than one, it stops with an environment error.
 
-`--service-tier slim` boots the device with almost every background service off, which makes its boot lighter on the other sessions of the same Mac: measured on an 8 GB Mac, the time the boot kept the CPU saturated fell from 20–49 s with `lean` to 7–14 s. It also turns off push, StoreKit, Wallet, photos, contacts, widgets, Spotlight and on-device models, so name what your app needs with `--allow`: `push`, `storekit`, `app-store`, `universal-links`, `spotlight`, `siri`, `icloud`, `keychain-sync`, `contacts`, `calendar`, `reminders`, `mail`, `photos`, `health`, `homekit`, `imessage`, `widgets`, `wallet`, `maps`, `weather`, `news`, `game-center`, `find-my`, `screen-time`. A device already running on another tier is restarted onto the one you ask for. Without the option, the device boots as the agent is set (`agent.lean`), the same as when a person picks it.
+`--service-tier slim` boots the device with almost every background service off, which makes its boot lighter on the other sessions of the same Mac: measured on an 8 GB Mac, the time the boot kept the CPU saturated fell from 20–49 s with `lean` to 7–14 s. It also turns off push, StoreKit, Wallet, photos, contacts, widgets, Spotlight and on-device models, so name what your app needs with `--keep`: `push`, `storekit`, `app-store`, `universal-links`, `spotlight`, `siri`, `icloud`, `keychain-sync`, `contacts`, `calendar`, `reminders`, `mail`, `photos`, `health`, `homekit`, `imessage`, `widgets`, `wallet`, `maps`, `weather`, `news`, `game-center`, `find-my`, `screen-time`. A device already running on another tier is restarted onto the one you ask for. Without the option, the device boots as the agent is set (`agent.lean`), the same as when a person picks it.
 
 A Mac boots one device at a time, because a booting device slows the other sessions on that Mac. When another device is booting, the run lets go of its session, waits, and tries again, printing why it is waiting. A boot a person started goes ahead of a waiting run.
 

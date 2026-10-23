@@ -30,6 +30,7 @@ interface Body {
   isCi: boolean
   createdBy: string | null
   ci: { jobUrl: string | null } | null
+  serviceTier: unknown
   build: unknown
   flows: { name: string; status: string; hasScreenshot?: boolean; steps?: object[]; skipReason?: string }[]
   watchSessionId: string | null
@@ -178,6 +179,15 @@ describe('flow run records', () => {
     const r = await call('GET', `/api/v1/runs/${good}`, bearer(PAT_VIEW))
     expect(r.body.isCi).toBe(true)
     expect(r.body.ci).toEqual({ provider: 'github', branch: 'main', commit: 'abc', jobUrl: 'https://github.com/o/r/actions/runs/1' })
+  })
+
+  it('keeps the service tier the run asked for, and drops one that is not a tier', async () => {
+    const tiered = await create({ serviceTier: { name: 'slim', keep: ['push'] } })
+    expect((await call('GET', `/api/v1/runs/${tiered}`, bearer(PAT_VIEW))).body.serviceTier).toEqual({ name: 'slim', keep: ['push'] })
+    const bogus = await create({ serviceTier: { name: 'turbo', keep: [] } })
+    expect((await call('GET', `/api/v1/runs/${bogus}`, bearer(PAT_VIEW))).body.serviceTier).toBeNull()
+    const none = await create({})
+    expect((await call('GET', `/api/v1/runs/${none}`, bearer(PAT_VIEW))).body.serviceTier).toBeNull()
   })
 
   // ── results ───────────────────────────────────────────────────────────────

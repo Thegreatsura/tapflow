@@ -323,3 +323,37 @@ describe('DeviceViewer says when its boot is waiting for another device on the M
     expect(screen.getByText(/Boot failed: agent offline/)).toBeTruthy()
   })
 })
+
+// L2 S2b-2. A run's `--service-tier slim` stays on the device until it restarts; a person who picks it is told.
+describe('DeviceViewer says when a device came up with most services off', () => {
+  beforeEach(() => { send.mockClear(); deliver = null })
+  const NOTE = /most background services off/
+
+  it('says so from the ready, keeps it through a replay, and drops it when the device boots again', () => {
+    render(<DeviceViewer sessionId="s1" deviceId="dev-1" />)
+    join()
+    act(() => { deliver!({ type: 'device:ready', sessionId: 's1', requestId: lastBootId(), payload: { deviceId: 'dev-1', serviceTier: { name: 'slim', keep: [] } } }) })
+    expect(screen.getByText(NOTE)).toBeTruthy()
+    act(() => { deliver!({ type: 'device:ready', payload: { deviceId: 'dev-1' } }) }) // the relay's replay: no tier
+    expect(screen.getByText(NOTE)).toBeTruthy()
+    act(() => { deliver!({ type: 'device:booting', sessionId: 's1' }) })
+    expect(screen.queryByText(NOTE)).toBeNull()
+  })
+
+  it('ignores the tier on a late ready from a boot it has replaced', () => {
+    render(<DeviceViewer sessionId="s1" deviceId="dev-1" />)
+    join()
+    const replaced = lastBootId()
+    join()
+    act(() => { deliver!({ type: 'device:ready', sessionId: 's1', requestId: lastBootId(), payload: { deviceId: 'dev-1', serviceTier: { name: 'lean', keep: [] } } }) })
+    act(() => { deliver!({ type: 'device:ready', sessionId: 's1', requestId: replaced, payload: { deviceId: 'dev-1', serviceTier: { name: 'slim', keep: [] } } }) })
+    expect(screen.queryByText(NOTE)).toBeNull()
+  })
+
+  it('says nothing for a device on its usual services', () => {
+    render(<DeviceViewer sessionId="s1" deviceId="dev-1" />)
+    join()
+    act(() => { deliver!({ type: 'device:ready', sessionId: 's1', requestId: lastBootId(), payload: { deviceId: 'dev-1', serviceTier: { name: 'lean', keep: [] } } }) })
+    expect(screen.queryByText(NOTE)).toBeNull()
+  })
+})

@@ -4512,7 +4512,7 @@ describe('IOSAgent', () => {
     it('disables the labels before booting a device that is shut down', async () => {
       const { agent, browser } = await boot(simctlOn('shutdown'), true)
       expect(order).toEqual(['tier:lean', 'boot'])
-      expect(store.setTier).toHaveBeenCalledWith('dev-1', { name: 'lean', allow: [] }, LEAN_LABELS)
+      expect(store.setTier).toHaveBeenCalledWith('dev-1', { name: 'lean', keep: [] }, LEAN_LABELS)
       expect(store.isApplied('dev-1')).toBe(true)
       agent.disconnect(); browser.close()
     })
@@ -4540,7 +4540,7 @@ describe('IOSAgent', () => {
       await waitForOpen(browser)
       browser.send(JSON.stringify({ type: 'session:start', sessionId: agent.sessionId }))
       await waitForType(browser, 'session:joined')
-      browser.send(JSON.stringify({ type: 'device:boot', requestId: 'rq-erase', sessionId: agent.sessionId, payload: { deviceId: 'dev-1', resetMode: 'full-erase', serviceTier: { name: 'slim', allow: [] } } }))
+      browser.send(JSON.stringify({ type: 'device:boot', requestId: 'rq-erase', sessionId: agent.sessionId, payload: { deviceId: 'dev-1', resetMode: 'full-erase', serviceTier: { name: 'slim', keep: [] } } }))
       await waitForType(browser, 'device:boot-error')
       expect(order).toEqual(['shutdown', 'erase', 'boot'])
       expect(store.isApplied('dev-1')).toBe(false)
@@ -4594,7 +4594,7 @@ describe('IOSAgent', () => {
     it('with Lean mode off, puts back a device it left lean before booting it', async () => {
       // Marked after connect, so it is the boot path doing this and not the sweep below.
       const { agent, browser } = await boot(simctlOn('shutdown'), false, {}, () => {
-        store.setTier('dev-1', { name: 'lean', allow: [] }, LEAN_LABELS)
+        store.setTier('dev-1', { name: 'lean', keep: [] }, LEAN_LABELS)
         order = []
       })
       expect(order).toEqual(['tier:stock', 'boot'])
@@ -4603,8 +4603,8 @@ describe('IOSAgent', () => {
     })
 
     describe('service tiers', () => {
-      const SLIM: ServiceTier = { name: 'slim', allow: ['push'] }
-      const LEAN: ServiceTier = { name: 'lean', allow: [] }
+      const SLIM: ServiceTier = { name: 'slim', keep: ['push'] }
+      const LEAN: ServiceTier = { name: 'lean', keep: [] }
 
       it('boots a shut-down device onto the tier a run asked for, and says so on ready', async () => {
         const ready = waitForReadyPayload()
@@ -4667,7 +4667,7 @@ describe('IOSAgent', () => {
 
     describe('on connect', () => {
       it('puts back a shut-down device an earlier run left lean', async () => {
-        store.setTier('dev-1', { name: 'lean', allow: [] }, LEAN_LABELS)
+        store.setTier('dev-1', { name: 'lean', keep: [] }, LEAN_LABELS)
         const agent = new IOSAgent({ intervalMs: 50, lean: true, leanStore: store }, simctlOn('shutdown'))
         await agent.connect(`ws://localhost:${port}`)
         expect(store.isApplied('dev-1')).toBe(false)
@@ -4676,8 +4676,8 @@ describe('IOSAgent', () => {
 
       it('leaves one that is still running, and one that no longer exists', async () => {
         // The twin of the case above.
-        store.setTier('dev-1', { name: 'lean', allow: [] }, LEAN_LABELS)
-        store.setTier('gone-1', { name: 'lean', allow: [] }, LEAN_LABELS)
+        store.setTier('dev-1', { name: 'lean', keep: [] }, LEAN_LABELS)
+        store.setTier('gone-1', { name: 'lean', keep: [] }, LEAN_LABELS)
         const agent = new IOSAgent({ intervalMs: 50, lean: true, leanStore: store }, simctlOn('booted'))
         await agent.connect(`ws://localhost:${port}`)
         expect(store.isApplied('dev-1')).toBe(true)

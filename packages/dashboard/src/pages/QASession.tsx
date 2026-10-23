@@ -309,6 +309,10 @@ export function QASession() {
                           <span className={cn('inline-block h-1.5 w-1.5 rounded-full', statusDot)} />
                           {statusLabel}
                         </span>
+                        {/* A run's `--service-tier slim` survives until the device restarts; say so before it is picked. */}
+                        {isBooted && typeof d.serviceTier === 'object' && d.serviceTier.name === 'slim' && (
+                          <span className="text-[10px] text-muted-foreground">Most services off</span>
+                        )}
                       </button>
                     )
                   })}

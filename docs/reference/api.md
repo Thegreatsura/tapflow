@@ -812,6 +812,7 @@ Body (JSON):
   flows    array   required  The flows to run [{ name, file? }], at most 500
   buildId  number  optional  The build under test
   ci       object  optional  { provider?, branch?, commit?, jobUrl? }. jobUrl is kept only for an http(s) address
+  serviceTier  object  optional  { name: "stock" | "lean" | "slim", keep: [feature] } the run asked its device to boot with. Recorded as requested, before any device boots. Not kept when it is not one
 ```
 
 **Response `201`**
@@ -890,6 +891,7 @@ A `build`, `before` or `after` that is not a non-negative integer gets `400`. An
       "exitCode": 1,
       "isCi": true,
       "ci": { "provider": "github", "branch": "main", "commit": "abc1234", "jobUrl": "https://github.com/acme/app/actions/runs/1" },
+      "serviceTier": null,
       "build": { "id": 7, "appName": "Coffee", "versionName": "1.2.0", "buildNumber": "42", "platform": "ios" },
       "createdBy": "ci-bot",
       "flowsTotal": 2,

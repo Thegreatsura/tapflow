@@ -106,6 +106,9 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
   // Set while the relay holds this viewer's boot behind another on the same Mac; cleared by anything that
   // ends the wait — the boot starting, finishing or failing.
   const [bootWaiting, setBootWaiting] = useState(false);
+  // The tier the device came up with, from `device:ready`: a person who picks a device a run left slim is told how to
+  // get its services back (a restart boots it on the agent's own tier).
+  const [servicesOff, setServicesOff] = useState(false);
   const [launching, setLaunching] = useState(false);
   // What the agent on the other end implements. Absent ⇒ an agent predating the capability,
   // so the viewer degrades on purpose rather than inferring anything from a timeout.
@@ -385,6 +388,7 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
 
     if (msg.type === 'device:booting') {
       setBootWaiting(false);
+      setServicesOff(false);
       setDeviceReady(false);
       setInstalling(false);
       setInstalled(false);
@@ -436,6 +440,10 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
       // Telling them apart needs the replay to be identifiable in its own right, which is the deferred
       // `sessionId` tightening; until then that case is unchanged rather than fixed.
       if (msg.requestId !== undefined && !bootIdsRef.current.delete(msg.requestId)) return;
+      // After the gate: a superseded boot's late ready must not put back a tier the current boot replaced. And only
+      // when the ready says so: the relay's replay carries no tier, and must not clear one an earlier ready set.
+      const tier = msg.payload?.serviceTier;
+      if (tier !== undefined) setServicesOff(tier !== 'unsupported' && tier.name === 'slim');
       if (rebindRef.current.pending > 0) {
         const { appInstalled } = rebindRef.current;
         rebindRef.current = { pending: rebindRef.current.pending - 1, appInstalled };
@@ -703,7 +711,7 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
 
   const commonProps = {
     sessionId, buildId, send, openUrl, launchApp, connected, joined,
-    deviceReady, installing, installed, installError, bootError, bootWaiting,
+    deviceReady, installing, installed, installError, bootError, bootWaiting, servicesOff,
     launching,
     binaryFrameHandlerRef,
     clipboardHandlerRef,
@@ -764,7 +772,7 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
           </div>
           <SimulatorInfoCard
             joined={joined} fps={0} connected={connected}
-            deviceReady={deviceReady} bootError={bootError} bootWaiting={bootWaiting}
+            deviceReady={deviceReady} bootError={bootError} bootWaiting={bootWaiting} servicesOff={servicesOff}
             installing={installing} installError={installError}
             decoderUnsupported={false}
             keyboardActive={false} agentAway={agentAway}

@@ -7,8 +7,8 @@ import { LeanStore, parseDisabledStore, renderDisabledStore } from '../LeanStore
 
 const UDID = 'AAAAAAAA-1111-2222-3333-444444444444'
 const LABELS = ['com.apple.assistantd', 'com.apple.intelligenceflowd', 'com.apple.triald']
-const LEAN: ServiceTier = { name: 'lean', allow: [] }
-const SLIM: ServiceTier = { name: 'slim', allow: [] }
+const LEAN: ServiceTier = { name: 'lean', keep: [] }
+const SLIM: ServiceTier = { name: 'slim', keep: [] }
 
 let root: string
 let store: LeanStore
@@ -100,6 +100,36 @@ describe('revert', () => {
     expect(store.isApplied(UDID)).toBe(false)
   })
 
+  it('with the managed labels known, recovers an unreadable marker instead of stranding the labels', () => {
+    // The labels lose their entries (their plist defaults), the runtime's own entries stay, and the next change
+    // starts clean — rather than recording our own `true`s as what the device had.
+    const managed = new LeanStore(root, [...LABELS, 'com.apple.apsd'])
+    seed({ 'com.apple.nanonewscd': false })
+    managed.setTier(UDID, SLIM, [...LABELS, 'com.apple.apsd'])
+    writeFileSync(join(dir(), 'tapflow-lean.json'), '{not json')
+    expect(managed.revert(UDID)).toBe(true)
+    expect(read()).toEqual({ 'com.apple.nanonewscd': false })
+    managed.setTier(UDID, LEAN, LABELS)
+    managed.setTier(UDID, { name: 'stock', keep: [] }, [])
+    expect(read()).toEqual({ 'com.apple.nanonewscd': false })
+  })
+
+  it('with the managed labels known but the store unreadable too, keeps the marker so a later revert can finish', () => {
+    const managed = new LeanStore(root, LABELS)
+    seed({ 'com.apple.nanonewscd': false })
+    managed.setTier(UDID, LEAN, LABELS)
+    writeFileSync(join(dir(), 'tapflow-lean.json'), '{not json')
+    const good = readFileSync(storePath(), 'utf8')
+    writeFileSync(storePath(), good.replace('<true/>', '<string>x</string>'))
+    expect(() => managed.revert(UDID)).toThrow(/could not be repaired yet/)
+    expect(managed.isApplied(UDID)).toBe(true)
+    // The store reads again: the same revert now completes.
+    writeFileSync(storePath(), good)
+    expect(managed.revert(UDID)).toBe(true)
+    expect(read()).toEqual({ 'com.apple.nanonewscd': false })
+    expect(managed.isApplied(UDID)).toBe(false)
+  })
+
   it('keeps the marker when the store itself cannot be read, rather than rewriting it', () => {
     // The twin of the case above: rewriting a store it cannot fully read would drop the runtime's
     // entries, and dropping the marker would hide that the device is still lean.
@@ -143,14 +173,14 @@ describe('changing tiers', () => {
   it('stock is the revert: the runtime\'s own entries and nothing of ours', () => {
     seed({ 'com.apple.nanonewscd': false })
     store.setTier(UDID, SLIM, LABELS)
-    store.setTier(UDID, { name: 'stock', allow: [] }, [])
+    store.setTier(UDID, { name: 'stock', keep: [] }, [])
     expect(read()).toEqual({ 'com.apple.nanonewscd': false })
     expect(store.isApplied(UDID)).toBe(false)
-    expect(store.currentTier(UDID)).toEqual({ name: 'stock', allow: [] })
+    expect(store.currentTier(UDID)).toEqual({ name: 'stock', keep: [] })
   })
 
   it('records the tier with its exceptions', () => {
-    const tier: ServiceTier = { name: 'slim', allow: ['push'] }
+    const tier: ServiceTier = { name: 'slim', keep: ['push'] }
     store.setTier(UDID, tier, LABELS)
     expect(store.currentTier(UDID)).toEqual(tier)
   })

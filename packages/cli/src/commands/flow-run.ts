@@ -41,7 +41,7 @@ export interface FlowRunOptions {
   admissionTimeout?: number
   /** The services the device boots with (`stock`, `lean`, `slim`), and the features kept on under it. */
   serviceTier?: string
-  allow?: string
+  keep?: string
   /** `--no-record` sets it false. */
   record?: boolean
   /** Comma-separated, as typed. */
@@ -201,9 +201,9 @@ export async function cmdFlowRun(files: string[], opts: FlowRunOptions): Promise
     }
     let serviceTier: ServiceTier | undefined
     if (opts.serviceTier !== undefined) {
-      try { serviceTier = parseServiceTier(opts.serviceTier, opts.allow) } catch (e) { envFail(`--service-tier: ${(e as Error).message}`) }
-    } else if (opts.allow !== undefined) {
-      envFail('--allow needs --service-tier: it names the features to keep on under that tier')
+      try { serviceTier = parseServiceTier(opts.serviceTier, opts.keep) } catch (e) { envFail(`--service-tier: ${(e as Error).message}`) }
+    } else if (opts.keep !== undefined) {
+      envFail('--keep needs --service-tier: it names the features to keep on under that tier')
     }
     const admissionTimeout = opts.admissionTimeout ?? DEFAULT_ADMISSION_TIMEOUT_SECONDS
     if (!(Number.isFinite(admissionTimeout) && admissionTimeout >= 0 && admissionTimeout <= MAX_TIMEOUT_SECONDS)) {
@@ -260,6 +260,7 @@ export async function cmdFlowRun(files: string[], opts: FlowRunOptions): Promise
         ...(opts.build !== undefined ? { buildId: opts.build } : {}),
         flows: flows.map((f, i) => ({ name: f.name, file: files[i] })),
         ci: ciContext(),
+        ...(serviceTier ? { serviceTier } : {}),
       })
       video = {
         tap: new VideoTap(),

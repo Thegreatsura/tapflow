@@ -1,4 +1,4 @@
-import { fetchWithToken, fixedToken, tokenRefusal, type SkipReason, type TokenSource } from '@tapflowio/flow-runner'
+import { fetchWithToken, fixedToken, tokenRefusal, type ServiceTier, type SkipReason, type TokenSource } from '@tapflowio/flow-runner'
 import type { CiContext } from './ci.js'
 
 /**
@@ -86,7 +86,7 @@ export class RunRecorder {
     return this.id
   }
 
-  create(run: { client: string; buildId?: number; flows: PlannedFlow[]; ci: CiContext | null }): void {
+  create(run: { client: string; buildId?: number; flows: PlannedFlow[]; ci: CiContext | null; serviceTier?: ServiceTier }): void {
     this.enqueue(false, async () => {
       try {
         await this.createRun(run)
@@ -96,12 +96,13 @@ export class RunRecorder {
     })
   }
 
-  private async createRun(run: { client: string; buildId?: number; flows: PlannedFlow[]; ci: CiContext | null }): Promise<void> {
+  private async createRun(run: { client: string; buildId?: number; flows: PlannedFlow[]; ci: CiContext | null; serviceTier?: ServiceTier }): Promise<void> {
     const res = await this.post('/api/v1/runs', JSON.stringify({
       client: run.client,
       ...(run.buildId !== undefined ? { buildId: run.buildId } : {}),
       flows: run.flows,
       ...(run.ci ? { ci: run.ci } : {}),
+      ...(run.serviceTier ? { serviceTier: run.serviceTier } : {}),
     }), 'application/json')
     // A relay older than run records answers an unknown `/api/` POST with the dashboard's `index.html` and a
     // 200, so "ok" is not "supported". Only an id says it was recorded.
