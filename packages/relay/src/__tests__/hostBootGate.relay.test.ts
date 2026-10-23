@@ -605,6 +605,31 @@ describe('the relay routes boots through the per-Mac boot gate', () => {
       expect((await waitForType<DeviceBoot>(mac.ws, 'device:boot')).sessionId).toBe(mac.session.get('b'))
     })
 
+    it('records a boot that answers after its record expired as the automation boot it was', async () => {
+      process.env['TAPFLOW_MAX_AUTOMATED_DEVICES'] = '1'
+      await start({ bootGate: { noSampleMs: 1, settleCapMs: 1, bootMs: 20 }, pendingBootTtlMs: 30 })
+      const mac = await agent('mac-1', ['a', 'b', 'c'])
+      const robotA = await join(mac.session.get('a')!, 'flow-runner')
+      boot(robotA, mac.session.get('a')!, 'a')
+      await waitForType<DeviceBoot>(mac.ws, 'device:boot')
+      robotA.send(JSON.stringify({ type: 'session:leave', sessionId: mac.session.get('a') }))
+      await new Promise((r) => setTimeout(r, 60))
+      // b's boot expires a's record and goes; b fails, so it holds nothing.
+      const robotB = await join(mac.session.get('b')!, 'flow-runner')
+      boot(robotB, mac.session.get('b')!, 'b')
+      await waitForType<DeviceBoot>(mac.ws, 'device:boot')
+      mac.ws.send(JSON.stringify({ type: 'device:boot-error', sessionId: mac.session.get('b'), requestId: `${mac.session.get('b')}-boot`, message: 'gave up' }))
+      await waitForType(robotB, 'device:boot-error')
+      robotB.send(JSON.stringify({ type: 'session:leave', sessionId: mac.session.get('b') }))
+      // a's agent answers after all: the device is up, and automation started it, though nobody holds it now.
+      ready(mac.ws, mac.session.get('a')!, 'a')
+      await new Promise((r) => setTimeout(r, 40))
+
+      const robotC = await join(mac.session.get('c')!, 'flow-runner')
+      boot(robotC, mac.session.get('c')!, 'c')
+      expect((await waitForType<{ type: 'device:shutdown'; sessionId: string }>(mac.ws, 'device:shutdown')).sessionId).toBe(mac.session.get('a'))
+    })
+
     it('does not count a boot that found the device already running', async () => {
       process.env['TAPFLOW_MAX_AUTOMATED_DEVICES'] = '1'
       await start(quickGate)

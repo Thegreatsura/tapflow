@@ -1748,6 +1748,7 @@ export class RelayServer {
         // Unless a boot went out after the shutdown this answers: the shutdown carries no correlator, and a device
         // the relay shut down to make room can be picked up and started again before the agent reports back.
         if (session.lastBootPending === undefined) session.lastBoot = undefined
+        session.lastBootExpired = undefined
         session.evictingAt = undefined
         if (session.browserSocket?.readyState === WebSocket.OPEN) {
           session.browserSocket.send(JSON.stringify(raw))
@@ -2916,7 +2917,9 @@ export class RelayServer {
       if (cold === false) session.lastBoot = pending.prev
       session.lastBootPending = undefined
     } else if (cold === true) {
-      session.lastBoot = { booterClass: isAiClientKind(session.holderKind) ? 'automated' : 'interactive', at: Date.now() }
+      const expired = session.lastBootExpired?.requestId === requestId ? session.lastBootExpired : undefined
+      const booterClass = expired?.booterClass ?? (isAiClientKind(session.holderKind) ? 'automated' : 'interactive')
+      session.lastBoot = { booterClass, at: Date.now() }
       // An earlier boot of this session brought the device up while a newer one is still out: that newer one
       // turning out warm must fall back to this, not to before either.
       if (pending) pending.prev = session.lastBoot
@@ -2954,7 +2957,10 @@ export class RelayServer {
     // than on that timer, which a leave or an end clears with the session's other state while the record stays;
     // a late ready still records the boot again (`settleLastBoot` on `cold: true`).
     for (const s of onHost) {
-      if (s.lastBootPending && s.lastBoot && now - s.lastBoot.at >= this.pendingBootTtlMs) this.undoLastBoot(s, s.lastBootPending.requestId)
+      if (s.lastBootPending && s.lastBoot && now - s.lastBoot.at >= this.pendingBootTtlMs) {
+        s.lastBootExpired = { requestId: s.lastBootPending.requestId, booterClass: s.lastBoot.booterClass }
+        this.undoLastBoot(s, s.lastBootPending.requestId)
+      }
     }
     return onHost
       // A device being shut down to make room is neither up nor available, until the agent says otherwise.

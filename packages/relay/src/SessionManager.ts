@@ -73,6 +73,9 @@ export interface Session {
   lastBoot?: { booterClass: BooterClass; at: number }
   /** The boot `lastBoot` was set for, and what it held before, so a failure or a warm ready can put it back. */
   lastBootPending?: { requestId: string; prev: Session['lastBoot'] }
+  /** A boot whose record expired unanswered, kept so a ready that arrives after all is recorded as the boot it was —
+   *  by then the automation client that asked has usually left, and the holder no longer says who started it. */
+  lastBootExpired?: { requestId: string; booterClass: BooterClass }
   /** The relay shut this device down to make room. Until the agent confirms, it is neither counted nor offered. */
   evictingAt?: number
   /** An automation client joined while the idle timer was running and stopped it: its leave starts it again, so a
