@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
@@ -141,18 +141,18 @@ describe('the relay routes boots through the per-Mac boot gate', () => {
       return (await waitForType<AgentsListed>(lister, 'agents:listed')).sessions.map((s) => [s.platform, s.admission])
     }
     // CPU over the line and no boot: a new join would be refused, on the Mac's iOS agent; Android's own reading is idle.
-    expect(await list()).toEqual(expect.arrayContaining([['ios', { booting: false, overloaded: true, runningOnly: false }]]))
+    await vi.waitFor(async () => expect(await list()).toEqual(expect.arrayContaining([['ios', { booting: false, overloaded: true, memoryRefuses: [] }]])))
 
     boot(await join(android.session.get('p')!, 'flow-runner'), android.session.get('p')!, 'p')
     await waitForType<DeviceBoot>(android.ws, 'device:boot')
     // A boot holds the Mac: both agents say so, and the CPU is the boot's, so the join gate is paused.
-    expect(await list()).toEqual(expect.arrayContaining([
-      ['ios', { booting: true, overloaded: false, runningOnly: false }],
-      ['android', { booting: true, overloaded: false, runningOnly: false }],
-    ]))
+    await vi.waitFor(async () => expect(await list()).toEqual(expect.arrayContaining([
+      ['ios', { booting: true, overloaded: false, memoryRefuses: [] }],
+      ['android', { booting: true, overloaded: false, memoryRefuses: [] }],
+    ])))
   })
 
-  it('keeps a Mac short of memory open while it has a device up to rejoin, and says only running ones', async () => {
+  it('keeps a Mac short of memory open while it has a device up to rejoin, and names the devices it would refuse', async () => {
     await start()
     const mac = await agent('mac-1', ['a', 'b'])
     const memFull = JSON.stringify({ type: 'agent:resources', resources: { cpuPercent: 10, memUsedMB: 15_500, memTotalMB: 16_000, slotsAvailable: 1, slotsTotal: 2, reportedAt: Date.now() } })
@@ -164,7 +164,7 @@ describe('the relay routes boots through the per-Mac boot gate', () => {
       return (await waitForType<AgentsListed>(lister, 'agents:listed')).sessions[0]!.admission
     }
     // Nothing up: a person could not get in anywhere on this Mac.
-    expect(await admission()).toEqual({ booting: false, overloaded: true, runningOnly: true })
+    await vi.waitFor(async () => expect(await admission()).toEqual({ booting: false, overloaded: true, memoryRefuses: ['a', 'b'] }))
 
     // Bring one device up through the relay (memory was fine then), and the Mac opens again — for that device.
     mac.ws.send(resources(10))
@@ -175,7 +175,7 @@ describe('the relay routes boots through the per-Mac boot gate', () => {
     mac.ws.send(JSON.stringify({ type: 'device:ready', sessionId: mac.session.get('a'), requestId: `${mac.session.get('a')}-boot`, payload: { deviceId: 'a', cold: false } }))
     mac.ws.send(memFull)
     await new Promise((r) => setTimeout(r, 50))
-    expect(await admission()).toEqual({ booting: false, overloaded: false, runningOnly: true })
+    await vi.waitFor(async () => expect(await admission()).toEqual({ booting: false, overloaded: false, memoryRefuses: ['b'] }))
   })
 
   it('sends a held person after the longest wait even with the slot still taken', async () => {

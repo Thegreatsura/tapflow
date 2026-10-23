@@ -159,9 +159,11 @@ export interface MacAdmission {
   /** No person's `session:start` on this Mac would be let in now (`agent-resources-exhausted`): CPU is over the
    *  line, or memory is and the relay has no device up here to rejoin. */
   overloaded: boolean
-  /** Memory is over the line, so only a device the relay already has up can be joined; one that would have to
-   *  start is refused. The picker marks the rest. */
-  runningOnly: boolean
+  /** Devices of this agent a person's join would be refused for memory now: memory is over the line and the
+   *  relay has not brought these up (`readySent`), so joining would start them. Empty when memory is fine. Per
+   *  device rather than a flag, because "running" by the device list's `status` is not the relay's rule — a
+   *  simulator booted before its agent registered reads `booted` and is still refused. */
+  memoryRefuses: string[]
 }
 
 export interface ChromeRect {

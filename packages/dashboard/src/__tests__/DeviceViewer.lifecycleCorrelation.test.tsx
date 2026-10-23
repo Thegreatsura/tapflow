@@ -281,6 +281,18 @@ describe('DeviceViewer says when its boot is waiting for another device on the M
     expect(screen.getByText('Starting device…')).toBeTruthy()
   })
 
+  // A restart: the device was up, the viewer re-boots it, and the relay holds that boot. The wait must show even
+  // though the last cycle left the viewer ready.
+  it('shows the wait for a re-boot of a device that was up', () => {
+    render(<DeviceViewer sessionId="s1" deviceId="dev-1" />)
+    join()
+    act(() => { deliver!({ type: 'device:ready', sessionId: 's1', requestId: lastBootId(), payload: { deviceId: 'dev-1' } }) })
+    expect(screen.queryByText('Starting device…')).toBeNull()
+    join() // re-boot with a new correlator
+    act(() => { deliver!({ type: 'device:boot-waiting', sessionId: 's1', requestId: lastBootId(), until: Date.now() + 60_000 }) })
+    expect(screen.getByText(WAITING)).toBeTruthy()
+  })
+
   it('ignores the wait of a boot it has replaced', () => {
     render(<DeviceViewer sessionId="s1" deviceId="dev-1" />)
     join()

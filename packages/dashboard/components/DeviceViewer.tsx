@@ -327,8 +327,11 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
     }
     // Only for the boot this viewer is waiting on: a reconnect re-sends its boot, and the relay answers the one it
     // replaced as well as the new one.
+    // Not-ready too: a restart reaches this with the last boot's chrome still up and `deviceReady` still true, and
+    // the device is off until the held boot goes ahead.
     if (msg.type === 'device:boot-waiting' && msg.requestId === latestBootIdRef.current) {
       setBootWaiting(true);
+      setDeviceReady(false);
     }
     // An input the device never got. Deliberately no session-level state behind this: the acks are
     // per-input, unordered (a dispatch is awaited before its ack while a refusal is not) and do not
@@ -698,7 +701,7 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
 
   const commonProps = {
     sessionId, buildId, send, openUrl, launchApp, connected, joined,
-    deviceReady, installing, installed, installError, bootError,
+    deviceReady, installing, installed, installError, bootError, bootWaiting,
     launching,
     binaryFrameHandlerRef,
     clipboardHandlerRef,

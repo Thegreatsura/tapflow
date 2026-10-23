@@ -31,7 +31,7 @@ QA 세션은 Mac에서 실행 중인 iOS 시뮬레이터나 Android 에뮬레이
 - **Booted**: 이미 켜져 있는 기기입니다.
 - **Available**: 꺼져 있고 바로 쓸 수 있는 기기입니다. 고르면 켜집니다.
 - **In use**: 다른 팀원이 쓰고 있어 고를 수 없습니다.
-- **Not enough memory to start**: Mac의 RAM 사용률이 80%를 넘어 꺼진 기기를 켤 수 없습니다. 이미 켜진 기기는 고를 수 있습니다.
+- **Not enough memory to start**: Mac의 RAM 사용률이 80%를 넘어 이 기기를 켤 수 없습니다. tapflow가 이미 켜 둔 기기는 고를 수 있습니다.
 
 **Search device…** 검색창으로 기기 이름을 찾습니다. OS 버전 필터(기본값 **Any version**)로 목록을 좁힙니다.
 

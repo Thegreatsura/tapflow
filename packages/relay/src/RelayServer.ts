@@ -2157,7 +2157,7 @@ export class RelayServer {
     return {
       booting: this.bootGate.isBooting(hostKeyOf(group[0]!)),
       overloaded: (load?.cpuOver ?? false) || (memOver && !group.some((s) => s.readySent)),
-      runningOnly: memOver,
+      memoryRefuses: memOver ? group.filter((s) => !s.readySent).map((s) => s.deviceId) : [],
     }
   }
 

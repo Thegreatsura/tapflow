@@ -276,16 +276,16 @@ export function QASession() {
                   {versionedDevices.map((d: DeviceSummary) => {
                     const isBooted = d.status === 'booted'
                     const isBusy = d.busy
-                    // The relay lets a person rejoin a running device on a Mac short of memory, and refuses one that
-                    // would have to start. `status` is the relay's own view, so a simulator that was running before
-                    // the agent registered reads booted here and can still be refused — a rare case, left as is.
-                    const needsMemory = !isBooted && (selectedSession?.admission.runningOnly ?? false)
+                    // On a Mac short of memory the relay lets a person rejoin only a device it brought up itself; the
+                    // listing names the rest. Not `!isBooted`: a simulator running before its agent registered reads
+                    // booted and is still refused.
+                    const needsMemory = selectedSession?.admission.memoryRefuses.includes(d.id) ?? false
                     // **Says who is driving an AI-held device, and offers no way in.** Watching an AI session
                     // is for the person who started it, through the link their coding agent hands them; the
                     // device list only explains why the device is taken.
                     const statusLabel = isBusy
                       ? (d.holder ? `${holderKindLabel(d.holder.kind)} is driving it` : 'In use')
-                      : isBooted ? 'Booted' : needsMemory ? 'Not enough memory to start' : 'Available'
+                      : needsMemory ? 'Not enough memory to start' : isBooted ? 'Booted' : 'Available'
                     const statusDot = isBusy
                       ? 'bg-amber-400'
                       : isBooted

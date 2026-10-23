@@ -62,14 +62,14 @@ const AGENTS: SessionInfo[] = [{
   agentName: 'studio-mac',
   platform: 'ios',
   capabilities: ['clipboard', 'full-reset'],
-  admission: { booting: false, overloaded: false, runningOnly: false },
+  admission: { booting: false, overloaded: false, memoryRefuses: [] },
   devices: [device('dev-a', 'iPhone 15'), device('dev-b', 'iPhone SE')],
 }]
 const ANDROID_AGENTS: SessionInfo[] = [{
   agentName: 'studio-mac',
   platform: 'android',
   capabilities: ['clipboard'],
-  admission: { booting: false, overloaded: false, runningOnly: false },
+  admission: { booting: false, overloaded: false, memoryRefuses: [] },
   devices: [device('dev-a', 'Pixel 7', 'android')],
 }]
 const MIXED_CAPABILITY_AGENTS: SessionInfo[] = [
@@ -78,7 +78,7 @@ const MIXED_CAPABILITY_AGENTS: SessionInfo[] = [
     agentName: 'legacy-mac',
     platform: 'ios',
     capabilities: ['clipboard'],
-    admission: { booting: false, overloaded: false, runningOnly: false },
+    admission: { booting: false, overloaded: false, memoryRefuses: [] },
     devices: [device('dev-c', 'iPhone 14')],
   },
 ]
@@ -256,12 +256,12 @@ describe('QASession — the Mac card follows the relay\'s admission reading', ()
   }
 
   it('lets a person pick a Mac at 97 % CPU while a device is starting there, and says so', async () => {
-    const card = await macCard({ booting: true, overloaded: false, runningOnly: false })
+    const card = await macCard({ booting: true, overloaded: false, memoryRefuses: [] })
     expect(card.disabled).toBe(false)
     expect(screen.getByText('Starting a device')).toBeTruthy()
   })
 
-  it('on a Mac short of memory, offers the running device and marks the one that would have to start', async () => {
+  it('on a Mac short of memory, offers the device the relay has up and marks the ones it would refuse', async () => {
     const user = userEvent.setup()
     render(withQuery(
       <MemoryRouter initialEntries={['/qa?id=7']}>
@@ -271,8 +271,9 @@ describe('QASession — the Mac card follows the relay\'s admission reading', ()
     await vi.waitFor(() => expect(deliver).not.toBeNull())
     const sessions: SessionInfo[] = [{
       ...AGENTS[0]!,
-      admission: { booting: false, overloaded: false, runningOnly: true },
-      devices: [{ ...device('dev-a', 'iPhone 15'), status: 'booted' }, device('dev-b', 'iPhone SE')],
+      // dev-c reads booted but the relay never brought it up (booted before the agent registered): refused too.
+      admission: { booting: false, overloaded: false, memoryRefuses: ['dev-b', 'dev-c'] },
+      devices: [{ ...device('dev-a', 'iPhone 15'), status: 'booted' }, device('dev-b', 'iPhone SE'), { ...device('dev-c', 'iPhone 13'), status: 'booted' }],
     }]
     await act(async () => { deliver!({ type: 'agents:listed', sessions }) })
     await user.click(await screen.findByText('studio-mac'))
@@ -280,10 +281,11 @@ describe('QASession — the Mac card follows the relay\'s admission reading', ()
     const cold = screen.getByText('iPhone SE').closest('button')!
     expect(cold.disabled).toBe(true)
     expect(cold.textContent).toContain('Not enough memory to start')
+    expect(screen.getByText('iPhone 13').closest('button')!.disabled).toBe(true)
   })
 
   it('blocks the Mac the relay would refuse', async () => {
-    const card = await macCard({ booting: false, overloaded: true, runningOnly: true })
+    const card = await macCard({ booting: false, overloaded: true, memoryRefuses: ['dev-a', 'dev-b'] })
     expect(card.disabled).toBe(true)
   })
 })

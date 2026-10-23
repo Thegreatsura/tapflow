@@ -31,7 +31,7 @@ Click a device under **Select device** to start the session. Each device shows i
 - **Booted**: already running.
 - **Available**: shut down and free. Picking it boots it.
 - **In use**: another teammate is using it, so it cannot be picked.
-- **Not enough memory to start**: the Mac's RAM is over 80%, so a shut-down device cannot be started. A device that is already on can still be picked.
+- **Not enough memory to start**: the Mac's RAM is over 80%, so this device cannot be started. A device tapflow already has running can still be picked.
 
 Find a device by name with **Search device…**. Narrow the list with the OS version filter (default **Any version**).
 

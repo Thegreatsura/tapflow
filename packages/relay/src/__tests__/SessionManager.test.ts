@@ -8,7 +8,7 @@ const OPEN = 1
 const mockSocket = () => ({ readyState: OPEN } as WebSocket)
 const closedSocket = () => ({ readyState: 3 } as WebSocket)
 /** The relay's per-Mac admission reading, which these tests are not about. */
-const IDLE_MAC = () => ({ booting: false, overloaded: false, runningOnly: false })
+const IDLE_MAC = () => ({ booting: false, overloaded: false, memoryRefuses: [] })
 
 /**
  * A distinct owner per socket, which is what an unidentified connection gets from the relay — so every
