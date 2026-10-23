@@ -3,9 +3,10 @@ import { AdmissionRefusedError, SessionJoinError, type AdmissionReason } from '.
 /**
  * Waiting out a Mac that is busy rather than broken.
  *
- * Three refusals mean that: a join over the resource ceiling (`agent-resources-exhausted`), a boot behind
- * another boot on the same Mac (`host-booting`), and a boot on a Mac whose kernel reports critical memory
- * pressure (`host-memory-critical`). All clear on their own, and before the relay's boot gate a run met none of
+ * These refusals mean that: a join over the resource ceiling (`agent-resources-exhausted`), a boot behind
+ * another boot on the same Mac (`host-booting`), a boot on a Mac whose kernel reports critical memory
+ * pressure (`host-memory-critical`), and a boot on a Mac whose automation devices are all in use
+ * (`host-at-capacity`). All clear on their own, and before the relay's boot gate a run met none of
  * them — it booted at once and slowed everyone else instead — so failing on them would turn the gate into a
  * source of red CI.
  *

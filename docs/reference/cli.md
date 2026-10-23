@@ -384,7 +384,7 @@ tapflow flow run .tapflow/flows/login-smoke.yaml
 | `--timeout <seconds>` | `10` | Default wait per selector (seconds) |
 | `--service-tier <tier>` | the agent's setting | Background services the device boots with: `stock` (all on), `lean`, or `slim` (almost all off). iOS 18.5 and later. See below. |
 | `--keep <features>` | — | Features to keep on under `--service-tier` (comma-separated), such as `push,photos` |
-| `--admission-timeout <seconds>` | `600` | Longest wait while another device boots on the same Mac, the Mac is critically short of memory, or it is over its CPU or memory limit (seconds). Past it, the run stops with exit code `2`. |
+| `--admission-timeout <seconds>` | `600` | Longest wait while another device boots on the same Mac, the Mac is critically short of memory, every automation device the Mac allows is in use, or it is over its CPU or memory limit (seconds). Past it, the run stops with exit code `2`. |
 | `--no-record` | — | Do not record this run on the relay |
 | `--include-tags <tags>` | — | Run only flows tagged with at least one of these (comma-separated) |
 | `--exclude-tags <tags>` | — | Skip flows tagged with any of these (comma-separated). Wins over `--include-tags`. |
