@@ -64,6 +64,8 @@ export const INBOUND_DISPOSITION = {
   'network:error': { at: 'DeviceViewer, useNetworkControl' },
   'device:boot-error': { at: 'DeviceViewer' },
   'device:boot-waiting': { at: 'DeviceViewer' },
+  'device:leased': { ignored: 'Answers `device:lease`, which the dashboard never sends: a person picks the device.' },
+  'device:lease-refused': { ignored: 'Answers `device:lease`, which the dashboard never sends.' },
   'device:booting': { at: 'DeviceViewer, useWatchSession' },
   'device:ready': { at: 'DeviceViewer, useWatchSession' },
   // `DeviceViewer` joined this pair with #628: a reboot is a `device:shutdown` followed by a

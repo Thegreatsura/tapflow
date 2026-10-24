@@ -1079,7 +1079,17 @@ export type RelayOrAgentToBrowser =
 export interface AgentsListed {
   type: 'agents:listed'
   sessions: SessionInfo[]
+  /**
+   * What this relay understands beyond the messages every relay does: `'device-lease'` (`device:lease`). A client
+   * reads it before sending one, because an older relay drops an unknown message without a word and the client
+   * would otherwise learn that only from its own deadline. Optional, unlike the rest of the listing: the
+   * dashboard cannot skew from the relay it ships in, but a flow runner can, and an older relay omits the key.
+   */
+  features?: RelayFeature[]
 }
+
+/** Values of `AgentsListed.features`. A client meeting one it does not know ignores it. */
+export type RelayFeature = 'device-lease'
 
 export interface SessionJoined {
   type: 'session:joined'
@@ -1299,10 +1309,49 @@ export interface DeviceBootWaiting {
   reason?: BootRefusalReason
 }
 
+/**
+ * The relay chose a device for a `device:lease`, made this client its holder and sent its boot. The boot's own
+ * `device:ready` or `device:boot-error` follows with the lease's `requestId`, as it would for a `device:boot`, after
+ * the `session:joined` a join sends. Sent before both, so the client knows which session they are about.
+ */
+export interface DeviceLeased {
+  type: 'device:leased'
+  requestId: string
+  sessionId: string
+  deviceId: string
+  deviceName: string
+  platform: 'ios' | 'android'
+  /** `pool`: already up from an earlier automated boot, so the boot is warm. `boot`: started for this lease. */
+  source: 'pool' | 'boot'
+}
+
+/**
+ * No device could be leased now. Nothing was joined or booted. `retryable` says whether asking again can help:
+ * every `AdmissionRefusal` and `all-held` can, the others will answer the same until something is changed.
+ */
+export interface DeviceLeaseRefused {
+  type: 'device:lease-refused'
+  requestId: string
+  reason: LeaseRefusalReason
+  message: string
+  retryable: boolean
+}
+
+/**
+ * - an `AdmissionRefusal`: every Mac with a fitting device refused it — the boot gate, the automation cap, or the
+ *   CPU and memory a join is held to; the reason given is the one most worth waiting out.
+ * - `all-held`: every fitting device is held by someone, or is a person's.
+ * - `no-device`: no agent offers a device of this platform, or every one was excluded.
+ * - `bad-request`: no platform could be read: none given, or the build named is not one this relay has.
+ */
+export type LeaseRefusalReason = AdmissionRefusal | 'all-held' | 'no-device' | 'bad-request'
+
 export type RelayToBrowser =
   | RelayOrAgentToBrowser
   | AgentsListed
   | DeviceBootWaiting
+  | DeviceLeased
+  | DeviceLeaseRefused
   | SessionJoined
   | SessionTerminated
   | SessionAgentAway
@@ -1799,6 +1848,35 @@ export interface DeviceBoot {
   payload: { deviceId: string; resetMode?: 'app-only' | 'full-erase'; acceptH264?: boolean; secureContext?: boolean; serviceTier?: ServiceTier; runReset?: RunResetRequest }
 }
 
+/**
+ * Ask the relay for a device instead of naming one: it picks a free device of the platform — one automation left
+ * up first, then one it boots on the Mac with the most room — makes this client its holder and boots it, all in one
+ * step, so two clients asking at once never get the same device and every boot still passes the Mac's boot gate.
+ * Answered by `device:leased` then the boot's reply, or by `device:lease-refused`. Send only to a relay listing
+ * `'device-lease'` in `AgentsListed.features`.
+ *
+ * No `sessionId`: choosing the session is what this asks for. So a malformed payload has no address to be refused
+ * at, and every payload field reads an unusable value as absent instead; the relay then refuses what it cannot
+ * serve with `bad-request`.
+ */
+export interface DeviceLease {
+  type: 'device:lease'
+  requestId: string
+  payload: {
+    /** Required unless `buildId` is given; with both, the build's platform wins. */
+    platform?: 'ios' | 'android'
+    /** The build the run installs. The relay reads its platform, which a client holding only `view` cannot. */
+    buildId?: number
+    serviceTier?: ServiceTier
+    acceptH264?: boolean
+    runReset?: RunResetRequest
+    /** As on `session:start`. */
+    stream?: boolean
+    /** Sessions not to lease: ones this run already saw fail. */
+    exclude?: string[]
+  }
+}
+
 export interface AppInstallToRelay {
   type: 'app:install'
   sessionId: string
@@ -1999,6 +2077,7 @@ export type BrowserToRelay =
   | SessionEnd
   | SessionLeave
   | DeviceBoot
+  | DeviceLease
   | DeviceShutdown
   | AppInstallToRelay
   | AppLaunchToRelay

@@ -347,6 +347,7 @@ describe('browser-inbound routing matches the protocol union', () => {
       'session:end': 'sessionId',
       'session:leave': 'sessionId',
       'device:boot': 'payload requestId sessionId',
+      'device:lease': 'payload requestId',
       'device:shutdown': 'payload requestId? sessionId',
       'app:install': 'buildId requestId sessionId',
       'app:launch': 'buildId requestId sessionId',
@@ -383,9 +384,11 @@ describe('browser-inbound routing matches the protocol union', () => {
       'ui:tree:request': 'requestId sessionId',
     },
     RelayToBrowser: {
-      'agents:listed': 'sessions',
+      'agents:listed': 'features? sessions',
       // L2: a person's boot held behind another on the same Mac. Strictly correlated — no unsolicited producer.
       'device:boot-waiting': 'reason? requestId sessionId until',
+      'device:leased': 'deviceId deviceName platform requestId sessionId source',
+      'device:lease-refused': 'message reason requestId retryable',
       // `watchUrl` only for a holder that declared an AI client kind, and absent from an older relay.
       'session:joined': 'capabilities sessionId watchUrl?',
       'session:terminated': 'reason sessionId',

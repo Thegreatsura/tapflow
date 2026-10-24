@@ -55,7 +55,9 @@ const DEADLINES = [
     what: 'flow-runner bootDevice',
     file: 'packages/flow-runner/src/RelayClient.ts',
     pattern: /BOOT_DEADLINE_MS = ([\d_]+)/,
-    usedBy: /'device:boot-error'[\s\S]{0,240}?\n\s+BOOT_DEADLINE_MS,/,
+    // Two waiters share one predicate (`bootDevice` and `lease`), so every waiter on it is read, not the first:
+    // each capture is the deadline that waiter passes.
+    usedBy: /waitFor\(this\.bootAnswers\([^)]*\), ([^,]+),/g,
   },
 ]
 
@@ -91,10 +93,14 @@ describe('a relay client outlives the agent boot it is waiting on', () => {
     // relationship they describe is broken. `contributing/test-and-guard-coverage.md` calls this aiming the
     // mutation at the path that already worked.
     for (const d of DEADLINES) {
-      expect(
-        read(d.file),
-        `${d.what}: the boot waiter does not pass BOOT_DEADLINE_MS — a literal there defeats this check`,
-      ).toMatch(d.usedBy)
+      const message = `${d.what}: the boot waiter does not pass BOOT_DEADLINE_MS — a literal there defeats this check`
+      if (!d.usedBy.global) {
+        expect(read(d.file), message).toMatch(d.usedBy)
+        continue
+      }
+      const passed = [...read(d.file).matchAll(d.usedBy)].map((m) => m[1])
+      expect(passed.length, `${d.what}: no boot waiter found`).toBeGreaterThan(0)
+      for (const arg of passed) expect(arg, message).toBe('BOOT_DEADLINE_MS')
     }
   })
 

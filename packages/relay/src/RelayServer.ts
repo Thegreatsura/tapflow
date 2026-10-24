@@ -9,12 +9,13 @@ import { SessionManager, isAiClientKind } from './SessionManager.js'
 import type { Session } from './SessionManager.js'
 import type { AgentResources } from './types.js'
 import type { DeviceDetails, UIElement } from './types.js'
-import type { BootRefusalReason, ChromePayload, InputErrorReason, MacAdmission, RelayOutbound, PosturesPayload, WatchActionKind, WatchRefusal } from '@tapflowio/protocol'
+import type { AdmissionRefusal, BootRefusalReason, ChromePayload, LeaseRefusalReason, InputErrorReason, MacAdmission, RelayOutbound, PosturesPayload, WatchActionKind, WatchRefusal } from '@tapflowio/protocol'
 import { gestureAction, keyForWatchers } from './lib/watchActions.js'
 import { HostBootGate, GATE_DEFAULTS, type BooterClass, type Effect, type GateEvent, type GateTiming } from './admission/HostBootGate.js'
 import { defaultCap, idleToFree, planCapacity, type CapacityDevice, type CapacityPlan } from './admission/capacity.js'
 import { classifyBoot } from './admission/classifyBoot.js'
 import { hostKeyOf } from './admission/hostKey.js'
+import { chooseLease, type LeaseCandidate, type LeaseHost } from './admission/leaseChoice.js'
 import { directionOf, parseInbound, readyFacts } from '@tapflowio/protocol/validate'
 import type { ParsedInbound, ParseFailure, ParseResult } from '@tapflowio/protocol/validate'
 import { Router, json } from './router.js'
@@ -1424,6 +1425,8 @@ export class RelayServer {
       if (this.stopping) return
       for (const held of this.sessions.getByBrowserSocket(ws)) {
         this.sessions.clearBrowser(held.id, () => this.idleShutdown(held.id))
+        // Spent, as on a leave: the countdown just started is the one it would have handed back.
+        held.idleResumeOnLeave = false
         this.tellWatchers(held.id, { type: 'watch:holder-left', sessionId: held.id })
         this.gateEvent({ kind: 'browser-closed', sessionId: held.id })
       }
@@ -1585,6 +1588,7 @@ export class RelayServer {
         this.sendTo(ws, {
           type: 'agents:listed',
           sessions: this.sessions.list(this.ownerOf(ws), (holder) => this.isAlive(holder), (group) => this.macAdmission(group)),
+          features: ['device-lease'],
         })
         break
       }
@@ -1640,8 +1644,9 @@ export class RelayServer {
           // An automation client that stopped a person's idle countdown by joining starts it again by leaving;
           // otherwise a leave keeps the device up, as it always has (a CI job reuses the device it left).
           const resume = leaving?.idleResumeOnLeave === true
-          if (leaving) leaving.idleResumeOnLeave = false
+          // Cleared after, not before: `clearBrowser` reads it to record whose countdown this is.
           this.sessions.clearBrowser(msg.sessionId, resume ? () => this.idleShutdown(msg.sessionId) : undefined)
+          if (leaving) leaving.idleResumeOnLeave = false
           this.forgetSessionState(msg.sessionId)
           this.gateEvent({ kind: 'browser-closed', sessionId: msg.sessionId })
           // **A leave is the end, not a blip.** The holder said it is done — a flow run finishing, an MCP
@@ -1859,57 +1864,11 @@ export class RelayServer {
         // the diagnosis arrives and is discarded. That defect shipped twice from agent code
         // (`open-url:error`, then `clipboard:error`); here the producer is the relay, where
         // `correlatedRequestsGated` cannot see it because the field is optional.
-        const boot = this.dispatchTarget(ws, msg.sessionId)
-        if (!boot.ok) {
-          this.sendTo(ws, {
-            type: 'device:boot-error',
-            sessionId: msg.sessionId,
-            requestId: msg.requestId,
-            message: boot.message,
-          })
-          break
-        }
-        // Tag the boot with whether the viewer is external (public IP) so the agent can pick the
-        // downscale tier. The browser already reports secureContext in the payload.
-        //
-        // **Mutating the parse product, not the frame that arrived**, which is what makes this safe as
-        // well as correct: `payload` is a fresh object the parser built, so `raw` is untouched. The
-        // presence check the old line carried is gone because the schema requires the payload — and
-        // `external` is deliberately not declared on `DeviceBoot`, since the browser never sends it.
-        (msg.payload as Record<string, unknown>)['external'] = this.wsExternal.get(ws) ?? false
-        // Whether an automation client (flow runner, MCP) is booting, so the iOS agent can start its UI-tree runner
-        // now instead of inside the first selector step's timeout. Only the holder can boot (`dispatchTarget`), so the
-        // holder's kind is the booter's. A dashboard boot is never warmed: the runner costs about 520 MB per device.
-        ;(msg.payload as Record<string, unknown>)['automation'] = isAiClientKind(boot.session.holderKind)
-        const cost = classifyBoot(boot.session.deviceStatus, msg.payload, boot.session.deviceServiceTier)
-        const booterClass: BooterClass = isAiClientKind(boot.session.holderKind) ? 'automated' : 'interactive'
-        // The automation cap is decided before the gate and acted on after it: an idle device is shut down to make
-        // room only if this boot actually goes, so a boot the gate refuses costs nobody their device.
-        const capacity = cost === 'cold' && booterClass === 'automated' ? this.planCapacityFor(boot.session) : { ok: true as const, evict: [] }
-        if (!capacity.ok) {
-          this.sendTo(ws, {
-            type: 'device:boot-error', sessionId: msg.sessionId, requestId: msg.requestId,
-            reason: 'host-at-capacity', message: BOOT_REFUSAL_MESSAGES['host-at-capacity'],
-          })
-          break
-        }
-        // The boot gate decides whether this goes now, waits (a person), or is refused (automation).
-        const effects = this.bootGate.admit({
-          hostKey: hostKeyOf(boot.session),
-          sessionId: msg.sessionId,
-          requestId: msg.requestId,
-          cost,
-          booterClass,
-          message: { ws, msg, cost, booterClass },
-        })
-        const goes = effects.some((fx) => fx.kind === 'deliver' && fx.requestId === msg.requestId)
-        const critical = effects.some((fx) => fx.kind === 'refuse' && fx.requestId === msg.requestId && fx.reason === 'host-memory-critical')
-        this.applyGate(effects)
-        if (goes) for (const id of capacity.evict) this.evictForCapacity(id)
-        // Idle automation devices are what fills a Mac this way, and while it is critical no boot gets far enough to
-        // shut one down for the cap. So the refusal itself frees one — the oldest idle, never one in use, and not
-        // while an earlier one on this Mac is still shutting down.
-        else if (critical) this.freeOneForMemory(boot.session)
+        this.handleBoot(ws, msg)
+        break
+      }
+      case 'device:lease': {
+        this.handleLease(ws, msg)
         break
       }
       case 'device:shutdown': {
@@ -2596,6 +2555,169 @@ export class RelayServer {
     this.agentNames.set(ws, msg.agentName || msg.agentId || 'unknown')
     // Through `pushLog` too, so `tapflow logs` shows an agent coming back after the line about it leaving.
     this.pushLog(`agent connected: ${msg.agentName || msg.agentId || 'unknown'} (${msg.platform || 'unknown'}) — ${registeredSessions.length} device(s)`)
+  }
+
+  /** `device:boot`, and the boot a lease sends for the device it chose. */
+  private handleBoot(ws: WebSocket, msg: Inbound<'device:boot'>): void {
+    const boot = this.dispatchTarget(ws, msg.sessionId)
+    if (!boot.ok) {
+      this.sendTo(ws, {
+        type: 'device:boot-error',
+        sessionId: msg.sessionId,
+        requestId: msg.requestId,
+        message: boot.message,
+      })
+      return
+    }
+    // Tag the boot with whether the viewer is external (public IP) so the agent can pick the
+    // downscale tier. The browser already reports secureContext in the payload.
+    //
+    // **Mutating the parse product, not the frame that arrived**, which is what makes this safe as
+    // well as correct: `payload` is a fresh object the parser built, so `raw` is untouched. The
+    // presence check the old line carried is gone because the schema requires the payload — and
+    // `external` is deliberately not declared on `DeviceBoot`, since the browser never sends it.
+    (msg.payload as Record<string, unknown>)['external'] = this.wsExternal.get(ws) ?? false
+    // Whether an automation client (flow runner, MCP) is booting, so the iOS agent can start its UI-tree runner
+    // now instead of inside the first selector step's timeout. Only the holder can boot (`dispatchTarget`), so the
+    // holder's kind is the booter's. A dashboard boot is never warmed: the runner costs about 520 MB per device.
+    ;(msg.payload as Record<string, unknown>)['automation'] = isAiClientKind(boot.session.holderKind)
+    const cost = classifyBoot(boot.session.deviceStatus, msg.payload, boot.session.deviceServiceTier)
+    const booterClass: BooterClass = isAiClientKind(boot.session.holderKind) ? 'automated' : 'interactive'
+    // The automation cap is decided before the gate and acted on after it: an idle device is shut down to make
+    // room only if this boot actually goes, so a boot the gate refuses costs nobody their device.
+    const capacity = cost === 'cold' && booterClass === 'automated' ? this.planCapacityFor(boot.session) : { ok: true as const, evict: [] }
+    if (!capacity.ok) {
+      this.sendTo(ws, {
+        type: 'device:boot-error', sessionId: msg.sessionId, requestId: msg.requestId,
+        reason: 'host-at-capacity', message: BOOT_REFUSAL_MESSAGES['host-at-capacity'],
+      })
+      return
+    }
+    // The boot gate decides whether this goes now, waits (a person), or is refused (automation).
+    const effects = this.bootGate.admit({
+      hostKey: hostKeyOf(boot.session),
+      sessionId: msg.sessionId,
+      requestId: msg.requestId,
+      cost,
+      booterClass,
+      message: { ws, msg, cost, booterClass },
+    })
+    const goes = effects.some((fx) => fx.kind === 'deliver' && fx.requestId === msg.requestId)
+    const critical = effects.some((fx) => fx.kind === 'refuse' && fx.requestId === msg.requestId && fx.reason === 'host-memory-critical')
+    this.applyGate(effects)
+    if (goes) for (const id of capacity.evict) this.evictForCapacity(id)
+    // Idle automation devices are what fills a Mac this way, and while it is critical no boot gets far enough to
+    // shut one down for the cap. So the refusal itself frees one — the oldest idle, never one in use, and not
+    // while an earlier one on this Mac is still shutting down.
+    else if (critical) this.freeOneForMemory(boot.session)
+  }
+
+  /**
+   * `device:lease`: choose a device, make this client its holder and boot it, in this one call. Nothing here is
+   * awaited, so no other message can take the device between the choice and the join — that is what makes the lease
+   * atomic, and why the two steps are not two messages.
+   *
+   * Every check the join and the boot will make is asked first, without recording anything (`wouldRefuseAutomated`,
+   * `planCapacityFor`, `resourceLoad`), so the device chosen is one both will let through and nothing is undone on a
+   * Mac passed over. Then the ordinary join and the ordinary boot run, so a lease is held to exactly what a client
+   * naming the device would be.
+   */
+  private handleLease(ws: WebSocket, msg: Inbound<'device:lease'>): void {
+    const { requestId } = msg
+    const refuse = (reason: LeaseRefusalReason, message: string) => this.sendTo(ws, {
+      type: 'device:lease-refused', requestId, reason, message, retryable: reason !== 'no-device' && reason !== 'bad-request',
+    })
+    const { payload } = msg
+    let platform = payload.platform
+    if (payload.buildId !== undefined) {
+      const build = getDb().prepare('SELECT platform FROM builds WHERE id = ?').get(payload.buildId) as { platform: string | null } | undefined
+      if (!build) return refuse('bad-request', `build ${payload.buildId} not found`)
+      if (build.platform === 'ios' || build.platform === 'android') platform = build.platform
+    }
+    if (!platform) return refuse('bad-request', 'no platform: name one, or a build this relay has')
+
+    const excluded = new Set(payload.exclude ?? [])
+    const now = Date.now()
+    const ofPlatform = this.sessions.all().filter((s) => s.devicePlatform === platform && !excluded.has(s.id))
+    if (ofPlatform.length === 0) return refuse('no-device', `no ${platform} device on this relay`)
+
+    // Boot records nobody answered expire where the cap reads them (`capacityDevices`), which a lease meeting only
+    // devices already up would never reach; an expired one would otherwise hide its device from every lease.
+    for (const key of new Set(ofPlatform.map(hostKeyOf))) this.capacityDevices(this.sessions.getAllOnHost(key, hostKeyOf))
+    const tier = payload.serviceTier ? { serviceTier: payload.serviceTier } : {}
+    const candidates: LeaseCandidate[] = []
+    const sessionOf = new Map<string, Session>()
+    for (const s of ofPlatform) {
+      if (s.agentSocket.readyState !== WebSocket.OPEN) continue
+      if (s.owner !== null || this.sessions.watchersOf(s.id).length > 0) continue
+      if (s.evictingAt !== undefined && now - s.evictingAt < this.evictionGraceMs) continue
+      if (s.lastBootPending !== undefined) continue
+      // A person's idle countdown: theirs to come back to. Leasing it would wipe it with the run's reset.
+      if (s.idleTimer !== null && !s.lastHolderWasAi) continue
+      // Off, or up because automation brought it up through this relay. A simulator opened by hand, or one up before
+      // a relay restart, has no `lastBoot`, and one booting or shutting down reads `unknown`: any of them may be
+      // someone's, so none is ours to reset. Not `readySent`: one of ours whose agent reconnected has lost it, and
+      // the lease's boot binds it again.
+      const ours = s.deviceStatus === 'booted' && s.lastBoot?.booterClass === 'automated'
+      if (s.deviceStatus !== 'shutdown' && !ours) continue
+      // The boot's own judgement, so the lease cannot disagree with it: one of ours on another tier is restarted onto
+      // the one asked for, which is a cold boot like any other and goes through the same checks.
+      const pool = ours && classifyBoot(s.deviceStatus, tier, s.deviceServiceTier) === 'warm'
+      sessionOf.set(s.id, s)
+      candidates.push({ sessionId: s.id, hostKey: hostKeyOf(s), pool, bootedAt: s.lastBoot?.at ?? 0, refusal: this.leaseRefusal(s, pool) })
+    }
+    if (candidates.length === 0) return refuse('all-held', `every ${platform} device is in use`)
+
+    const choice = chooseLease(candidates, this.leaseHosts(candidates))
+    if (!choice.ok) {
+      const onCritical = choice.criticalHost !== undefined ? candidates.find((c) => c.hostKey === choice.criticalHost) : undefined
+      if (onCritical) this.freeOneForMemory(sessionOf.get(onCritical.sessionId)!)
+      return refuse(choice.reason, choice.reason === 'agent-resources-exhausted' ? 'Agent resources exhausted' : BOOT_REFUSAL_MESSAGES[choice.reason])
+    }
+    const session = sessionOf.get(choice.sessionId)!
+    this.sendTo(ws, {
+      type: 'device:leased', requestId, sessionId: session.id, deviceId: session.deviceId, deviceName: session.deviceName,
+      platform, source: candidates.find((c) => c.sessionId === session.id)!.pool ? 'pool' : 'boot',
+    })
+    this.handleSessionStart(ws, { type: 'session:start', sessionId: session.id, clientKind: 'flow-runner', ...(payload.stream === false ? { stream: false } : {}) })
+    // The checks above are the join's own, so this holds; if it ever does not, the join has answered the client.
+    if (!this.ownsSession(ws, session)) return
+    this.handleBoot(ws, {
+      type: 'device:boot', sessionId: session.id, requestId,
+      payload: {
+        deviceId: session.deviceId,
+        ...(payload.acceptH264 ? { acceptH264: true } : {}),
+        ...(payload.serviceTier ? { serviceTier: payload.serviceTier } : {}),
+        ...(payload.runReset ? { runReset: payload.runReset } : {}),
+      },
+    })
+  }
+
+  /** What the join and the boot would refuse an AI client taking this device for, asked without recording anything.
+   *  The join's CPU and memory checks, then for a cold boot the automation cap and the boot gate, in their order. */
+  private leaseRefusal(s: Session, pool: boolean): AdmissionRefusal | null {
+    const load = this.resourceLoad(s)
+    if (load && (load.cpuOver || load.memOver)) return 'agent-resources-exhausted'
+    if (pool) return null
+    if (!this.planCapacityFor(s).ok) return 'host-at-capacity'
+    return this.bootGate.wouldRefuseAutomated(hostKeyOf(s))
+  }
+
+  /** Each candidate Mac's room, from its agents' latest report. Not corrected for a boot the report does not show
+   *  yet: a boot in flight holds its Mac's slot, so it already keeps every further boot off that Mac, and memory is
+   *  only ever compared between Macs that could take one. */
+  private leaseHosts(candidates: readonly LeaseCandidate[]): Map<string, LeaseHost> {
+    const hosts = new Map<string, LeaseHost>()
+    for (const key of new Set(candidates.map((c) => c.hostKey))) {
+      const onHost = this.sessions.getAllOnHost(key, hostKeyOf)
+      const reports = [...new Set(onHost.map((s) => s.agentSocket))].map((a) => this.sessions.getResources(a)).filter((r): r is AgentResources => r !== undefined)
+      const latest = reports.sort((x, y) => y.reportedAt - x.reportedAt)[0]
+      const automated = this.capacityDevices(onHost).filter((d) => d.automated).length
+      hosts.set(key, latest
+        ? { freeMB: latest.memTotalMB - latest.memUsedMB, cpuPercent: latest.cpuPercent, automated }
+        : { freeMB: null, cpuPercent: null, automated })
+    }
+    return hosts
   }
 
   /** The only producer of `error` — all five exits below, and nothing else in the repo sends that message.

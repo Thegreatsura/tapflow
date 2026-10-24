@@ -78,6 +78,7 @@ const ADMISSION_WAITS: Record<AdmissionReason, string> = {
   'host-memory-critical': 'this Mac is critically short of memory',
   'host-at-capacity': 'every automation device this Mac allows is in use',
   'agent-resources-exhausted': 'the Mac is over its CPU or memory limit',
+  'all-held': 'every device of this platform is in use',
   'unrecognised-refusal': 'the relay is holding boots on this Mac',
 }
 

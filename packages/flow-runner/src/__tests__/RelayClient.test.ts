@@ -3,6 +3,7 @@ import { WebSocketServer, WebSocket } from 'ws'
 import {
   InputRefusedError,
   InputUnconfirmedError,
+  LeaseRefusedError,
   RelayClient,
   RelayClosedError,
   AdmissionRefusedError,
@@ -1604,5 +1605,133 @@ describe('RelayClient — a relay close carries its code and reason', () => {
     await new Promise((r) => setTimeout(r, 20))
     const err = await client.joinSession('s1').catch((e: unknown) => e) as Error
     expect(err.message).toBe('not connected to relay')
+  })
+})
+
+describe('RelayClient.lease', () => {
+  let wss: WebSocketServer | null = null
+  afterEach(async () => {
+    const s = wss
+    wss = null
+    if (!s) return
+    for (const c of s.clients) c.terminate()
+    await new Promise<void>((r) => s.close(() => r()))
+  })
+
+  /** A relay answering each lease with `answer`'s frames, **all sent in the same tick**, as the real relay sends the
+   *  lease, the join and an early boot refusal: they reach the client in one read. */
+  async function relay(answer: (lease: Record<string, unknown>) => Record<string, unknown>[], opts: { clientId?: string; features?: string[] } = {}) {
+    const received: Record<string, unknown>[] = []
+    const urls: string[] = []
+    wss = new WebSocketServer({ port: 0 })
+    wss.on('connection', (ws, req) => {
+      urls.push(req.url ?? '')
+      ws.on('message', (data) => {
+        const msg = JSON.parse(String(data)) as Record<string, unknown>
+        received.push(msg)
+        if (msg['type'] === 'agents:list') ws.send(JSON.stringify({ type: 'agents:listed', sessions: [], ...(opts.features ? { features: opts.features } : {}) }))
+        if (msg['type'] === 'device:lease') for (const f of answer(msg)) ws.send(JSON.stringify(f))
+      })
+    })
+    const port = (wss.address() as { port: number }).port
+    const client = new RelayClient(`ws://localhost:${port}`, '', opts.clientId ? { clientId: opts.clientId } : {})
+    await client.connect()
+    return { client, received, urls }
+  }
+
+  const leasedThen = (m: Record<string, unknown>, ...rest: Record<string, unknown>[]) => [
+    { type: 'device:leased', requestId: m['requestId'], sessionId: 's9', deviceId: 'dev-9', deviceName: 'iPhone 9', platform: 'ios', source: 'pool' },
+    ...rest,
+  ]
+
+  it('takes the join and the boot that arrive in the same read as the lease', async () => {
+    const { client, received } = await relay((m) => leasedThen(m,
+      { type: 'session:joined', sessionId: 's9', capabilities: [], watchUrl: 'http://relay/watch/s9' },
+      { type: 'device:ready', sessionId: 's9', requestId: m['requestId'], payload: { deviceId: 'dev-9', cold: false, runReset: { done: ['keychain'], failed: [] } } },
+    ))
+    const got = await client.lease({ platform: 'ios', buildId: 4, runReset: { uninstall: ['a'], clear: [] }, exclude: ['s1'] })
+    expect(got).toEqual({
+      sessionId: 's9', deviceId: 'dev-9', deviceName: 'iPhone 9', platform: 'ios', source: 'pool',
+      watchUrl: 'http://relay/watch/s9', boot: { cold: false, runReset: { done: ['keychain'], failed: [] } },
+    })
+    expect(received.find((m) => m['type'] === 'device:lease')!['payload']).toEqual({
+      platform: 'ios', buildId: 4, runReset: { uninstall: ['a'], clear: [] }, exclude: ['s1'], stream: false,
+    })
+  })
+
+  it('waits out a busy Mac and every device in use, as a refused boot is', async () => {
+    for (const reason of ['host-booting', 'host-at-capacity', 'agent-resources-exhausted', 'all-held'] as const) {
+      const { client } = await relay((m) => [{ type: 'device:lease-refused', requestId: m['requestId'], reason, message: 'no', retryable: true }])
+      const err = await client.lease({ platform: 'ios' }).catch((e: unknown) => e)
+      expect(err).toBeInstanceOf(AdmissionRefusedError)
+      expect((err as AdmissionRefusedError).reason).toBe(reason)
+      client.disconnect()
+      for (const c of wss!.clients) c.terminate()
+      await new Promise<void>((r) => wss!.close(() => r()))
+      wss = null
+    }
+  })
+
+  it('fails at once on a lease waiting cannot help', async () => {
+    const { client } = await relay((m) => [{ type: 'device:lease-refused', requestId: m['requestId'], reason: 'no-device', message: 'no android device', retryable: false }])
+    const err = await client.lease({ platform: 'android' }).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(LeaseRefusedError)
+    expect((err as LeaseRefusedError).reason).toBe('no-device')
+  })
+
+  it('reports a boot the gate refused after the lease as a refusal to wait out, and leaves the session', async () => {
+    const { client, received } = await relay((m) => leasedThen(m,
+      { type: 'session:joined', sessionId: 's9', capabilities: [] },
+      { type: 'device:boot-error', sessionId: 's9', requestId: m['requestId'], reason: 'host-booting', message: 'busy' },
+    ))
+    const err = await client.lease({ platform: 'ios' }).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(AdmissionRefusedError)
+    // The caller has no session id to leave with, so the lease leaves it: a retry must not find it still held.
+    await vi.waitFor(() => expect(received.filter((m) => m['type'] === 'session:leave')).toEqual([{ type: 'session:leave', sessionId: 's9' }]))
+  })
+
+  it('fails with the join\'s refusal, leaving the session and no boot waiter behind', async () => {
+    const { client, received } = await relay((m) => leasedThen(m, { type: 'error', sessionId: 's9', reason: 'agent-resources-exhausted', message: 'busy' }))
+    const err = await client.lease({ platform: 'ios' }).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(SessionJoinError)
+    expect((client as unknown as { waiters: unknown[] }).waiters).toEqual([])
+    await vi.waitFor(() => expect(received.some((m) => m['type'] === 'session:leave')).toBe(true))
+  })
+
+  it('leaves no session behind when the lease itself is refused', async () => {
+    const { client, received } = await relay((m) => [{ type: 'device:lease-refused', requestId: m['requestId'], reason: 'all-held', message: 'no', retryable: true }])
+    await client.lease({ platform: 'ios' }).catch(() => {})
+    await new Promise((r) => setTimeout(r, 50))
+    expect(received.some((m) => m['type'] === 'session:leave')).toBe(false)
+  })
+
+  // What a relay newer than this client may say: a reason it does not know is waited out when the relay says
+  // waiting helps, and fails the run when it says it does not.
+  it('reads a refusal it does not know by what the relay says about waiting', async () => {
+    const { client } = await relay((m) => [{ type: 'device:lease-refused', requestId: m['requestId'], reason: 'host-on-fire', message: 'no', retryable: true }])
+    const waits = await client.lease({ platform: 'ios' }).catch((e: unknown) => e)
+    expect(waits).toBeInstanceOf(AdmissionRefusedError)
+    expect((waits as AdmissionRefusedError).reason).toBe('unrecognised-refusal')
+  })
+
+  it('fails on a refusal it does not know that the relay says waiting cannot help', async () => {
+    const { client } = await relay((m) => [{ type: 'device:lease-refused', requestId: m['requestId'], reason: 'host-on-fire', message: 'no', retryable: false }])
+    const fails = await client.lease({ platform: 'ios' }).catch((e: unknown) => e)
+    expect(fails).toBeInstanceOf(LeaseRefusedError)
+    expect((fails as LeaseRefusedError).reason).toBe('unrecognised')
+  })
+
+  it('reads that the relay leases from its listing', async () => {
+    expect(await (await relay(() => [], { features: ['device-lease'] })).client.canLease()).toBe(true)
+  })
+
+  it('reads a listing with no features as a relay that does not lease', async () => {
+    expect(await (await relay(() => [])).client.canLease()).toBe(false)
+  })
+
+  it('identifies as the client id it is given, so sibling clients are one holder', async () => {
+    const { client, urls } = await relay(() => [], { clientId: 'run-7' })
+    expect(client.clientId).toBe('run-7')
+    expect(urls[0]).toContain('client=run-7')
   })
 })

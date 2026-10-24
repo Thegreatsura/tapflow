@@ -66,6 +66,10 @@ export interface Session {
   postures?: PosturesPayload
   deviceInfo?: DeviceDetails
   idleTimer: ReturnType<typeof setTimeout> | null
+  /** Whether the last holder to let go was an AI client holding the device for itself. Read with `idleTimer`: a device whose idle countdown is
+   *  running for a person is theirs to come back to, and a lease must not take it and wipe it. `lastBoot` cannot
+   *  say so — it names whoever cold-booted the device, and a person picks up automation's devices warm. */
+  lastHolderWasAi?: boolean
   /** Who cold-booted the device this session drives, and when — kept after the holder leaves, since that is when
    *  it matters: it is what the per-Mac automation cap counts and shuts down (`admission/capacity.ts`). Set when
    *  the relay forwards a cold boot, undone if that boot fails or turns out warm, cleared on `shutdown-done`.
@@ -239,13 +243,17 @@ export class SessionManager {
     return Array.from(sockets)
   }
 
-  /** Sessions currently claiming a device id. More than one only while a held session (#426) has
-   *  not yet been reclaimed or given up on. */
+  all(): Session[] {
+    return Array.from(this.sessions.values())
+  }
+
   /** Every session whose agent runs on the Mac `hostKey` names, across that Mac's agents. */
   getAllOnHost(hostKey: string, keyOf: (s: Session) => string): Session[] {
     return Array.from(this.sessions.values()).filter((s) => keyOf(s) === hostKey)
   }
 
+  /** Sessions currently claiming a device id. More than one only while a held session (#426) has
+   *  not yet been reclaimed or given up on. */
   getAllByDeviceId(deviceId: string): Session[] {
     return Array.from(this.sessions.values()).filter((s) => s.deviceId === deviceId)
   }
@@ -361,6 +369,9 @@ export class SessionManager {
       this.unindexBrowser(session)
       session.browserSocket = null
     }
+    // An AI client that joined during a person's countdown hands it back when it goes (`idleResumeOnLeave`), so
+    // the countdown is still the person's.
+    if (session.owner !== null) session.lastHolderWasAi = isAiClientKind(session.holderKind) && !session.idleResumeOnLeave
     session.owner = null
     session.ownerMinted = false
     session.ownerUser = null

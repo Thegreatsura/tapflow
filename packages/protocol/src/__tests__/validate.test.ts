@@ -425,3 +425,48 @@ describe('readRunResetReport reads what an agent reported resetting', () => {
     expect(readRunResetReport(undefined)).toBeUndefined()
   })
 })
+
+// A lease names no session, so a refusal at the door would have no address and the client would wait out its
+// deadline. Every payload value the door cannot use is read as absent instead, and the relay answers.
+// `correlatedRequestsGated` exempts `device:lease` from `ANSWERABLE` on the strength of this test.
+describe('a lease is never dropped for its payload', () => {
+  const lease = (payload: unknown) => parseInbound({ type: 'device:lease', requestId: 'r', payload })
+  const payloadOf = (r: ReturnType<typeof lease>) => (r.ok ? JSON.parse(JSON.stringify((r.msg as { payload: unknown }).payload)) as Record<string, unknown> : undefined)
+
+  it('keeps every well-formed field', () => {
+    const full = {
+      platform: 'android', buildId: 7, serviceTier: { name: 'lean', keep: [] }, acceptH264: true,
+      runReset: { uninstall: ['com.example.app'], clear: [] }, stream: false, exclude: ['s1'],
+    }
+    expect(payloadOf(lease(full))).toEqual(full)
+  })
+
+  it('reads each unusable field as absent and keeps the rest', () => {
+    const bad = {
+      platform: 'windows', buildId: 1.5, serviceTier: 'slim', acceptH264: 'yes',
+      runReset: { uninstall: 'x' }, stream: 1, exclude: [''],
+    }
+    // Two good fields beside the bad one, so dropping the whole payload is told apart from dropping the field.
+    const good = { platform: 'ios', buildId: 3 }
+    for (const [key, value] of Object.entries(bad)) {
+      const r = lease({ ...good, [key]: value })
+      expect(r.ok, key).toBe(true)
+      const kept: Record<string, unknown> = { ...good }
+      delete kept[key]
+      expect(payloadOf(r), key).toEqual(kept)
+    }
+  })
+
+  it('reads a payload that is not an object as empty', () => {
+    for (const payload of [undefined, null, 'ios', 3, ['ios']]) {
+      const r = lease(payload)
+      expect(r.ok, String(payload)).toBe(true)
+      expect(payloadOf(r)).toEqual({})
+    }
+  })
+
+  it('drops only a frame with no usable correlator, which nothing could answer', () => {
+    expect(parseInbound({ type: 'device:lease', requestId: '', payload: {} }).ok).toBe(false)
+    expect(parseInbound({ type: 'device:lease', payload: {} }).ok).toBe(false)
+  })
+})

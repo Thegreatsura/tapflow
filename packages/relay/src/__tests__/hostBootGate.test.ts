@@ -413,3 +413,49 @@ describe('HostBootGate', () => {
     })
   })
 })
+
+// A lease asks every Mac it passes over, so asking must agree with `admit` and must leave nothing behind.
+describe('wouldRefuseAutomated', () => {
+  /** What `admit` answers an automated cold boot now: `null` for go, else the refusal. Mutates the gate. */
+  const admitted = (id: string) => {
+    const fx = gate.admit(req(id, 'automated'))
+    const refused = fx.find((e) => e.kind === 'refuse')
+    return refused?.kind === 'refuse' ? refused.reason : fx.some((e) => e.kind === 'deliver') ? null : 'other'
+  }
+
+  it('answers what admit would, in every state the automated branch reads', () => {
+    expect(gate.wouldRefuseAutomated(HOST)).toBeNull() // a Mac never seen
+    expect(gate.wouldRefuseAutomated(HOST)).toBe(admitted('a')) // free slot
+    expect(gate.wouldRefuseAutomated(HOST)).toBe('host-booting') // slot held
+    expect(admitted('b')).toBe('host-booting')
+    settle('a')
+    gate.admit(req('p', 'interactive'))
+    gate.admit(req('q', 'interactive')) // q waits in the reservation behind p
+    settle('p') // q takes the slot
+    expect(gate.wouldRefuseAutomated(HOST)).toBe(admitted('c'))
+    settle('q')
+    gate.onEvent({ kind: 'pressure', hostKey: HOST, critical: true })
+    expect(gate.wouldRefuseAutomated(HOST)).toBe('host-memory-critical')
+    expect(admitted('d')).toBe('host-memory-critical')
+  })
+
+  it('agrees with admit while a person waits in the reservation', () => {
+    gate.admit(req('p', 'interactive'))
+    gate.admit(req('q', 'interactive'))
+    expect(gate.wouldRefuseAutomated(HOST)).toBe('host-booting')
+    expect(admitted('a')).toBe('host-booting')
+  })
+
+  // The reason it exists: a refusal stamped on a Mac the lease passed over would count toward aging there, and a
+  // person on that Mac would be made to wait for a boot that went elsewhere.
+  it('stamps no refusal, so asking alone never opens an aging window', () => {
+    gate.admit(req('first', 'interactive'))
+    expect(gate.wouldRefuseAutomated(HOST)).toBe('host-booting')
+    settle('first')
+    for (let i = 0; i < GATE_DEFAULTS.agingCount + 1; i++) {
+      gate.admit(req(`p${i}`, 'interactive'))
+      expect(gate.wouldRefuseAutomated(HOST)).toBe('host-booting')
+      expect(logged(settle(`p${i}`))).not.toContain('aging-window')
+    }
+  })
+})
