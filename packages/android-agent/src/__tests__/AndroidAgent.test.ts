@@ -472,8 +472,44 @@ describe('AndroidAgent', () => {
         browser.send(JSON.stringify({ type: 'device:boot', requestId: 'rq-late-clear', sessionId: agent.sessionId, payload: { deviceId: 'avd:Pixel_8_API_34', runReset: { uninstall: ['com.example.app'], clear: [] } } }))
         const e = await failed
         expect(e['requestId']).toBe('rq-late-clear')
-        expect(String(e['message'])).toContain('pm clear is still running')
+        expect(String(e['message'])).toContain('pm clear from a run reset is still running')
         expect(seen).toEqual(['device:boot-error'])
+        agent.disconnect(); browser.close()
+      })
+
+      // The clear outlives the boot that started it; a newer boot, which asked for no reset, must not announce over it.
+      it('holds a newer boot\'s ready for a pm clear an older boot left running', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {})
+        vi.spyOn(console, 'error').mockImplementation(() => {})
+        const adb = mockAdb(true)
+        const runner = (adb as unknown as { runner: AdbRunner }).runner
+        let releaseClear!: (out: string) => void
+        let clearStarted!: () => void
+        const started = new Promise<void>((r) => { clearStarted = r })
+        vi.mocked(runner.exec).mockImplementation(async (...args: string[]) => {
+          const at = args.indexOf('pm')
+          if (at < 0) return ''
+          if (args[at + 1] === 'path') return 'package:/data/app/com.example.app/base.apk'
+          if (args[at + 1] === 'clear') { clearStarted(); return new Promise<string>((r) => { releaseClear = r }) }
+          return ''
+        })
+        const agent = new AndroidAgent({ runResetCmdTimeoutMs: 2_000 }, adb)
+        await agent.connect(`ws://localhost:${port}`)
+        const browser = new WebSocket(`ws://localhost:${port}`)
+        await waitForOpen(browser)
+        browser.send(JSON.stringify({ type: 'session:start', sessionId: agent.sessionId }))
+        await waitForType(browser, 'session:joined')
+        const order: string[] = []
+        browser.on('message', (d) => { const m = JSON.parse(String(d)) as { type: string; requestId?: string }; if (m.type === 'device:ready') order.push(`ready:${m.requestId}`) })
+        browser.send(JSON.stringify({ type: 'device:boot', requestId: 'rq-old', sessionId: agent.sessionId, payload: { deviceId: 'avd:Pixel_8_API_34', runReset: { uninstall: ['com.example.app'], clear: [] } } }))
+        await started
+        const ready = waitForType(browser, 'device:ready')
+        browser.send(JSON.stringify({ type: 'device:boot', requestId: 'rq-new', sessionId: agent.sessionId, payload: { deviceId: 'avd:Pixel_8_API_34' } }))
+        await new Promise((r) => setTimeout(r, 200))
+        order.push('clear-settled')
+        releaseClear('Success')
+        expect((await ready)['requestId']).toBe('rq-new')
+        expect(order).toEqual(['clear-settled', 'ready:rq-new'])
         agent.disconnect(); browser.close()
       })
 

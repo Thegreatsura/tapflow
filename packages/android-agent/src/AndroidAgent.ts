@@ -1861,13 +1861,10 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     const apps = [...new Set([...request.uninstall, ...request.clear])]
     const steps: RunResetStep[] = []
     const ms = this.runResetCmdTimeoutMs
-    // `bounded` releases the wait, not the adb child: a `pm clear` that timed out may still land. The run installs its
-    // app right after the ready, so the ready waits for these to settle (below) rather than racing them.
-    const clearing: Promise<unknown>[] = []
     if (apps.length > 0 && serial) {
       const clear = (id: string) => {
         const work = this.adb.clearAppDataIfInstalled(serial, id)
-        clearing.push(work.catch(() => {}))
+        this.trackClear(state.deviceId, work)
         return bounded(work, ms, `pm clear ${id}`)
       }
       steps.push({ item: 'app-data', run: () => resetApps(apps, clear, stop) })
@@ -1893,15 +1890,38 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
       })
       steps.push({ item: 'pasteboard', run: () => bounded(queued(), ms, 'clipboard clear').catch((e: unknown) => { abandoned = true; throw e }) })
     }
-    const report = await runResetSteps(steps, isStale, (item, e) => logger.warn(`run reset: ${item} failed: ${(e as Error).message}`), deadline)
-    // One more step's time at most. A clear still running past that fails the boot rather than announcing a device the
-    // run's install could lose its data on: failing the step does not stop the clear, and nothing else orders the two.
+    return runResetSteps(steps, isStale, (item, e) => logger.warn(`run reset: ${item} failed: ${(e as Error).message}`), deadline)
+  }
+
+  /**
+   * `bounded` releases the wait, not the adb child: a `pm clear` that timed out, or whose boot a newer one replaced, may
+   * still land, and wipe an app a run installed after the ready. So every `pm clear` a reset starts is kept here by
+   * device until it settles, and every boot of that device waits for them before its ready (`awaitPendingClears`) —
+   * a boot that asked for no reset too.
+   */
+  private readonly pendingClears = new Map<string, Set<Promise<unknown>>>()
+
+  private trackClear(deviceId: string, work: Promise<unknown>): void {
+    let pending = this.pendingClears.get(deviceId)
+    if (!pending) { pending = new Set(); this.pendingClears.set(deviceId, pending) }
+    const settled = work.catch(() => {})
+    pending.add(settled)
+    void settled.then(() => {
+      pending.delete(settled)
+      if (pending.size === 0 && this.pendingClears.get(deviceId) === pending) this.pendingClears.delete(deviceId)
+    })
+  }
+
+  /** One more step's time at most. A clear still running past that fails the boot rather than announcing a device the
+   *  run's install could lose its data on: failing the step does not stop the clear, and nothing else orders the two. */
+  private async awaitPendingClears(deviceId: string): Promise<void> {
+    const pending = this.pendingClears.get(deviceId)
+    if (!pending || pending.size === 0) return
     try {
-      await bounded(Promise.all(clearing), ms, 'waiting for a late pm clear')
+      await bounded(Promise.all(pending), this.runResetCmdTimeoutMs, 'waiting for a late pm clear')
     } catch {
-      throw new PlatformError('the run reset could not finish: a pm clear is still running on the device, so it is not ready for an install')
+      throw new PlatformError('a pm clear from a run reset is still running on the device, so it is not ready for an install')
     }
-    return report
   }
 
   private async handleDeviceBoot(sessionId: string, avdId: string, fullErase = false, tier?: { secureContext: boolean; external: boolean }, requestId?: string, runReset?: RunResetRequest): Promise<void> {
@@ -2034,6 +2054,8 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
       // After the stream, which is what opens the gRPC client the clipboard goes through; before the ready, since the
       // run installs its app after it and the report rides on it.
       const runResetReport = runReset ? await this.resetForRun(state, runReset, () => seq !== state.bootSeq) : undefined
+      if (seq !== state.bootSeq) { this.abandonBoot(state, seq, sessionId, requestId); return }
+      await this.awaitPendingClears(state.deviceId)
       if (seq !== state.bootSeq) { this.abandonBoot(state, seq, sessionId, requestId); return }
       this.sendChrome(state)
       void this.sendPostures(state)
