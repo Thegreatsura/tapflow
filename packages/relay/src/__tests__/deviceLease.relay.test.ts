@@ -89,6 +89,10 @@ describe('the relay leases a device to an automation client', () => {
     mac.ws.send(JSON.stringify({ type: 'device:ready', sessionId: boot.sessionId, requestId, payload: { deviceId: boot.payload.deviceId, cold: true, ...ready } }))
     await waitForType<DeviceReady>(client, 'device:ready')
     client.send(JSON.stringify({ type: 'session:leave', sessionId: got.sessionId }))
+    // A leave has no reply, and the next lease comes on another socket. The relay handles one socket's messages in
+    // order, so an answer to a later one means the leave has landed.
+    client.send(JSON.stringify({ type: 'agents:list' }))
+    await waitForType<AgentsListed>(client, 'agents:listed')
     return got
   }
 
