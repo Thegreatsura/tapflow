@@ -24,6 +24,25 @@ describe('runResetSteps', () => {
   })
 })
 
+describe('runResetSteps — the budget', () => {
+  // It runs before `device:ready`, so an unbounded reset would outlive the client waiting on the boot.
+  it('fails what has not started once the deadline has passed, without running it', async () => {
+    const late = vi.fn(async () => {})
+    let now = 0
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now)
+    try {
+      const report = await runResetSteps([
+        { item: 'keychain', run: async () => { now = 61_000 } },
+        { item: 'location', run: late },
+      ], () => false, undefined, 60_000)
+      expect(report).toEqual({ done: ['keychain'], failed: ['location'] })
+      expect(late).not.toHaveBeenCalled()
+    } finally {
+      clock.mockRestore()
+    }
+  })
+})
+
 describe('resetApps', () => {
   it('acts on every valid id, and fails the item for one that is not an app id without passing it on', async () => {
     const act = vi.fn(async (_id: string) => {})
@@ -40,6 +59,6 @@ describe('resetApps', () => {
 
   it('accepts the ids both platforms use and nothing a shell would read', () => {
     for (const ok of ['com.example.app', 'com.example.app.debug', 'org.my-app_1']) expect(RESETTABLE_APP_ID.test(ok)).toBe(true)
-    for (const bad of ['', 'a b', 'a;b', '$(id)', 'a|b', 'a\nb', '`x`']) expect(RESETTABLE_APP_ID.test(bad)).toBe(false)
+    for (const bad of ['', 'a b', 'a;b', '$(id)', 'a|b', 'a\nb', '`x`', '-a', '--user', '.hidden']) expect(RESETTABLE_APP_ID.test(bad)).toBe(false)
   })
 })

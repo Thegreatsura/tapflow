@@ -66,6 +66,7 @@ import {
   sameServiceTier,
   resetApps,
   runResetSteps,
+  RUN_RESET_BUDGET_MS,
   isLocalhostWss,
   DEFAULT_BACKPRESSURE_BYTES,
   writeEnvelopeHeader,
@@ -1153,13 +1154,17 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
    * The wait does not watch `isStale`; a shutdown meanwhile holds this boot's abandonment until its deadline.
    */
   private async resetForRun(deviceId: string, request: RunResetRequest, isStale: () => boolean): Promise<RunResetReport> {
+    // One budget for the wait and the steps: a device whose services never come up spends it waiting, and the steps
+    // that would have failed against it are reported failed instead of each running out its own timeout.
+    const deadline = Date.now() + RUN_RESET_BUDGET_MS
+    const stop = () => isStale() || Date.now() >= deadline
     await this.simctl.waitForBootStatus(deviceId).catch((e: unknown) => logger.warn(`run reset: boot status unknown: ${firstLine(e)}`))
     const steps: RunResetStep[] = []
     if (request.uninstall.length > 0) {
-      steps.push({ item: 'app-uninstall', run: () => resetApps(request.uninstall, (id) => this.simctl.uninstallAppForReset(deviceId, id), isStale) })
+      steps.push({ item: 'app-uninstall', run: () => resetApps(request.uninstall, (id) => this.simctl.uninstallAppForReset(deviceId, id), stop) })
     }
     if (request.clear.length > 0) {
-      steps.push({ item: 'app-files', run: () => resetApps(request.clear, (id) => this.simctl.clearAppDataIfInstalled(deviceId, id), isStale) })
+      steps.push({ item: 'app-files', run: () => resetApps(request.clear, (id) => this.simctl.clearAppDataIfInstalled(deviceId, id), stop) })
     }
     steps.push(
       { item: 'keychain', run: () => this.simctl.resetKeychain(deviceId) },
@@ -1168,7 +1173,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
       { item: 'pasteboard', run: () => this.clipboardQueue(deviceId, () => this.simctl.setPasteboard(deviceId, '')) },
       { item: 'location', run: () => this.simctl.clearLocation(deviceId) },
     )
-    return runResetSteps(steps, isStale, (item, e) => logger.warn(`run reset: ${item} failed: ${firstLine(e)}`))
+    return runResetSteps(steps, isStale, (item, e) => logger.warn(`run reset: ${item} failed: ${firstLine(e)}`), deadline)
   }
 
   // Lazily set up the touch channel: a reconnect re-issues the session with touchHelper=null while the sim stays booted, so input self-heals without a fresh device:boot. Sync so a tap's start+end stay paired (async would drop touchEnd → stuck finger).

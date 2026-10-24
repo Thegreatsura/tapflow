@@ -270,7 +270,8 @@ describe('Run detail', () => {
     const cases: [Run['deviceReset'], string][] = [
       [{ requested: true, booted: true, cold: false, report: { done: ['keychain'], failed: [] } }, 'reset, already running'],
       [{ requested: true, booted: true, cold: true, report: { done: ['keychain'], failed: ['location', 'pasteboard'] } }, 'reset except location, pasteboard'],
-      // An empty report is an agent that had nothing to reset, not a reset.
+      // Nothing done is not a reset, whether something failed or there was nothing to do.
+      [{ requested: true, booted: true, cold: true, report: { done: [], failed: ['keychain'] } }, 'reset failed: keychain'],
       [{ requested: true, booted: true, cold: true, report: { done: [], failed: [] } }, 'nothing reset'],
       [{ requested: true, booted: true, cold: true }, 'reset not confirmed'],
       [{ requested: false, booted: true }, 'not reset'],

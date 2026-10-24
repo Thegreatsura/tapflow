@@ -45,6 +45,7 @@ import {
   sendAudioYieldingToVideo,
   resetApps,
   runResetSteps,
+  RUN_RESET_BUDGET_MS,
   type RunResetStep,
 } from '@tapflowio/agent-core/utils'
 import { execFile } from 'child_process'
@@ -1850,18 +1851,20 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
    * location items have no Android counterpart here and are never reported.
    */
   private async resetForRun(state: DeviceState, request: RunResetRequest, isStale: () => boolean): Promise<RunResetReport> {
+    const deadline = Date.now() + RUN_RESET_BUDGET_MS
+    const stop = () => isStale() || Date.now() >= deadline
     const serial = this.adb.getSerial(state.deviceId)
     const apps = [...new Set([...request.uninstall, ...request.clear])]
     const steps: RunResetStep[] = []
     if (apps.length > 0 && serial) {
-      steps.push({ item: 'app-data', run: () => resetApps(apps, (id) => bounded(this.adb.clearAppDataIfInstalled(serial, id), RUN_RESET_CMD_TIMEOUT_MS, `pm clear ${id}`), isStale) })
+      steps.push({ item: 'app-data', run: () => resetApps(apps, (id) => bounded(this.adb.clearAppDataIfInstalled(serial, id), RUN_RESET_CMD_TIMEOUT_MS, `pm clear ${id}`), stop) })
     }
     const client = state.grpcClient
     if (client) {
       // Through the clipboard queue: a clipboard read in flight parks a sentinel on this clipboard.
       steps.push({ item: 'pasteboard', run: () => this.clipboardQueue(state.deviceId, () => bounded(client.setClipboard(''), RUN_RESET_CMD_TIMEOUT_MS, 'clipboard clear')) })
     }
-    return runResetSteps(steps, isStale, (item, e) => logger.warn(`run reset: ${item} failed: ${(e as Error).message}`))
+    return runResetSteps(steps, isStale, (item, e) => logger.warn(`run reset: ${item} failed: ${(e as Error).message}`), deadline)
   }
 
   private async handleDeviceBoot(sessionId: string, avdId: string, fullErase = false, tier?: { secureContext: boolean; external: boolean }, requestId?: string, runReset?: RunResetRequest): Promise<void> {

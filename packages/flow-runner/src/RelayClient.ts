@@ -396,7 +396,9 @@ interface Waiter {
  * the one #549 is about, where a boot that is simply slow reports a failure that never happened — but a
  * host timeout below this number turns the diagnosis back into silence.
  */
-const BOOT_DEADLINE_MS = 180_000
+// 240 s, not the 180 s it was: this client's boot can carry a run reset, which runs before `device:ready` for up to
+// agent-core's `RUN_RESET_BUDGET_MS` after the slowest boot poll. `bootDeadlineOutlivesAgent.test.mjs` holds the sum.
+const BOOT_DEADLINE_MS = 240_000
 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 

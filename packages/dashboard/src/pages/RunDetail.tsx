@@ -230,14 +230,14 @@ function LastScreen({ runId, flow }: { runId: string; flow: ReportedFlow }) {
   )
 }
 
-/** `reset`, `reset except location`, `nothing reset`, `reset not confirmed` or `not reset`, then `, already running`
+/** `reset`, `reset except location`, `reset failed: keychain`, `nothing reset`, `reset not confirmed` or `not reset`, then `, already running`
  *  for a device the run found up. */
 function deviceResetLabel(reset: NonNullable<Run['deviceReset']>): string {
   const failed = reset.report?.failed ?? []
   const state = !reset.requested ? 'not reset'
     : !reset.report ? 'reset not confirmed'
-    : failed.length > 0 ? `reset except ${failed.join(', ')}`
-    : reset.report.done.length === 0 ? 'nothing reset' : 'reset'
+    : reset.report.done.length === 0 ? (failed.length > 0 ? `reset failed: ${failed.join(', ')}` : 'nothing reset')
+    : failed.length > 0 ? `reset except ${failed.join(', ')}` : 'reset'
   return reset.cold === false ? `${state}, already running` : state
 }
 
