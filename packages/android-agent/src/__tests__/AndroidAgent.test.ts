@@ -447,6 +447,36 @@ describe('AndroidAgent', () => {
         expect(payload['runReset']).toEqual({ done: [], failed: ['app-data'] })
       })
 
+      // Failing the step does not stop a clear still running on the device, and the run installs right after the ready.
+      it('fails the boot instead of announcing it while a pm clear is still running', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {})
+        vi.spyOn(console, 'error').mockImplementation(() => {})
+        const adb = mockAdb(true)
+        const runner = (adb as unknown as { runner: AdbRunner }).runner
+        vi.mocked(runner.exec).mockImplementation(async (...args: string[]) => {
+          const at = args.indexOf('pm')
+          if (at < 0) return ''
+          if (args[at + 1] === 'path') return 'package:/data/app/com.example.app/base.apk'
+          if (args[at + 1] === 'clear') return new Promise<string>(() => {})
+          return ''
+        })
+        const agent = new AndroidAgent({ runResetCmdTimeoutMs: 50 }, adb)
+        await agent.connect(`ws://localhost:${port}`)
+        const browser = new WebSocket(`ws://localhost:${port}`)
+        await waitForOpen(browser)
+        browser.send(JSON.stringify({ type: 'session:start', sessionId: agent.sessionId }))
+        await waitForType(browser, 'session:joined')
+        const seen: string[] = []
+        browser.on('message', (d) => { const m = JSON.parse(String(d)) as { type: string }; if (m.type === 'device:ready' || m.type === 'device:boot-error') seen.push(m.type) })
+        const failed = waitForType(browser, 'device:boot-error')
+        browser.send(JSON.stringify({ type: 'device:boot', requestId: 'rq-late-clear', sessionId: agent.sessionId, payload: { deviceId: 'avd:Pixel_8_API_34', runReset: { uninstall: ['com.example.app'], clear: [] } } }))
+        const e = await failed
+        expect(e['requestId']).toBe('rq-late-clear')
+        expect(String(e['message'])).toContain('pm clear is still running')
+        expect(seen).toEqual(['device:boot-error'])
+        agent.disconnect(); browser.close()
+      })
+
       it('never hands an id that is not an app id to the device shell', async () => {
         vi.spyOn(console, 'warn').mockImplementation(() => {})
         const { pm, payload } = await bootWithReset({ uninstall: [], clear: ['x;reboot'] }, [])

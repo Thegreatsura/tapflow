@@ -15,6 +15,9 @@ import type {
 
 const logger = createLogger('ios-agent')
 
+/** The run reset's pasteboard step, the wait for the clipboard queue included; one step's bound like the others. */
+const RUN_RESET_PASTEBOARD_TIMEOUT_MS = 10_000
+
 // Typed so a typo cannot ship silently — the viewer gates the whole clipboard bridge on this.
 // `full-reset` is honoured in `handleDeviceBoot`, which shuts a running device down before
 // `simctl erase` (which refuses anything but a shut-down device) and boots it again.
@@ -1170,10 +1173,29 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
       { item: 'keychain', run: () => this.simctl.resetKeychain(deviceId) },
       { item: 'privacy-services', run: () => this.simctl.resetPrivacy(deviceId) },
       // Through the clipboard queue: a clipboard read in flight parks a sentinel on this pasteboard.
-      { item: 'pasteboard', run: () => this.clipboardQueue(deviceId, () => this.simctl.setPasteboard(deviceId, '')) },
+      { item: 'pasteboard', run: () => this.clearPasteboardQueued(deviceId, stop) },
       { item: 'location', run: () => this.simctl.clearLocation(deviceId) },
     )
     return runResetSteps(steps, isStale, (item, e) => logger.warn(`run reset: ${item} failed: ${firstLine(e)}`), deadline)
+  }
+
+  /**
+   * The pasteboard step of a run reset. The queue can be held by a clipboard operation already running, so the wait for
+   * it is bounded too; a clear that reaches the front after the step gave up does nothing, because by then the run may
+   * have put something of its own there.
+   */
+  private clearPasteboardQueued(deviceId: string, stop: () => boolean): Promise<void> {
+    let abandoned = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const queued = this.clipboardQueue(deviceId, async () => {
+      if (abandoned || stop()) throw new PlatformError('the clipboard was busy for the whole reset')
+      await this.simctl.setPasteboard(deviceId, '')
+    })
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => { abandoned = true; reject(new PlatformError('pasteboard clear timed out')) }, RUN_RESET_PASTEBOARD_TIMEOUT_MS)
+    })
+    queued.catch(() => {})
+    return Promise.race([queued, late]).finally(() => clearTimeout(timer))
   }
 
   // Lazily set up the touch channel: a reconnect re-issues the session with touchHelper=null while the sim stays booted, so input self-heals without a fresh device:boot. Sync so a tap's start+end stay paired (async would drop touchEnd → stuck finger).

@@ -370,6 +370,8 @@ export interface AndroidAgentOptions {
   lean?: boolean
   /** An AVD's form factor by name, for `agent:register`. Defaults to reading its config.ini (`avdConfig`). */
   avdFormFactor?: (avdName: string) => FormFactor | undefined
+  /** Each run reset command's bound, in ms. `RUN_RESET_CMD_TIMEOUT_MS` by default; injectable for tests. */
+  runResetCmdTimeoutMs?: number
 }
 
 /** One `pm clear` or clipboard write of a run reset. */
@@ -485,6 +487,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
   private readonly reconnectDelays: number[]
   private readonly token?: string
   private readonly handshakeTimeoutMs: number
+  private readonly runResetCmdTimeoutMs: number
   private readonly lean: boolean
   private readonly avdFormFactor: (avdName: string) => FormFactor | undefined
   /** How long a shutdown whose kill failed watches for the emulator to finish exiting. A field so tests can
@@ -497,6 +500,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     this.deviceFilter = options.deviceFilter
     this.token = options.token
     this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? 10_000
+    this.runResetCmdTimeoutMs = options.runResetCmdTimeoutMs ?? RUN_RESET_CMD_TIMEOUT_MS
     this.lean = options.lean ?? false
     this.avdFormFactor = options.avdFormFactor ?? ((name) => formFactorOf(name))
     this.reconnectDelays = options.reconnectDelays ?? [1000, 2000, 4000, 8000, 16000, 30000]
@@ -1856,6 +1860,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     const serial = this.adb.getSerial(state.deviceId)
     const apps = [...new Set([...request.uninstall, ...request.clear])]
     const steps: RunResetStep[] = []
+    const ms = this.runResetCmdTimeoutMs
     // `bounded` releases the wait, not the adb child: a `pm clear` that timed out may still land. The run installs its
     // app right after the ready, so the ready waits for these to settle (below) rather than racing them.
     const clearing: Promise<unknown>[] = []
@@ -1863,7 +1868,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
       const clear = (id: string) => {
         const work = this.adb.clearAppDataIfInstalled(serial, id)
         clearing.push(work.catch(() => {}))
-        return bounded(work, RUN_RESET_CMD_TIMEOUT_MS, `pm clear ${id}`)
+        return bounded(work, ms, `pm clear ${id}`)
       }
       steps.push({ item: 'app-data', run: () => resetApps(apps, clear, stop) })
     }
@@ -1879,13 +1884,23 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
           await new Promise((r) => setTimeout(r, CLIPBOARD_POLL_MS))
         }
       }
-      steps.push({ item: 'pasteboard', run: () => this.clipboardQueue(state.deviceId, () => bounded(clearClipboard(), RUN_RESET_CMD_TIMEOUT_MS, 'clipboard clear')) })
+      // The bound covers the wait for the queue too. A clear that reaches the front after the step gave up does nothing:
+      // by then the run may have put something of its own on the clipboard.
+      let abandoned = false
+      const queued = () => this.clipboardQueue(state.deviceId, async () => {
+        if (abandoned || stop()) throw new PlatformError('the clipboard was busy for the whole reset')
+        await clearClipboard()
+      })
+      steps.push({ item: 'pasteboard', run: () => bounded(queued(), ms, 'clipboard clear').catch((e: unknown) => { abandoned = true; throw e }) })
     }
     const report = await runResetSteps(steps, isStale, (item, e) => logger.warn(`run reset: ${item} failed: ${(e as Error).message}`), deadline)
-    // One more step's time at most: an adb that never answers would hold the install the run sends next anyway.
-    await bounded(Promise.all(clearing), RUN_RESET_CMD_TIMEOUT_MS, 'waiting for a late pm clear').catch((e: unknown) => {
-      logger.warn(`run reset: ${(e as Error).message}; the run's install may race it`)
-    })
+    // One more step's time at most. A clear still running past that fails the boot rather than announcing a device the
+    // run's install could lose its data on: failing the step does not stop the clear, and nothing else orders the two.
+    try {
+      await bounded(Promise.all(clearing), ms, 'waiting for a late pm clear')
+    } catch {
+      throw new PlatformError('the run reset could not finish: a pm clear is still running on the device, so it is not ready for an install')
+    }
     return report
   }
 
