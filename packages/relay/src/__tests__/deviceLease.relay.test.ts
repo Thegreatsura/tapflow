@@ -194,6 +194,24 @@ describe('the relay leases a device to an automation client', () => {
     expect(await leased(runner, 'L2')).toMatchObject({ sessionId: got.sessionId, source: 'pool' })
   })
 
+  // The lease above borrows that countdown and hands it back on leaving; it must come back as automation's, not a person's.
+  it('still takes a device whose automation countdown an earlier lease borrowed and handed back', async () => {
+    await start()
+    const mac = await agent('mac-1', ['a'])
+    const crashed = await open()
+    lease(crashed, 'L1')
+    const got = await leased(crashed, 'L1')
+    const boot = await waitForType<DeviceBoot>(mac.ws, 'device:boot')
+    mac.ws.send(JSON.stringify({ type: 'device:ready', sessionId: boot.sessionId, requestId: 'L1', payload: { deviceId: 'a', cold: true } }))
+    await waitForType<DeviceReady>(crashed, 'device:ready')
+    crashed.close()
+    await new Promise((r) => crashed.once('close', r))
+    await runOnce(mac, await open(), 'L2')
+    const runner = await open()
+    lease(runner, 'L3')
+    expect(await leased(runner, 'L3')).toMatchObject({ sessionId: got.sessionId, source: 'pool' })
+  })
+
   // A device of ours on another tier is a cold boot (a restart onto the tier), judged as the boot would judge it.
   it('treats a device left up on another tier as a boot, not as one ready to hand over', async () => {
     await start()

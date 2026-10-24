@@ -369,9 +369,11 @@ export class SessionManager {
       this.unindexBrowser(session)
       session.browserSocket = null
     }
-    // An AI client that joined during a person's countdown hands it back when it goes (`idleResumeOnLeave`), so
-    // the countdown is still the person's.
-    if (session.owner !== null) session.lastHolderWasAi = isAiClientKind(session.holderKind) && !session.idleResumeOnLeave
+    // An AI client that joined during a countdown hands it back when it goes (`idleResumeOnLeave`), so the countdown
+    // stays whoever's it was: a person's stays a person's, and one an AI client left stays leasable.
+    if (session.owner !== null) {
+      session.lastHolderWasAi = isAiClientKind(session.holderKind) && (!session.idleResumeOnLeave || session.lastHolderWasAi === true)
+    }
     session.owner = null
     session.ownerMinted = false
     session.ownerUser = null
