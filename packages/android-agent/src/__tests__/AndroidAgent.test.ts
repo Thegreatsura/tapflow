@@ -513,6 +513,41 @@ describe('AndroidAgent', () => {
         agent.disconnect(); browser.close()
       })
 
+      // A client that joins without booting (MCP's connect_device) reaches the app commands without the boot's wait.
+      it('holds an app command for a pm clear a failed reset left running', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {})
+        vi.spyOn(console, 'error').mockImplementation(() => {})
+        const adb = mockAdb(true)
+        const runner = (adb as unknown as { runner: AdbRunner }).runner
+        let releaseClear!: (out: string) => void
+        vi.mocked(runner.exec).mockImplementation(async (...args: string[]) => {
+          const at = args.indexOf('pm')
+          if (at < 0) return ''
+          if (args[at + 1] === 'path') return 'package:/data/app/com.example.app/base.apk'
+          if (args[at + 1] === 'clear') return new Promise<string>((r) => { releaseClear = r })
+          return ''
+        })
+        const order: string[] = []
+        vi.spyOn(adb, 'openUrl').mockImplementation(async () => { order.push('open-url') })
+        const agent = new AndroidAgent({ runResetCmdTimeoutMs: 500 }, adb)
+        await agent.connect(`ws://localhost:${port}`)
+        const browser = new WebSocket(`ws://localhost:${port}`)
+        await waitForOpen(browser)
+        browser.send(JSON.stringify({ type: 'session:start', sessionId: agent.sessionId }))
+        await waitForType(browser, 'session:joined')
+        const failed = waitForType(browser, 'device:boot-error')
+        browser.send(JSON.stringify({ type: 'device:boot', requestId: 'rq-stuck', sessionId: agent.sessionId, payload: { deviceId: 'avd:Pixel_8_API_34', runReset: { uninstall: ['com.example.app'], clear: [] } } }))
+        await failed
+        const done = waitForType(browser, 'open-url:done')
+        browser.send(JSON.stringify({ type: 'open-url', requestId: 'rq-url', sessionId: agent.sessionId, payload: { url: 'myapp://home' } }))
+        await new Promise((r) => setTimeout(r, 30))
+        order.push('clear-settled')
+        releaseClear('Success')
+        await done
+        expect(order).toEqual(['clear-settled', 'open-url'])
+        agent.disconnect(); browser.close()
+      })
+
       it('never hands an id that is not an app id to the device shell', async () => {
         vi.spyOn(console, 'warn').mockImplementation(() => {})
         const { pm, payload } = await bootWithReset({ uninstall: [], clear: ['x;reboot'] }, [])

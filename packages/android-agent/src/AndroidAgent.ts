@@ -2646,6 +2646,9 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
           break
         }
         const doInstall = async () => {
+          // Not past a run reset's `pm clear` still running: it would land on the app installed here. A client that
+          // joined without booting (MCP's `connect_device`) reaches this without the boot's own wait.
+          await this.awaitPendingClears(state.deviceId)
           // The relay's own path only opens where the relay's disk is. A ticket means it can hand
           // us the bytes instead; without one, this is a relay that predates downloading and the
           // old behaviour is all there is.
@@ -2695,7 +2698,9 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
           respond({ type: 'app:launch-error', message: 'No booted device' })
           break
         }
-        this.adb.launchApp(serial, bundleId)
+        // Same reason as `app:install`: a launched app writes data a late `pm clear` would take.
+        this.awaitPendingClears(state!.deviceId)
+          .then(() => this.adb.launchApp(serial, bundleId))
           .then(() => respond({ type: 'app:launch-done' }))
           .catch((e: unknown) => {
             const message = e instanceof Error ? e.message : String(e)
@@ -2929,7 +2934,9 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
           respond({ type: 'open-url:error', message: 'No booted device' })
           break
         }
-        this.adb.openUrl(serial, url)
+        // Same reason as `app:install`: the URL can start the app.
+        this.awaitPendingClears(state!.deviceId)
+          .then(() => this.adb.openUrl(serial, url))
           .then(() => respond({ type: 'open-url:done' }))
           .catch((e: unknown) => {
             const message = e instanceof Error ? e.message : String(e)
