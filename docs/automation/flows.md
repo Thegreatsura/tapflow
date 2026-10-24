@@ -105,6 +105,8 @@ The object form needs at least one of `id`, `label`, or `role`; `role`/`index` r
 
 `clearState` wipes the app data so every run starts from the same state. It uses `pm clear` on Android and empties the app data container on iOS. The installed binary survives either way, so you can follow `clearState` with `launchApp`.
 
+`tapflow flow run` also resets the device before the flows start, so a run does not begin from an earlier run's data, keychain or permissions. `clearState` is still how a flow resets its app between its own steps. What the run resets is listed under [`tapflow flow run`](/reference/cli#tapflow-flow-run).
+
 If the app is already running, `launchApp` does not restart it: it brings the app forward on whatever screen it was last on. A flow can then start from a screen an earlier run or a manual test left behind, so a flow that must start from the app's first screen puts `clearState` before `launchApp`. `clearState` stops the app before wiping its data.
 
 ```yaml
@@ -159,7 +161,7 @@ Comparing `appId` needs a token that can read the build: an API-type token (`vie
 
 ### Run records {#run-records}
 
-With a token, the runner records the run on the relay: each flow's pass, fail or skip, why a flow was skipped, its steps, a screenshot of the screen each flow failed on or ended on, the device it ran on, and the build passed with `--build`. In CI it also records the provider, branch, commit and a link to the CI run. When the relay created the record, the runner prints its id on a `recorded as run` line at the end of the run, followed outside CI by a link to the run's dashboard page. The records are on the dashboard's [Flow Runs](/automation/runs) page.
+With a token, the runner records the run on the relay: each flow's pass, fail or skip, why a flow was skipped, its steps, a screenshot of the screen each flow failed on or ended on, the device it ran on and what it was reset of, and the build passed with `--build`. In CI it also records the provider, branch, commit and a link to the CI run. When the relay created the record, the runner prints its id on a `recorded as run` line at the end of the run, followed outside CI by a link to the run's dashboard page. The records are on the dashboard's [Flow Runs](/automation/runs) page.
 
 - Recording never changes the result or the exit code. If the relay does not answer or refuses the record, the runner prints one warning line and records nothing more for that run. A screenshot the relay cannot take (for example, one over 5 MB) gets its own warning, and the rest of the run is still recorded. At the end of a run it waits at most 10 seconds for the record to finish sending. Capturing a passed flow's last screen takes one screenshot before the next flow starts, at most 5 seconds.
 - While recording, the runner also sends each flow's video. It cuts the device stream it already receives, so a flow never waits on the video being sent. On iOS it asks the agent for an H.264 stream for this, and when the agent is set to send JPEG (`TAPFLOW_IOS_CODEC=jpeg`) no video is kept. If video cannot be sent, the runner prints one warning line and the record carries on. At the end of a run the record is sent first, and video gets what is left of the 10 seconds. The relay keeps a passed flow's video for 3 days by default, and when all videos together pass 20 GB it removes passed flows' videos first, oldest first.

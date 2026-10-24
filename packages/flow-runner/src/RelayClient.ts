@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type {
-  AdmissionRefusal, BootRefusalReason, BrowserToRelay, ServiceTier, DeviceSummary, InputErrorReason, SessionStartFailure, SessionTerminatedReason,
+  AdmissionRefusal, BootRefusalReason, BrowserToRelay, RunResetRequest, ServiceTier, DeviceSummary, InputErrorReason, SessionStartFailure, SessionTerminatedReason,
 } from '@tapflowio/protocol'
 import { WebSocket } from 'ws'
 import type { UIElement } from '@tapflowio/agent-core'
@@ -317,6 +317,29 @@ type RelayMsg = Record<string, unknown>
  * Deliberately not used for the app commands, whose correlator is required: lending them this fallback
  * would restore the ambiguity that work removed. See protocol/AGENTS.md.
  */
+/**
+ * What a boot's `device:ready` said about the device. Each field absent when the agent did not say: `cold` from an
+ * agent that predates it, `runReset` whenever the reset did not reach an agent that does it (an older relay drops the
+ * request, an older agent ignores it). Items are the agent's words, unchecked here; the relay checks what it records.
+ */
+export interface BootOutcome {
+  cold?: boolean
+  runReset?: { done: string[]; failed: string[] }
+}
+
+function readyOutcome(payload: unknown): BootOutcome {
+  if (typeof payload !== 'object' || payload === null) return {}
+  const { cold, runReset } = payload as Record<string, unknown>
+  const strings = (v: unknown): string[] | undefined => (Array.isArray(v) && v.every((i) => typeof i === 'string') ? v : undefined)
+  const report = typeof runReset === 'object' && runReset !== null ? runReset as Record<string, unknown> : undefined
+  const done = strings(report?.['done'])
+  const failed = strings(report?.['failed'])
+  return {
+    ...(typeof cold === 'boolean' ? { cold } : {}),
+    ...(done && failed ? { runReset: { done, failed } } : {}),
+  }
+}
+
 function correlatesWith(msg: RelayMsg, requestId: string): boolean {
   const id = msg['requestId']
   if (id === undefined) {
@@ -373,7 +396,9 @@ interface Waiter {
  * the one #549 is about, where a boot that is simply slow reports a failure that never happened — but a
  * host timeout below this number turns the diagnosis back into silence.
  */
-const BOOT_DEADLINE_MS = 180_000
+// 240 s, not the 180 s it was: this client's boot can carry a run reset, which runs before `device:ready` for up to
+// agent-core's `RUN_RESET_BUDGET_MS` after the slowest boot poll. `bootDeadlineOutlivesAgent.test.mjs` holds the sum.
+const BOOT_DEADLINE_MS = 240_000
 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
@@ -800,9 +825,9 @@ export class RelayClient {
    * (A4) needs it: JPEG is several times the size and cannot be kept. The agent still decides, and may send JPEG.
    * `serviceTier` asks for the services the device boots with; absent, it gets the agent's own setting.
    */
-  async bootDevice(sessionId: string, deviceId: string, opts: { acceptH264?: boolean; serviceTier?: ServiceTier } = {}): Promise<void> {
+  async bootDevice(sessionId: string, deviceId: string, opts: { acceptH264?: boolean; serviceTier?: ServiceTier; runReset?: RunResetRequest } = {}): Promise<BootOutcome> {
     const requestId = randomUUID()
-    this.send({ type: 'device:boot', sessionId, requestId, payload: { deviceId, ...(opts.acceptH264 ? { acceptH264: true } : {}), ...(opts.serviceTier ? { serviceTier: opts.serviceTier } : {}) } })
+    this.send({ type: 'device:boot', sessionId, requestId, payload: { deviceId, ...(opts.acceptH264 ? { acceptH264: true } : {}), ...(opts.serviceTier ? { serviceTier: opts.serviceTier } : {}), ...(opts.runReset ? { runReset: opts.runReset } : {}) } })
     const msg = await this.waitFor(
       (m) => (m['type'] === 'device:ready' || m['type'] === 'device:boot-error') && m['sessionId'] === sessionId && correlatesWith(m, requestId),
       BOOT_DEADLINE_MS,
@@ -826,6 +851,7 @@ export class RelayClient {
     // while the condition it describes is still true.
     const s = this.lifecycle.get(sessionId)
     if (s) s.needsReboot = false
+    return readyOutcome(msg['payload'])
   }
 
   async installApp(sessionId: string, buildId: number): Promise<void> {

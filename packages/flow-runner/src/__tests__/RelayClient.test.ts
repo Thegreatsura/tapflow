@@ -478,6 +478,26 @@ describe('RelayClient.bootDevice — an optional correlator, with a fallback', (
     expect(boots).toEqual([{ deviceId: 'dev-1' }, { deviceId: 'dev-1', acceptH264: true }])
   })
 
+  it('sends a run reset only when asked, and returns what the ready said about it', async () => {
+    const report = { done: ['keychain'], failed: ['location'] }
+    const { client, received } = await relay((m) => ({
+      type: 'device:ready', sessionId: 's1', requestId: m['requestId'],
+      payload: { deviceId: 'dev-1', cold: false, ...((m['payload'] as Record<string, unknown>)['runReset'] ? { runReset: report } : {}) },
+    }))
+    expect(await client.bootDevice('s1', 'dev-1')).toEqual({ cold: false })
+    expect(await client.bootDevice('s1', 'dev-1', { runReset: { uninstall: ['a'], clear: [] } })).toEqual({ cold: false, runReset: report })
+    const boots = received.filter((m) => m['type'] === 'device:boot').map((m) => m['payload'])
+    expect(boots).toEqual([{ deviceId: 'dev-1' }, { deviceId: 'dev-1', runReset: { uninstall: ['a'], clear: [] } }])
+  })
+
+  // A malformed report reads as no report: the run warns that the reset is unconfirmed rather than trusting it.
+  it('reads a malformed reset report as absent', async () => {
+    const { client } = await relay((m) => ({
+      type: 'device:ready', sessionId: 's1', requestId: m['requestId'], payload: { deviceId: 'dev-1', runReset: { done: 'keychain', failed: [] } },
+    }))
+    expect(await client.bootDevice('s1', 'dev-1', { runReset: { uninstall: [], clear: [] } })).toEqual({})
+  })
+
   it('hands the held stream\'s frames, chrome and device info to a listener, and nothing once it is removed', async () => {
     const frames: Buffer[] = []
     const events: [string, unknown][] = []
@@ -506,7 +526,7 @@ describe('RelayClient.bootDevice — an optional correlator, with a fallback', (
     const socket = [...wss!.clients][0]!
     socket.send(Buffer.from('TFFE-frame'), { binary: true })
     socket.send(JSON.stringify({ type: 'session:chrome', sessionId: 's1', payload: {} }))
-    await expect(client.bootDevice('s1', 'dev-1')).resolves.toBeUndefined()
+    await expect(client.bootDevice('s1', 'dev-1')).resolves.toEqual({})
   })
 
   it('reports the boot gate\'s refusal as an AdmissionRefusedError carrying its reason', async () => {
@@ -547,7 +567,7 @@ describe('RelayClient.bootDevice — an optional correlator, with a fallback', (
     const { client } = await relay(() => ({
       type: 'device:ready', sessionId: 's1', payload: { deviceId: 'dev-1' },
     }))
-    await expect(client.bootDevice('s1', 'dev-1')).resolves.toBeUndefined()
+    await expect(client.bootDevice('s1', 'dev-1')).resolves.toEqual({})
   })
 
   it('is not satisfied by the relay\'s replay, which carries no sessionId', async () => {
@@ -1113,7 +1133,7 @@ describe('RelayClient — session lifecycle (#512, finding 4)', () => {
     const recovery = client.bootDevice('s1', 'dev-1')
     await expect(raceSettled(recovery)).resolves.toBe('still-waiting')
     await reply('device:boot', { type: 'device:ready' }, 's1')
-    await expect(recovery).resolves.toBeUndefined()
+    await expect(recovery).resolves.toEqual({})
   })
 
   // `agent-away` is the relay's hold window, not an answer: the agent may come back on the same
@@ -1124,7 +1144,7 @@ describe('RelayClient — session lifecycle (#512, finding 4)', () => {
     push({ type: 'session:agent-away', sessionId: 's1' })
     await expect(raceSettled(boot)).resolves.toBe('still-waiting')
     await reply('device:boot', { type: 'device:ready' })
-    await expect(boot).resolves.toBeUndefined()
+    await expect(boot).resolves.toEqual({})
   })
 
   it("leaves another session's boot waiter alone on rebound", async () => {
@@ -1135,7 +1155,7 @@ describe('RelayClient — session lifecycle (#512, finding 4)', () => {
     // Neither settles on the rebound itself; the other session's boot answers normally.
     await expect(raceSettled(mine)).resolves.toBe('still-waiting')
     await reply('device:boot', { type: 'device:ready' }, 's2')
-    await expect(other).resolves.toBeUndefined()
+    await expect(other).resolves.toEqual({})
     // And this session's stranded boot is answered by the relay, with the cause attached.
     await reply('device:boot', {
       type: 'device:boot-error',

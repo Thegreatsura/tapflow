@@ -1,6 +1,6 @@
 import http from 'http'
-import { readServiceTier } from '@tapflowio/protocol/validate'
-import type { ServiceTier } from '@tapflowio/protocol'
+import { readRunResetReport, readServiceTier } from '@tapflowio/protocol/validate'
+import type { RunResetReport, ServiceTier } from '@tapflowio/protocol'
 import fs from 'fs'
 import path from 'path'
 import { randomUUID } from 'crypto'
@@ -139,6 +139,7 @@ export interface RunRow {
   ci_commit: string | null
   ci_job_url: string | null
   service_tier_json: string | null
+  device_reset_json: string | null
   status: 'running' | 'passed' | 'failed' | 'aborted'
   finished_by: 'client' | 'relay' | null
   failure_kind: string | null
@@ -292,11 +293,12 @@ export async function handleCreateRun(req: http.IncomingMessage, res: http.Serve
   const ci = isObj(body.ci) ? body.ci : null
   // Dropped rather than refused when it is not a tier, as `ci`'s fields are: recording never fails a run.
   const serviceTier = readServiceTier(body.serviceTier)
+  const deviceReset: DeviceReset | null = typeof body.resetRequested === 'boolean' ? { requested: body.resetRequested } : null
   const id = randomUUID()
   getDb().prepare(`
     INSERT INTO flow_runs (id, build_id, holder_client, created_by, pat_id, is_ci, ci_provider, ci_branch, ci_commit,
-                           ci_job_url, service_tier_json, flows_json, flows_total, delete_after)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? IS NULL THEN datetime('now', ?) END)
+                           ci_job_url, service_tier_json, device_reset_json, flows_json, flows_total, delete_after)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? IS NULL THEN datetime('now', ?) END)
   `).run(
     id, buildId, client,
     auth.userId, auth.patId ?? null,
@@ -306,6 +308,7 @@ export async function handleCreateRun(req: http.IncomingMessage, res: http.Serve
     ci ? str(ci.commit, 100) : null,
     ci ? httpUrl(ci.jobUrl) : null,
     serviceTier ? JSON.stringify(serviceTier) : null,
+    deviceReset ? JSON.stringify(deviceReset) : null,
     JSON.stringify(flows), flows.length,
     buildId, `+${BUILDLESS_TTL_DAYS} days`,
   )
@@ -449,6 +452,41 @@ export async function handleUploadFlowScreenshot(
   json(res, 200, { ok: true })
 }
 
+/**
+ * What the run's device was reset of. `requested` is what the run asked at creation; `cold` and `report` are what its
+ * boot answered, sent right after the boot so a run that fails to install, is cancelled or loses its runner keeps it.
+ */
+interface DeviceReset {
+  requested: boolean
+  /** The boot answered and the runner said so. Absent: the run never reached a device (every flow skipped, no device,
+   *  a boot that failed or timed out), which is not the same as a reset nobody confirmed. */
+  booted?: true
+  cold?: boolean
+  report?: RunResetReport
+}
+
+export async function handleReportDevice(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  params: Record<string, string>,
+): Promise<void> {
+  const run = ownRun(req, res, params.id)
+  if (!run) return
+  const body = await readJsonBody(req, res)
+  if (!body) return
+  // A field that cannot be read is dropped rather than refused, as the create's are: recording never fails a run.
+  const before = run.device_reset_json ? JSON.parse(run.device_reset_json) as DeviceReset : null
+  const report = readRunResetReport(body.runReset)
+  const next: DeviceReset = {
+    requested: before?.requested ?? false,
+    booted: true,
+    ...(typeof body.cold === 'boolean' ? { cold: body.cold } : {}),
+    ...(report ? { report } : {}),
+  }
+  getDb().prepare(`UPDATE flow_runs SET device_reset_json = ?, last_activity_at = datetime('now') WHERE seq = ?`).run(JSON.stringify(next), run.seq)
+  json(res, 200, { ok: true })
+}
+
 const FINAL_STATUSES = new Set(['passed', 'failed', 'aborted'])
 
 export async function handleFinishRun(
@@ -519,6 +557,7 @@ function runSummary(run: RunRow) {
       ? { provider: run.ci_provider, branch: run.ci_branch, commit: run.ci_commit, jobUrl: run.ci_job_url }
       : null,
     serviceTier: run.service_tier_json ? JSON.parse(run.service_tier_json) as ServiceTier : null,
+    deviceReset: run.device_reset_json ? JSON.parse(run.device_reset_json) as DeviceReset : null,
     build: buildSummary(run.build_id),
     createdBy: creatorName(run.created_by),
     flowsTotal: run.flows_total,

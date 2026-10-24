@@ -76,6 +76,9 @@ function RunBody({ run }: { run: Run }) {
             {run.ci?.commit && <TechLabel>{shortCommit(run.ci.commit)}</TechLabel>}
             {/* A flow failing under slim for want of a service is not the app's regression: say what it ran on. */}
             {run.serviceTier && <span>Services <TechLabel>{serviceTierLabel(run.serviceTier)}</TechLabel></span>}
+            {/* A run on a device that kept an earlier run's state is not the run it claims to be. */}
+            {/* A run that never reached a device has nothing to say about it. */}
+            {run.deviceReset?.booted && <span>Device <TechLabel>{deviceResetLabel(run.deviceReset)}</TechLabel></span>}
             <span>Started {formatAgo(run.createdAt)}</span>
             <span>{run.finishedAt ? 'Took' : 'Running for'} <TechLabel>{runDuration(run)}</TechLabel></span>
             {run.exitCode !== null && <span>Exit code <TechLabel>{run.exitCode}</TechLabel></span>}
@@ -225,6 +228,17 @@ function LastScreen({ runId, flow }: { runId: string; flow: ReportedFlow }) {
       />
     </a>
   )
+}
+
+/** `reset`, `reset except location`, `reset failed: keychain`, `nothing reset`, `reset not confirmed` or `not reset`, then `, already running`
+ *  for a device the run found up. */
+function deviceResetLabel(reset: NonNullable<Run['deviceReset']>): string {
+  const failed = reset.report?.failed ?? []
+  const state = !reset.requested ? 'not reset'
+    : !reset.report ? 'reset not confirmed'
+    : reset.report.done.length === 0 ? (failed.length > 0 ? `reset failed: ${failed.join(', ')}` : 'nothing reset')
+    : failed.length > 0 ? `reset except ${failed.join(', ')}` : 'reset'
+  return reset.cold === false ? `${state}, already running` : state
 }
 
 /** `slim`, or `slim, keeping push, photos`. */

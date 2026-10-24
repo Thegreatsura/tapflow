@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
     },
   ]),
   joinSession: vi.fn(async () => ({ watchUrl: 'http://localhost:4000/automation/sessions/s1' })),
-  bootDevice: vi.fn(async () => {}),
+  bootDevice: vi.fn(async () => ({})),
   installApp: vi.fn(async () => {}),
   leaveSession: vi.fn(() => {}),
   disconnect: vi.fn(() => {}),
@@ -161,7 +161,7 @@ describe('cmdFlowRun exit codes (#543)', () => {
       } finally {
         // The mock is shared by the whole file and `clearAllMocks` keeps implementations: restore it even on failure.
         mocks.bootDevice.mockReset()
-        mocks.bootDevice.mockImplementation(async () => {})
+        mocks.bootDevice.mockImplementation(async () => ({}))
       }
     })
 
@@ -364,15 +364,17 @@ describe('cmdFlowRun records the run on the relay (A3)', () => {
       // The lookup is awaited at once; the create waits its turn on the recorder's queue.
       'https://relay.example.test/api/v1/builds/7',
       'https://relay.example.test/api/v1/runs',
+      // What the boot said about the device, before anything that can fail after it.
+      'https://relay.example.test/api/v1/runs/run-1/device',
       'https://relay.example.test/api/v1/runs/run-1/flows/0',
       'https://relay.example.test/api/v1/runs/run-1/flows/0/screenshot',
       'https://relay.example.test/api/v1/runs/run-1/finish',
     ])
-    expect(relay.calls[1]!.body).toEqual({ client: 'client-1', buildId: 7, flows: [{ name: file, file }] })
-    expect(relay.calls[2]!.body).toMatchObject({
+    expect(relay.calls[1]!.body).toEqual({ client: 'client-1', buildId: 7, flows: [{ name: file, file }], resetRequested: true })
+    expect(relay.calls[3]!.body).toMatchObject({
       status: 'failed', failureKind: 'product', deviceId: 'dev1', deviceName: 'dev', platform: 'ios',
     })
-    expect(relay.calls[4]!.body).toEqual({ status: 'failed', exitCode: 1, failureKind: 'product' })
+    expect(relay.calls[5]!.body).toEqual({ status: 'failed', exitCode: 1, failureKind: 'product' })
     // Outside CI, with the page's link on the watch link's origin.
     expect(console.log).toHaveBeenCalledWith('recorded as run run-1: http://localhost:4000/automation/runs/run-1')
     expect(process.exitCode).toBe(1)
@@ -699,9 +701,70 @@ describe('cmdFlowRun runs only the flows that apply to this build and these tags
       return defaultAnswer(url)
     })
     await cmdFlowRun([flowFile('other.yaml', { appId: 'com.a' }), flowFile('mine.yaml')], { token: 'tflw_pat_x', build: 7 })
-    expect(relay.calls.map((c) => c.url.replace(/^.*\/api\/v1/, ''))).toEqual(['/builds/7', '/runs', '/runs/run-1/flows/0', '/runs/run-1/flows/1', '/runs/run-1/finish'])
+    expect(relay.calls.map((c) => c.url.replace(/^.*\/api\/v1/, ''))).toEqual(['/builds/7', '/runs', '/runs/run-1/flows/0', '/runs/run-1/device', '/runs/run-1/flows/1', '/runs/run-1/finish'])
     expect(errLines().filter((l) => l.startsWith('skipped flows not recorded'))).toHaveLength(1)
     expect(logLines().some((l) => l.startsWith('recorded as run run-1') && !l.includes('incomplete'))).toBe(true)
+  })
+
+  describe('the run reset (S4)', () => {
+    const bootOpts = () => (mocks.bootDevice.mock.calls[0] as unknown[])[2] as Record<string, unknown>
+    const REPORT = { done: ['app-uninstall', 'keychain'], failed: ['location'] }
+
+    it('uninstalls the build it is about to install, and clears the apps it only runs', async () => {
+      relayWith()
+      await cmdFlowRun([flowFile('mine.yaml', { appId: 'com.b' }), flowFile('helper.yaml')], { token: 'tflw_pat_x', build: 7 })
+      expect(bootOpts()['runReset']).toEqual({ uninstall: ['com.b'], clear: [] })
+    })
+
+    it('clears rather than uninstalls a build it will not install', async () => {
+      relayWith()
+      await cmdFlowRun([flowFile('mine.yaml', { appId: 'com.b' })], { token: 'tflw_pat_x', build: 7, install: false })
+      expect(bootOpts()['runReset']).toEqual({ uninstall: [], clear: ['com.b'] })
+    })
+
+    // Without builds:write the build has no bundle id here; its flows' appId is all there is to clear.
+    it('clears the flows\' apps when the relay will not say what the build is', async () => {
+      relayWith(() => Response.json({}, { status: 403 }))
+      await cmdFlowRun([flowFile('mine.yaml', { appId: 'com.b' })], { token: 'tflw_pat_x', build: 7 })
+      expect(bootOpts()['runReset']).toEqual({ uninstall: [], clear: ['com.b'] })
+    })
+
+    it('names an appId the relay would drop the whole reset for, and resets the rest', async () => {
+      relayWith()
+      await cmdFlowRun([flowFile('mine.yaml', { appId: 'com.b' }), flowFile('odd.yaml', { appId: 'x;reboot' })], { token: 'tflw_pat_x' })
+      expect(bootOpts()['runReset']).toEqual({ uninstall: [], clear: ['com.b'] })
+      expect(errLines()).toContain('not reset, not an app id: "x;reboot"')
+    })
+
+    it('asks for no reset with --no-reset, and records that it did not', async () => {
+      const relay = relayWith()
+      await cmdFlowRun([flowFile('mine.yaml', { appId: 'com.b' })], { token: 'tflw_pat_x', build: 7, reset: false })
+      expect(bootOpts()).not.toHaveProperty('runReset')
+      expect(relay.calls.find((c) => c.url.endsWith('/api/v1/runs'))!.body).toMatchObject({ resetRequested: false })
+      expect(errLines().some((l) => l.startsWith('device not reset'))).toBe(false)
+    })
+
+    it('records the request and what the boot answered, and says what was reset', async () => {
+      const relay = relayWith()
+      mocks.bootDevice.mockResolvedValueOnce({ cold: false, runReset: REPORT })
+      await cmdFlowRun([flowFile('mine.yaml', { appId: 'com.b' })], { token: 'tflw_pat_x', build: 7 })
+      expect(relay.calls.find((c) => c.url.endsWith('/api/v1/runs'))!.body).toMatchObject({ resetRequested: true })
+      expect(relay.calls.find((c) => c.url.endsWith('/run-1/device'))!.body).toEqual({ cold: false, runReset: REPORT })
+      expect(logLines()).toContain('reset on dev: app-uninstall, keychain')
+      expect(errLines().some((l) => l.startsWith('reset failed: location'))).toBe(true)
+      // Before the install: a run that fails to install still has its device recorded.
+      const deviceAt = relay.calls.findIndex((c) => c.url.endsWith('/run-1/device'))
+      expect(deviceAt).toBeGreaterThan(-1)
+      expect(mocks.installApp.mock.invocationCallOrder[0]!).toBeGreaterThan(mocks.bootDevice.mock.invocationCallOrder[0]!)
+    })
+
+    it('warns when nothing says the device was reset, and runs anyway', async () => {
+      relayWith()
+      await cmdFlowRun([flowFile('mine.yaml', { appId: 'com.b' })], { token: 'tflw_pat_x', build: 7 })
+      expect(errLines().some((l) => l.startsWith('device not reset: the agent or the relay predates run resets'))).toBe(true)
+      expect(mocks.runFlow).toHaveBeenCalledTimes(1)
+      expect(process.exitCode).toBe(0)
+    })
   })
 })
 
@@ -740,14 +803,14 @@ describe('cmdFlowRun keeps each flow\'s video beside the record (A4)', () => {
     fakeRelay()
     mocks.runFlow.mockResolvedValue(resultOf('passed'))
     await cmdFlowRun([file], { token: 'tflw_pat_x' })
-    expect(mocks.bootDevice).toHaveBeenLastCalledWith('s1', 'dev1', { acceptH264: true })
+    expect(mocks.bootDevice).toHaveBeenLastCalledWith('s1', 'dev1', expect.objectContaining({ acceptH264: true }))
     expect(mocks.setStreamListener.mock.calls.map(([l]) => l === null)).toEqual([false, true])
     // Before the join: a join with no listener asks the relay for no stream, and the video would be empty.
     expect(mocks.setStreamListener.mock.invocationCallOrder[0]!).toBeLessThan(mocks.joinSession.mock.invocationCallOrder[0]!)
 
     vi.clearAllMocks()
     await cmdFlowRun([file], { token: 'tflw_pat_x', record: false })
-    expect(mocks.bootDevice).toHaveBeenLastCalledWith('s1', 'dev1', { acceptH264: false })
+    expect(mocks.bootDevice).toHaveBeenLastCalledWith('s1', 'dev1', expect.objectContaining({ acceptH264: false }))
     expect(mocks.setStreamListener.mock.calls.filter(([l]) => l !== null)).toEqual([])
   })
 
@@ -775,7 +838,7 @@ describe('cmdFlowRun keeps each flow\'s video beside the record (A4)', () => {
     expect(relay.calls.find((c) => c.url.endsWith('/0/video/end'))!.body).toEqual({ lastSeq: 0, reason: 'done' })
     // The record is unchanged by its video.
     expect(relay.calls.filter((c) => !c.url.includes('/video')).map((c) => c.url.replace('http://localhost:4000', ''))).toEqual([
-      '/api/v1/runs',
+      '/api/v1/runs', '/api/v1/runs/run-1/device',
       '/api/v1/runs/run-1/flows/0', '/api/v1/runs/run-1/flows/0/screenshot',
       '/api/v1/runs/run-1/flows/1', '/api/v1/runs/run-1/flows/1/screenshot',
       '/api/v1/runs/run-1/finish',
@@ -815,7 +878,8 @@ describe('cmdFlowRun keeps each flow\'s video beside the record (A4)', () => {
       streamListener().frame(IDR)
       return resultOf('passed')
     })
-    await cmdFlowRun([file], { token: 'tflw_pat_x' })
+    // No reset asked, so the one line on stderr is the video's.
+    await cmdFlowRun([file], { token: 'tflw_pat_x', reset: false })
     expect(process.exitCode).toBe(0)
     expect(relay.calls.some((c) => c.url.endsWith('/finish'))).toBe(true)
     expect(vi.mocked(console.error).mock.calls.map(([l]) => String(l))).toEqual([expect.stringContaining('video stopped: the relay answered 500')])

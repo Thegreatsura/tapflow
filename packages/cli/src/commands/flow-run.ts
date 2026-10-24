@@ -16,6 +16,7 @@ import {
   admissionRefusalOf,
   parseServiceTier,
   type AdmissionReason,
+  type BootOutcome,
   type ServiceTier,
   type EligibilityTarget,
   type SkippedFlow,
@@ -25,6 +26,7 @@ import {
   type DeviceInfo,
 } from '@tapflowio/flow-runner'
 import { ciContext, runningInCI } from '../lib/ci.js'
+import { RESETTABLE_APP_ID } from '@tapflowio/agent-core/utils'
 import { RunRecorder, type FlowReport } from '../lib/runRecorder.js'
 import { VideoLane } from '../lib/videoLane.js'
 
@@ -45,6 +47,8 @@ export interface FlowRunOptions {
   keep?: string
   /** `--no-record` sets it false. */
   record?: boolean
+  /** `--no-reset` sets it false. */
+  reset?: boolean
   /** Comma-separated, as typed. */
   includeTags?: string
   excludeTags?: string
@@ -140,6 +144,30 @@ async function resolveSession(client: RelayClient, opts: FlowRunOptions): Promis
   const device = candidates[0]
   if (device.busy) envFail(`device "${device.name}" is busy (another session is active)`)
   return { sessionId: device.sessionId, device }
+}
+
+/** The relay's limits on a run reset's app ids (protocol's boot schema). */
+const MAX_RESET_APPS = 32
+const MAX_RESET_APP_ID = 255
+
+/**
+ * What to reset before the run. The build it installs is uninstalled first, which takes its data, App Group containers,
+ * notification settings and privacy grants with it; an app it runs but does not install has its files cleared. A build
+ * the relay would not describe (no `builds:write`) is not known by its id, so its flows' `appId` are cleared instead.
+ */
+function runResetFor(opts: FlowRunOptions, target: EligibilityTarget, flows: Flow[]): { uninstall: string[]; clear: string[] } {
+  const bundleId = target.build?.bundleId ?? undefined
+  const installs = opts.build !== undefined && opts.install !== false
+  const uninstall = installs && bundleId ? [bundleId] : []
+  const used = [...(bundleId && !installs ? [bundleId] : []), ...flows.flatMap((f) => (f.appId ? [f.appId] : []))]
+  const clear = [...new Set(used)].filter((id) => !uninstall.includes(id))
+  // Checked here against the rules the relay and agent apply, so a request they would drop whole is named instead of
+  // turning into "the agent predates run resets".
+  const bad = clear.filter((id) => !RESETTABLE_APP_ID.test(id) || id.length > MAX_RESET_APP_ID)
+  if (bad.length > 0) console.error(`not reset, not an app id: ${bad.map((id) => JSON.stringify(id)).join(', ')}`)
+  const ok = clear.filter((id) => !bad.includes(id))
+  if (ok.length > MAX_RESET_APPS) console.error(`not reset: ${ok.length - MAX_RESET_APPS} apps past the first ${MAX_RESET_APPS} the flows name`)
+  return { uninstall, clear: ok.slice(0, MAX_RESET_APPS) }
 }
 
 function flowReport(result: FlowResult, device: DeviceInfo): FlowReport {
@@ -271,6 +299,7 @@ export async function cmdFlowRun(files: string[], opts: FlowRunOptions): Promise
         flows: flows.map((f, i) => ({ name: f.name, file: files[i] })),
         ci: ciContext(),
         ...(serviceTier ? { serviceTier } : {}),
+        resetRequested: opts.reset !== false,
       })
       video = {
         tap: new VideoTap(),
@@ -308,8 +337,10 @@ export async function cmdFlowRun(files: string[], opts: FlowRunOptions): Promise
       envFail(`no flow ran: ${skipped.length} skipped (${[...skipCounts].map(([reason, n]) => `${reason} ${n}`).join(', ')})`)
     }
 
+    const runReset = opts.reset === false ? undefined : runResetFor(opts, target, eligible.map((i) => flows[i]))
     const { sessionId, device } = await resolveSession(client, opts)
     console.log(`preparing ${device.name}...`)
+    let booted: BootOutcome = {}
     // Join and boot as one attempt, retried while the Mac is busy. The session is let go before each wait, so a
     // person who wants this device is not told it is in use by a run that is only queueing (flow-runner's
     // `retryAdmission`).
@@ -329,7 +360,7 @@ export async function cmdFlowRun(files: string[], opts: FlowRunOptions): Promise
         // what initializes the agent's touch/stream state for this session (the
         // dashboard does the same on join).
         // H.264 when there is a video to keep: JPEG is several times the size and is not kept.
-        await joining.bootDevice(sessionId, device.id, { acceptH264: video !== undefined, ...(serviceTier ? { serviceTier } : {}) })
+        booted = await joining.bootDevice(sessionId, device.id, { acceptH264: video !== undefined, ...(serviceTier ? { serviceTier } : {}), ...(runReset ? { runReset } : {}) })
       } catch (e) {
         if (admissionRefusalOf(e) !== null) {
           joining.leaveSession(sessionId)
@@ -341,6 +372,15 @@ export async function cmdFlowRun(files: string[], opts: FlowRunOptions): Promise
       timeoutMs: admissionTimeout * 1000,
       onWait: (reason, ms) => console.log(`waiting ${Math.round(ms / 1000)}s: ${ADMISSION_WAITS[reason]}`),
     })
+    recorder?.reportDevice(booted)
+    if (runReset) {
+      const { runReset: report } = booted
+      if (!report) console.error('device not reset: the agent or the relay predates run resets — update both, or pass --no-reset')
+      else {
+        console.log(report.done.length > 0 ? `reset on ${device.name}: ${report.done.join(', ')}` : `nothing reset on ${device.name}: no app to clear, and nothing this device resets`)
+        if (report.failed.length > 0) console.error(`reset failed: ${report.failed.join(', ')} — the run goes on, and these may hold what an earlier run left`)
+      }
+    }
     if (opts.build !== undefined && opts.install !== false) {
       console.log(`installing build ${opts.build}...`)
       await client.installApp(sessionId, opts.build)

@@ -83,6 +83,43 @@ export interface ServiceTier {
   keep: ServiceFeature[]
 }
 
+/**
+ * What `tapflow flow run` asks the agent to reset before a run, so one run does not inherit what the last left on the
+ * device. A device that stays up between runs keeps it, and so does one shut down and booted again: app data, the
+ * keychain and privacy grants live on disk.
+ *
+ * - `uninstall`: apps the run is about to install. Removing them first drops their data container, App Group
+ *   containers, notification settings and privacy grants in one step, which clearing files cannot (cached defaults).
+ * - `clear`: apps the run uses but does not install. Their files are cleared and they keep running as installed.
+ *
+ * Absent from every other boot: a person's session and an AI agent's exploration keep their state.
+ */
+export interface RunResetRequest {
+  uninstall: string[]
+  clear: string[]
+}
+
+/**
+ * One thing an agent reset, named for what it covers rather than what was hoped for.
+ *
+ * - `app-uninstall` / `app-files`: the two `RunResetRequest` lists (iOS). `app-data`: `pm clear` (Android), which
+ *   covers files, permissions and the running process.
+ * - `keychain`: iOS `simctl keychain reset`. Roots added with `add-root-cert` stay trusted.
+ * - `privacy-services`: iOS `simctl privacy reset all` — only the services simctl names; notifications are not one.
+ * - `pasteboard`: set to an empty string, which is not the same as nothing ever copied.
+ * - `location`: iOS simulated location cleared.
+ *
+ * Device-wide except the app items. An item a platform does not do is never reported, so absence means not reset.
+ */
+export type RunResetItem = 'app-uninstall' | 'app-files' | 'app-data' | 'keychain' | 'privacy-services' | 'pasteboard' | 'location'
+
+/** What the agent actually reset. The only evidence a reset happened: a relay or agent that predates it drops the
+ *  request without a word. */
+export interface RunResetReport {
+  done: RunResetItem[]
+  failed: RunResetItem[]
+}
+
 /** A device as the relay lists it, after adding what only the relay knows. Named `DeviceSummary`
  *  rather than `DeviceInfo` because both packages already used that name for different shapes:
  *  the relay for this, and `DeviceDetails` is the `session:deviceInfo` payload. */
@@ -619,6 +656,8 @@ export interface DeviceReady {
     /** The tier this boot came up with. The relay records it as the device's current tier, since the device
      *  list it registered with is a snapshot. Absent from an agent that predates tiers. */
     serviceTier?: ServiceTier | 'unsupported'
+    /** Present only when the boot carried `runReset` and the agent knows it. */
+    runReset?: RunResetReport
   }
 }
 
@@ -1757,7 +1796,7 @@ export interface DeviceBoot {
    * `device:shutdown` below stays optional for the opposite reason — the relay sends that one itself.
    */
   requestId: string
-  payload: { deviceId: string; resetMode?: 'app-only' | 'full-erase'; acceptH264?: boolean; secureContext?: boolean; serviceTier?: ServiceTier }
+  payload: { deviceId: string; resetMode?: 'app-only' | 'full-erase'; acceptH264?: boolean; secureContext?: boolean; serviceTier?: ServiceTier; runReset?: RunResetRequest }
 }
 
 export interface AppInstallToRelay {

@@ -137,6 +137,7 @@ export function createCli(): CAC {
     .option('--keep <features>', 'Features to keep on under --service-tier (comma-separated, e.g. push,photos)')
     .option('--admission-timeout <seconds>', 'How long to wait while another device boots on the same Mac, or the Mac is over its CPU or memory limit (default: 600)')
     .option('--no-record', 'Do not record this run on the relay')
+    .option('--no-reset', 'Keep what earlier runs left on the device (by default the run resets app data, keychain, privacy grants, pasteboard and location)')
     .option('--include-tags <tags>', 'Run only flows tagged with at least one of these (comma-separated)')
     .option('--exclude-tags <tags>', 'Skip flows tagged with any of these (comma-separated); wins over --include-tags')
     .action((subcommand: string, files: string[], opts: Omit<FlowRunOptions, 'includeTags' | 'excludeTags'> & {

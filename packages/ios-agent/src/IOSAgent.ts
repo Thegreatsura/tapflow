@@ -6,13 +6,17 @@ import { randomUUID } from 'crypto'
 import { spawn } from 'child_process'
 import { WebSocket } from 'ws'
 import type { BootAbandonReason, ClipboardErrorPayload, Device, DeviceAgent, NetworkControlCapability, NetworkStatePayload, UIElement } from '@tapflowio/agent-core'
+import type { RunResetStep } from '@tapflowio/agent-core/utils'
 import { createLogger, PlatformError, ValidationError, bootAbandonMessage, BOOT_NO_SESSION_STATE, SHUTDOWN_NO_SESSION_STATE, downloadBuild } from '@tapflowio/agent-core'
 import type {
   AgentControlOutbound, InputErrorReason, ClipboardReplyBody, OpenUrlReplyBody,
-  AppInstallReplyBody, AppLaunchReplyBody, AppClearStateReplyBody, FormFactor, ServiceTier,
+  AppInstallReplyBody, AppLaunchReplyBody, AppClearStateReplyBody, FormFactor, ServiceTier, RunResetReport, RunResetRequest,
 } from '@tapflowio/protocol'
 
 const logger = createLogger('ios-agent')
+
+/** The run reset's pasteboard step, the wait for the clipboard queue included; one step's bound like the others. */
+const RUN_RESET_PASTEBOARD_TIMEOUT_MS = 10_000
 
 // Typed so a typo cannot ship silently — the viewer gates the whole clipboard bridge on this.
 // `full-reset` is honoured in `handleDeviceBoot`, which shuts a running device down before
@@ -63,6 +67,9 @@ import {
   type SleepBlocker,
   getMachineId,
   sameServiceTier,
+  resetApps,
+  runResetSteps,
+  RUN_RESET_BUDGET_MS,
   isLocalhostWss,
   DEFAULT_BACKPRESSURE_BYTES,
   writeEnvelopeHeader,
@@ -797,7 +804,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
   // `requestId` is a parameter, never a field on `state`: `bootSeq` exists because two boots overlap,
   // and a correlator hoisted onto shared state would answer the first request with the second's id.
   // Optional because the relay's idle timer boots nothing — but every *browser* boot carries one.
-  private async handleDeviceBoot(sessionId: string, deviceId: string, fullErase = false, acceptH264 = false, tier?: { secureContext: boolean; external: boolean }, requestId?: string, automation = false, serviceTier?: ServiceTier): Promise<void> {
+  private async handleDeviceBoot(sessionId: string, deviceId: string, fullErase = false, acceptH264 = false, tier?: { secureContext: boolean; external: boolean }, requestId?: string, automation = false, serviceTier?: ServiceTier, runReset?: RunResetRequest): Promise<void> {
     const state = this.deviceStates.get(sessionId)
     // Split, because the two halves are not the same kind of nothing. No open control channel means the
     // answer itself has nowhere to go, so this is the one abandonment that stays silent — and the caller
@@ -930,6 +937,10 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
       // twice a second against a device that is now deliberately off — for the rest of the deadline,
       // with nothing left that wants the answer.
       const bootedDevice = await this.simctl.waitUntilBooted(deviceId, { isStale: () => seq !== state.bootSeq })
+      // Before anything runs on the device: the network arm below starts nothing, and the run installs its app after the
+      // ready. Clearing an app now and installing it after leaves a clean container.
+      const runResetReport = runReset ? await this.resetForRun(deviceId, runReset, () => seq !== state.bootSeq) : undefined
+      if (seq !== state.bootSeq) { this.abandonBoot(state, seq, sessionId, requestId); return }
       // Arm the network injection while nothing is running on the device yet — dyld reads the
       // environment at process start, so anything launched before this is unhooked for its whole life.
       // Best-effort: the network toggle is opt-in and a device that cannot be armed says so through
@@ -970,7 +981,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
       // every path precisely so that case reaches here. Requiring an off→on transition would leave
       // that device unowned and put the resolvers back to refusing between two live simulators.
       this.ownedDevices.add(deviceId)
-      this.sendMsg({ type: 'device:ready', sessionId, requestId, payload: { deviceId, cold, serviceTier: this.reportedTier(target) } })
+      this.sendMsg({ type: 'device:ready', sessionId, requestId, payload: { deviceId, cold, serviceTier: this.reportedTier(target), ...(runResetReport ? { runReset: runResetReport } : {}) } })
       // The unsolicited report the protocol names on `device:ready`. It follows the ready rather than
       // riding inside it: a tester whose device just came up can arm the toggle in the same breath, and
       // a boot that armed nothing still has to say so rather than leaving the control blank.
@@ -1139,6 +1150,54 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     }
   }
 
+  /**
+   * What `flow run` asks reset before a run, carried out on a booted device. Only the agent's report says it happened.
+   * It waits for the system services first: `Booted` shows before tccd and securityd serve, and not only on a boot this
+   * agent started — a device someone else just booted reads `booted` too. On a settled device the wait returns at once.
+   * The wait does not watch `isStale`; a shutdown meanwhile holds this boot's abandonment until its deadline.
+   */
+  private async resetForRun(deviceId: string, request: RunResetRequest, isStale: () => boolean): Promise<RunResetReport> {
+    // One budget for the wait and the steps: a device whose services never come up spends it waiting, and the steps
+    // that would have failed against it are reported failed instead of each running out its own timeout.
+    const deadline = Date.now() + RUN_RESET_BUDGET_MS
+    const stop = () => isStale() || Date.now() >= deadline
+    await this.simctl.waitForBootStatus(deviceId).catch((e: unknown) => logger.warn(`run reset: boot status unknown: ${firstLine(e)}`))
+    const steps: RunResetStep[] = []
+    if (request.uninstall.length > 0) {
+      steps.push({ item: 'app-uninstall', run: () => resetApps(request.uninstall, (id) => this.simctl.uninstallAppForReset(deviceId, id), stop) })
+    }
+    if (request.clear.length > 0) {
+      steps.push({ item: 'app-files', run: () => resetApps(request.clear, (id) => this.simctl.clearAppDataIfInstalled(deviceId, id), stop) })
+    }
+    steps.push(
+      { item: 'keychain', run: () => this.simctl.resetKeychain(deviceId) },
+      { item: 'privacy-services', run: () => this.simctl.resetPrivacy(deviceId) },
+      // Through the clipboard queue: a clipboard read in flight parks a sentinel on this pasteboard.
+      { item: 'pasteboard', run: () => this.clearPasteboardQueued(deviceId, stop) },
+      { item: 'location', run: () => this.simctl.clearLocation(deviceId) },
+    )
+    return runResetSteps(steps, isStale, (item, e) => logger.warn(`run reset: ${item} failed: ${firstLine(e)}`), deadline)
+  }
+
+  /**
+   * The pasteboard step of a run reset. The queue can be held by a clipboard operation already running, so the wait for
+   * it is bounded too; a clear that reaches the front after the step gave up does nothing, because by then the run may
+   * have put something of its own there.
+   */
+  private clearPasteboardQueued(deviceId: string, stop: () => boolean): Promise<void> {
+    let abandoned = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const queued = this.clipboardQueue(deviceId, async () => {
+      if (abandoned || stop()) throw new PlatformError('the clipboard was busy for the whole reset')
+      await this.simctl.setPasteboard(deviceId, '')
+    })
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => { abandoned = true; reject(new PlatformError('pasteboard clear timed out')) }, RUN_RESET_PASTEBOARD_TIMEOUT_MS)
+    })
+    queued.catch(() => {})
+    return Promise.race([queued, late]).finally(() => clearTimeout(timer))
+  }
+
   // Lazily set up the touch channel: a reconnect re-issues the session with touchHelper=null while the sim stays booted, so input self-heals without a fresh device:boot. Sync so a tap's start+end stay paired (async would drop touchEnd → stuck finger).
   private ensureTouchHelper(state: DeviceState): void {
     if (state.touchHelper) return
@@ -1274,9 +1333,9 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     switch (msg.type) {
       case 'device:boot': {
         // `external` and `automation` are added by the relay, never by the browser (see `DeviceBoot`).
-        const { deviceId, resetMode, acceptH264, secureContext, external, automation, serviceTier } = msg.payload as { deviceId: string; resetMode?: string; acceptH264?: boolean; secureContext?: boolean; external?: boolean; automation?: boolean; serviceTier?: ServiceTier }
+        const { deviceId, resetMode, acceptH264, secureContext, external, automation, serviceTier, runReset } = msg.payload as { deviceId: string; resetMode?: string; acceptH264?: boolean; secureContext?: boolean; external?: boolean; automation?: boolean; serviceTier?: ServiceTier; runReset?: RunResetRequest }
         const sessionId = msg.sessionId
-        this.handleDeviceBoot(sessionId, deviceId, resetMode === 'full-erase', acceptH264 === true, { secureContext: !!secureContext, external: !!external }, msg.requestId, automation === true, serviceTier)
+        this.handleDeviceBoot(sessionId, deviceId, resetMode === 'full-erase', acceptH264 === true, { secureContext: !!secureContext, external: !!external }, msg.requestId, automation === true, serviceTier, runReset)
           .catch((e) => logger.error('handleDeviceBoot failed:', e))
         break
       }

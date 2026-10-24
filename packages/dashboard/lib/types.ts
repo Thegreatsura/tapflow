@@ -7,7 +7,7 @@ import type { VideoSummary } from './runVideo'
 import type {
   AgentResources, AndroidButton, ChromeButton, ChromeData, ChromeRect,
   AndroidChrome, BrowserInbound, ChromePayload, DeviceDetails, DevicePosture, DeviceSummary,
-  PosturesPayload, ServiceTier, SessionInfo,
+  PosturesPayload, RunResetReport, ServiceTier, SessionInfo,
 } from '@tapflowio/protocol'
 
 export type {
@@ -136,6 +136,9 @@ export interface RunSummary {
   ci: { provider: string | null; branch: string | null; commit: string | null; jobUrl: string | null } | null
   /** The services the run asked its device to boot with; null when it asked for none (the agent's own setting). */
   serviceTier: ServiceTier | null
+  /** What the run's device was reset of before it ran; null for a run from a runner that predates resets. A
+   *  requested reset with no report is one nobody confirmed; without `booted` the run never reached a device. `cold: false` means the device was already up. */
+  deviceReset: { requested: boolean; booted?: true; cold?: boolean; report?: RunResetReport } | null
   build: RunBuild | null
   createdBy: string | null
   flowsTotal: number

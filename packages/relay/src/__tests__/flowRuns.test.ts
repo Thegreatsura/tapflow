@@ -31,6 +31,7 @@ interface Body {
   createdBy: string | null
   ci: { jobUrl: string | null } | null
   serviceTier: unknown
+  deviceReset: unknown
   build: unknown
   flows: { name: string; status: string; hasScreenshot?: boolean; steps?: object[]; skipReason?: string }[]
   watchSessionId: string | null
@@ -188,6 +189,33 @@ describe('flow run records', () => {
     expect((await call('GET', `/api/v1/runs/${bogus}`, bearer(PAT_VIEW))).body.serviceTier).toBeNull()
     const none = await create({})
     expect((await call('GET', `/api/v1/runs/${none}`, bearer(PAT_VIEW))).body.serviceTier).toBeNull()
+  })
+
+  it('records the reset a run asked for, then what its boot answered, and drops a report it cannot read', async () => {
+    const get = async (id: string) => (await call('GET', `/api/v1/runs/${id}`, bearer(PAT_VIEW))).body.deviceReset
+    const asked = await create({ resetRequested: true })
+    expect(await get(asked)).toEqual({ requested: true })
+    const report = { done: ['app-uninstall', 'keychain'], failed: ['location'] }
+    expect((await call('POST', `/api/v1/runs/${asked}/device`, bearer(PAT_CI), { cold: false, runReset: report })).status).toBe(200)
+    expect(await get(asked)).toEqual({ requested: true, booted: true, cold: false, report })
+
+    // Asked, and the boot said nothing about it: an agent or relay too old to reset. Kept apart from "not asked".
+    const unconfirmed = await create({ resetRequested: true })
+    await call('POST', `/api/v1/runs/${unconfirmed}/device`, bearer(PAT_CI), { cold: true, runReset: { done: 'all' } })
+    expect(await get(unconfirmed)).toEqual({ requested: true, booted: true, cold: true })
+
+    const declined = await create({ resetRequested: false })
+    await call('POST', `/api/v1/runs/${declined}/device`, bearer(PAT_CI), { cold: false })
+    expect(await get(declined)).toEqual({ requested: false, booted: true, cold: false })
+
+    expect(await get(await create({}))).toBeNull()
+  })
+
+  it('lets only the run\'s own runner report its device, and not after it finished', async () => {
+    const id = await create({ resetRequested: true })
+    expect((await call('POST', `/api/v1/runs/${id}/device`, bearer(PAT_SOMEONE), { cold: false })).status).toBe(403)
+    await call('POST', `/api/v1/runs/${id}/finish`, bearer(PAT_CI), { status: 'passed', exitCode: 0 })
+    expect((await call('POST', `/api/v1/runs/${id}/device`, bearer(PAT_CI), { cold: false })).status).toBe(409)
   })
 
   // ── results ───────────────────────────────────────────────────────────────

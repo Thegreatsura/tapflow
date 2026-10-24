@@ -110,6 +110,24 @@ describe('a relay client outlives the agent boot it is waiting on', () => {
     }
   })
 
+  // A boot from `flow run` can carry a run reset, which the agent carries out before `device:ready`: its budget, the one
+  // step that may be in flight when it runs out, and Android's wait for a `pm clear` that step timed out on (one more
+  // step's time) come after the poll. Only flow-runner sends one; MCP never does.
+  it('the client that asks for a run reset also clears the reset it asked for', () => {
+    const budget = valueOf({ file: 'packages/agent-core/src/utils/runReset.ts', pattern: /RUN_RESET_BUDGET_MS = ([\d_]+)/ })
+    const steps = [
+      valueOf({ file: 'packages/ios-agent/src/SimctlWrapper.ts', pattern: /RESET_CMD_TIMEOUT_MS = ([\d_]+)/ }),
+      valueOf({ file: 'packages/android-agent/src/AndroidAgent.ts', pattern: /RUN_RESET_CMD_TIMEOUT_MS = ([\d_]+)/ }),
+    ]
+    for (const v of [budget, ...steps]) expect(v).toBeGreaterThan(0)
+    const ceiling = Math.max(...CEILINGS.map(valueOf)) + budget + 2 * Math.max(...steps)
+    const deadline = valueOf(DEADLINES.find((d) => d.what === 'flow-runner bootDevice'))
+    expect(
+      deadline - ceiling,
+      `flow-runner bootDevice is ${deadline}ms against ${ceiling}ms of poll, reset budget and two reset steps`,
+    ).toBeGreaterThanOrEqual(MIN_MARGIN_MS)
+  })
+
   it('the rule rejects the state that motivated it, not just states far from it', () => {
     // The check's own strictness, exercised in both directions against the exact numbers this slice found:
     // `flow-runner` was 120_000 against Android's 120_000. A bare `>=` calls that fine and a bare `>` calls
