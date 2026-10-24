@@ -37,6 +37,10 @@ function langToKeyboard(lang: string): string {
 // device until it finishes, so "never returns" would leave the device clipboard destroyed.
 const CLIPBOARD_CMD_TIMEOUT_MS = 5_000
 // A run reset's device-wide commands take about a second each (measured: keychain 1.0 s, privacy 0.5 s, location 0.5 s).
+// A command this bound kills does not land later, which is why iOS needs nothing like Android's pending `pm clear` wait:
+// measured on iOS 26.5 by killing `simctl uninstall` and `simctl keychain reset` mid-flight, each either finished before
+// the kill or never happened, nothing changed in the 3 s after, and an install or keychain add sent right after the kill
+// survived — CoreSimulatorService runs a device's requests in order.
 const RESET_CMD_TIMEOUT_MS = 10_000
 // `Booted` appears in `simctl list` before the system services are up: `bootstatus` took 6–28 s more on an iOS 26.5
 // simulator. A reset sent in that gap reaches tccd and securityd before they serve.
