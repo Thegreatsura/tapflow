@@ -16,6 +16,7 @@ export {
   ENVIRONMENTAL_INPUT_REASONS,
   InputRefusedError,
   InputUnconfirmedError,
+  LeaseRefusedError,
   RelayClient,
   RelayUnavailableError,
   RelayClosedError,
@@ -26,7 +27,7 @@ export {
   SessionLeftError,
   SessionUnavailableError,
 } from './RelayClient.js'
-export type { AgentSession, AdmissionReason, BootOutcome, DeviceInfo, StreamListener } from './RelayClient.js'
+export type { AgentSession, AdmissionReason, BootOutcome, DeviceInfo, Lease, LeaseRequest, StreamListener } from './RelayClient.js'
 export { VideoTap, VIDEO_FORMAT_VERSION, MAX_FLOW_VIDEO_BYTES, carriesParameterSets } from './video.js'
 export type { VideoChunk, VideoEndReason, VideoMeta, VideoSink } from './video.js'
 export { RelayDriver } from './RelayDriver.js'

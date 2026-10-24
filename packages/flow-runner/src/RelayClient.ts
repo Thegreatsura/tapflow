@@ -260,9 +260,10 @@ const BOOT_REFUSALS: Record<BootRefusalReason, true> = {
 /**
  * A refusal this client knows by name, or `unrecognised-refusal` for one a newer relay added. Only the relay's
  * admission gate puts a `reason` on a refused boot, and it refuses only a Mac that is busy, so a reason this build
- * has never heard of is waited out like the others rather than failing the run as broken.
+ * has never heard of is waited out like the others rather than failing the run as broken. `all-held` is a lease's:
+ * every fitting device is in use, which also passes.
  */
-export type AdmissionReason = AdmissionRefusal | 'unrecognised-refusal'
+export type AdmissionReason = AdmissionRefusal | 'all-held' | 'unrecognised-refusal'
 
 /**
  * A boot the relay refused before it reached an agent, because another boot on the same Mac has not settled
@@ -273,6 +274,37 @@ export class AdmissionRefusedError extends PlatformError {
   constructor(message: string, readonly reason: AdmissionReason, options?: ErrorOptions) {
     super(message, options)
   }
+}
+
+/**
+ * A lease the relay cannot serve however long this client waits: no device of the platform (`no-device`), or no
+ * platform it could read (`bad-request`). A lease refused for a busy Mac throws `AdmissionRefusedError` instead.
+ */
+export class LeaseRefusedError extends PlatformError {
+  constructor(message: string, readonly reason: 'no-device' | 'bad-request' | 'unrecognised', options?: ErrorOptions) {
+    super(message, options)
+  }
+}
+
+/** What the relay chose for a lease, and what the boot it sent said. */
+export interface Lease {
+  sessionId: string
+  deviceId: string
+  deviceName: string
+  platform: 'ios' | 'android'
+  /** `pool`: a device automation had left up. `boot`: one started for this lease. */
+  source: 'pool' | 'boot'
+  watchUrl: string
+  boot: BootOutcome
+}
+
+export interface LeaseRequest {
+  platform?: 'ios' | 'android'
+  buildId?: number
+  acceptH264?: boolean
+  serviceTier?: ServiceTier
+  runReset?: RunResetRequest
+  exclude?: string[]
 }
 
 // Protocol owns the wire shape. The name stays `DeviceInfo` because it is exported from this
@@ -422,7 +454,7 @@ export class RelayClient {
    *  Readable so a run record can name its runner (`POST /api/v1/runs`): the relay keeps a run live while a
    *  socket with this id is open. It goes to the relay only, which never serves it back — a local socket
    *  that learned it could claim this client's sessions. */
-  readonly clientId = randomUUID()
+  readonly clientId: string
   private waiters: Waiter[] = []
   /** Who is reading the stream this runner holds — the run's video (A4). None by default: frames are dropped. */
   private streamListener: StreamListener | null = null
@@ -432,11 +464,16 @@ export class RelayClient {
   /** Where the token comes from. A string is used as given; a `TokenSource` (`resolveToken`) is re-read on a 401. */
   private readonly tokens: TokenSource
 
+  /** `clientId`: share one between clients that hold devices for the same run, so the relay sees one holder — a run
+   *  stays open while any of their sockets does. Such clients must never join by id (`joinSession`): one owner may
+   *  re-join any session it holds, so a worker joining by id could take a sibling's device. They lease instead. */
   constructor(
     private readonly relayUrl: string,
     token: string | TokenSource,
+    opts: { clientId?: string } = {},
   ) {
     this.tokens = typeof token === 'string' ? fixedToken(token, relayUrl) : token
+    this.clientId = opts.clientId ?? randomUUID()
   }
 
   connect(): Promise<void> {
@@ -761,8 +798,11 @@ export class RelayClient {
     // No listener, no frames: a runner that is not recording discards every one, and the relay need not send them.
     this.joinedWithoutStream = !this.streamListener
     this.sendFirstRequest({ type: 'session:start', sessionId, clientKind: 'flow-runner', ...(this.streamListener ? {} : { stream: false }) })
-    const msg = await this.waitFor(
-      (m) =>
+    return this.joinReply(sessionId, await this.waitFor(this.joinAnswers(sessionId), 5_000, 'session join', sessionId))
+  }
+
+  private joinAnswers(sessionId: string): (m: RelayMsg) => boolean {
+    return (m) =>
         (m['type'] === 'session:joined' && m['sessionId'] === sessionId) ||
         // No `=== undefined` escape — see the twin in `mcp-server`. `error` carries an address as of L5d, and
         // the escape *was* #512's first finding: with no such key the left half was always true, so any
@@ -771,11 +811,10 @@ export class RelayClient {
         // it was refused. Taken deliberately: there is no version handshake in this protocol, and the
         // alternative is a fallback, which is the ambiguity this work removes. Logged once per **client**,
         // not per session — a relay is per client, and the frame carries no session to key on anyway.
-        (m['type'] === 'error' && m['sessionId'] === sessionId),
-      5_000,
-      'session join',
-      sessionId,
-    )
+        (m['type'] === 'error' && m['sessionId'] === sessionId)
+  }
+
+  private joinReply(sessionId: string, msg: RelayMsg): { watchUrl: string } {
     if (msg['type'] !== 'error') return { watchUrl: this.watchUrlFor(sessionId, msg['watchUrl']) }
     // `reason` is what #506 added this field for: the dashboard was branching on the free prose, handled two
     // of the three wordings, and dropped `Session busy` silently. This client was still reading the prose.
@@ -828,12 +867,14 @@ export class RelayClient {
   async bootDevice(sessionId: string, deviceId: string, opts: { acceptH264?: boolean; serviceTier?: ServiceTier; runReset?: RunResetRequest } = {}): Promise<BootOutcome> {
     const requestId = randomUUID()
     this.send({ type: 'device:boot', sessionId, requestId, payload: { deviceId, ...(opts.acceptH264 ? { acceptH264: true } : {}), ...(opts.serviceTier ? { serviceTier: opts.serviceTier } : {}), ...(opts.runReset ? { runReset: opts.runReset } : {}) } })
-    const msg = await this.waitFor(
-      (m) => (m['type'] === 'device:ready' || m['type'] === 'device:boot-error') && m['sessionId'] === sessionId && correlatesWith(m, requestId),
-      BOOT_DEADLINE_MS,
-      'device boot',
-      sessionId,
-    )
+    return this.bootReply(sessionId, await this.waitFor(this.bootAnswers(sessionId, requestId), BOOT_DEADLINE_MS, 'device boot', sessionId))
+  }
+
+  private bootAnswers(sessionId: string, requestId: string): (m: RelayMsg) => boolean {
+    return (m) => (m['type'] === 'device:ready' || m['type'] === 'device:boot-error') && m['sessionId'] === sessionId && correlatesWith(m, requestId)
+  }
+
+  private bootReply(sessionId: string, msg: RelayMsg): BootOutcome {
     // A stranded boot arrives here as the relay's correlated `device:boot-error` (#885), after the
     // `session:rebound` that set `needsReboot` — so `failed()` carries the rebound cause and the
     // driver reads it as environmental. Against an older relay nothing answers it and the deadline
@@ -852,6 +893,88 @@ export class RelayClient {
     const s = this.lifecycle.get(sessionId)
     if (s) s.needsReboot = false
     return readyOutcome(msg['payload'])
+  }
+
+  /** Whether the relay serves `device:lease`. An older one drops the message without a word, so ask first. */
+  async canLease(): Promise<boolean> {
+    this.sendFirstRequest({ type: 'agents:list' })
+    const msg = await this.waitFor((m) => m['type'] === 'agents:listed', 5_000, 'agents:list')
+    const features = msg['features']
+    return Array.isArray(features) && features.includes('device-lease')
+  }
+
+  /**
+   * Ask the relay for a device of a platform (or a build's): it chooses one, makes this client its holder and boots
+   * it. Resolves once the boot is ready. A busy Mac or every device in use throws `AdmissionRefusedError`, which
+   * `retryAdmission` waits out; a lease that can never be served throws `LeaseRefusedError`. A join or boot failure
+   * after the device was chosen throws as `joinSession` and `bootDevice` would, after leaving the session.
+   *
+   * The join's and the boot's waiters are armed **inside** the predicate that sees `device:leased`, not after the
+   * await. The relay sends the lease, the join and often the boot's refusal in one burst, and `ws` delivers frames of
+   * one read back to back, so a waiter registered by the continuation would miss them.
+   */
+  async lease(req: LeaseRequest): Promise<Lease> {
+    const requestId = randomUUID()
+    this.joinedWithoutStream = !this.streamListener
+    let joined: Promise<RelayMsg> | undefined
+    let booted: Promise<RelayMsg> | undefined
+    this.sendFirstRequest({
+      type: 'device:lease', requestId,
+      payload: {
+        ...(req.platform ? { platform: req.platform } : {}),
+        ...(req.buildId !== undefined ? { buildId: req.buildId } : {}),
+        ...(req.acceptH264 ? { acceptH264: true } : {}),
+        ...(req.serviceTier ? { serviceTier: req.serviceTier } : {}),
+        ...(req.runReset ? { runReset: req.runReset } : {}),
+        ...(req.exclude?.length ? { exclude: req.exclude } : {}),
+        ...(this.streamListener ? {} : { stream: false }),
+      },
+    })
+    const answer = await this.waitFor((m) => {
+      if (m['requestId'] !== requestId) return false
+      if (m['type'] === 'device:lease-refused') return true
+      if (m['type'] !== 'device:leased' || typeof m['sessionId'] !== 'string') return false
+      const sessionId = m['sessionId']
+      joined = this.waitFor(this.joinAnswers(sessionId), 5_000, 'session join', sessionId)
+      booted = this.waitFor(this.bootAnswers(sessionId, requestId), BOOT_DEADLINE_MS, 'device boot', sessionId)
+      // Settled by `settleSessionWaiters` when the join fails; nothing else reads it then.
+      booted.catch(() => {})
+      return true
+    }, 10_000, 'device lease')
+
+    if (answer['type'] === 'device:lease-refused') {
+      const reason = String(answer['reason'])
+      const message = `lease refused (${reason}): ${(answer['message'] as string) ?? 'no detail'}`
+      if (reason === 'no-device' || reason === 'bad-request') throw new LeaseRefusedError(message, reason)
+      if (answer['retryable'] === false) throw new LeaseRefusedError(message, 'unrecognised')
+      const known: AdmissionReason = Object.hasOwn(BOOT_REFUSALS, reason) || reason === 'agent-resources-exhausted' || reason === 'all-held'
+        ? reason as AdmissionReason : 'unrecognised-refusal'
+      throw new AdmissionRefusedError(message, known)
+    }
+    const sessionId = answer['sessionId'] as string
+    try {
+      let watchUrl: string
+      try {
+        watchUrl = this.joinReply(sessionId, await joined!).watchUrl
+      } catch (e) {
+        this.settleSessionWaiters(sessionId, () => e as Error)
+        throw e
+      }
+      return {
+        sessionId,
+        deviceId: answer['deviceId'] as string,
+        deviceName: answer['deviceName'] as string,
+        platform: answer['platform'] as 'ios' | 'android',
+        source: answer['source'] === 'pool' ? 'pool' : 'boot',
+        watchUrl,
+        boot: this.bootReply(sessionId, await booted!),
+      }
+    } catch (e) {
+      // The caller never learns this session's id, so it could not leave it; held, it would stay this run's until the
+      // run's last socket closed, and a retry would be handed another device. Not connected: the close let it go.
+      try { this.leaveSession(sessionId) } catch { /* not connected */ }
+      throw e
+    }
   }
 
   async installApp(sessionId: string, buildId: number): Promise<void> {

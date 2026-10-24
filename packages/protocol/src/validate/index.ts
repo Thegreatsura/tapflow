@@ -57,7 +57,7 @@ import type {
   AppClearStateError, AppInstallDone, AppInstallError, AppInstallToRelay, AppLaunchDone,
   AppLaunchError, AppLaunchToRelay, RunResetItem, RunResetReport, ServiceTier, ClipboardData, ClipboardError, ClipboardRead, ClipboardWrite,
   NetworkError, NetworkSet, NetworkState,
-  ClipboardWriteDone, DeviceBoot, DeviceBootError, DeviceBooting, DeviceReady, DeviceShutdown,
+  ClipboardWriteDone, DeviceBoot, DeviceBootError, DeviceLease, DeviceBooting, DeviceReady, DeviceShutdown,
   DeviceShutdownDone, DeviceShutdownError, InputButton, InputDone, InputError, InputKey, InputKeyboardToggle,
   InputPinchEnd, InputPinchMove, InputPinchStart, InputPosture, InputRotate, InputTouchEnd, InputTouchMove,
   InputTouchStart, InputType, InputTypeDone, InputTypeError, KeyboardToggled, OpenUrl, OpenUrlDone,
@@ -152,6 +152,23 @@ const BROWSER_INBOUND = {
       // reads the absence and warns rather than being refused for an optional feature.
       runReset: runResetRequest.optional().catch(undefined),
     }),
+  }),
+  // Every payload field reads an unusable value as absent, and the payload itself does too: the message has no
+  // session, so a refusal here would have no address and the client would wait out its deadline. The relay
+  // answers what it cannot serve (`device:lease-refused`, `bad-request`). Only a bad `requestId` drops the frame,
+  // and then nothing could have been answered anyway.
+  'device:lease': z.object({
+    type: z.literal('device:lease'),
+    requestId,
+    payload: z.object({
+      platform: z.enum(['ios', 'android']).optional().catch(undefined),
+      buildId: z.number().int().positive().optional().catch(undefined),
+      serviceTier: serviceTier.optional().catch(undefined),
+      acceptH264: z.boolean().optional().catch(undefined),
+      runReset: runResetRequest.optional().catch(undefined),
+      stream: z.boolean().optional().catch(undefined),
+      exclude: z.array(sessionId).max(64).optional().catch(undefined),
+    }).catch({}),
   }),
   'device:shutdown': z.object({
     type: z.literal('device:shutdown'),
@@ -558,6 +575,7 @@ type _SessionStart = Assert<V<'session:start', SessionStart>>
 type _SessionEnd = Assert<V<'session:end', SessionEnd>>
 type _SessionLeave = Assert<V<'session:leave', SessionLeave>>
 type _DeviceBoot = Assert<V<'device:boot', DeviceBoot>>
+type _DeviceLease = Assert<V<'device:lease', DeviceLease>>
 type _DeviceShutdown = Assert<V<'device:shutdown', DeviceShutdown>>
 type _AppInstall = Assert<V<'app:install', AppInstallToRelay>>
 type _AppLaunch = Assert<V<'app:launch', AppLaunchToRelay>>

@@ -360,6 +360,19 @@ export class HostBootGate<M> {
     return fx
   }
 
+  /**
+   * What `admit` would answer an automated cold boot on this Mac now — `null` for go — without recording anything.
+   * A lease tries Macs in turn, and an `admit` per candidate would stamp a refusal on each Mac it passed over: that
+   * stamp is what opens an aging window for automation, so people on those Macs would be made to wait for a boot
+   * that went elsewhere. Mirrors the automated branch of `admit` and must move with it.
+   */
+  wouldRefuseAutomated(hostKey: string): BootRefusalReason | null {
+    const host = this.hosts.get(hostKey)
+    if (!host) return null
+    if (this.isCritical(host)) return 'host-memory-critical'
+    return host.slot === null && (host.agingWindowUntil !== null || host.reservation === null) ? null : 'host-booting'
+  }
+
   /** Whether a cold boot is being paid for on this Mac now. The relay pauses its CPU join gate while it is. */
   isBooting(hostKey: string): boolean {
     return this.hosts.get(hostKey)?.slot != null
