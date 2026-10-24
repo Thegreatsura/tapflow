@@ -110,8 +110,9 @@ describe('a relay client outlives the agent boot it is waiting on', () => {
     }
   })
 
-  // A boot from `flow run` can carry a run reset, which the agent carries out before `device:ready`: its budget and the
-  // one step that may be in flight when it runs out come after the poll. Only flow-runner sends one; MCP never does.
+  // A boot from `flow run` can carry a run reset, which the agent carries out before `device:ready`: its budget, the one
+  // step that may be in flight when it runs out, and Android's wait for a `pm clear` that step timed out on (one more
+  // step's time) come after the poll. Only flow-runner sends one; MCP never does.
   it('the client that asks for a run reset also clears the reset it asked for', () => {
     const budget = valueOf({ file: 'packages/agent-core/src/utils/runReset.ts', pattern: /RUN_RESET_BUDGET_MS = ([\d_]+)/ })
     const steps = [
@@ -119,11 +120,11 @@ describe('a relay client outlives the agent boot it is waiting on', () => {
       valueOf({ file: 'packages/android-agent/src/AndroidAgent.ts', pattern: /RUN_RESET_CMD_TIMEOUT_MS = ([\d_]+)/ }),
     ]
     for (const v of [budget, ...steps]) expect(v).toBeGreaterThan(0)
-    const ceiling = Math.max(...CEILINGS.map(valueOf)) + budget + Math.max(...steps)
+    const ceiling = Math.max(...CEILINGS.map(valueOf)) + budget + 2 * Math.max(...steps)
     const deadline = valueOf(DEADLINES.find((d) => d.what === 'flow-runner bootDevice'))
     expect(
       deadline - ceiling,
-      `flow-runner bootDevice is ${deadline}ms against ${ceiling}ms of poll, reset budget and one reset step`,
+      `flow-runner bootDevice is ${deadline}ms against ${ceiling}ms of poll, reset budget and two reset steps`,
     ).toBeGreaterThanOrEqual(MIN_MARGIN_MS)
   })
 

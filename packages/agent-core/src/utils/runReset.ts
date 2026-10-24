@@ -11,7 +11,8 @@ export const RESETTABLE_APP_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 /**
  * How long a whole run reset may take, the wait for the device's services included. It runs before `device:ready`, so
  * it adds to the boot a client is waiting on: `scripts/__tests__/bootDeadlineOutlivesAgent.test.mjs` holds the client
- * that asks for it (flow-runner) to the slowest boot poll plus this plus one step's own timeout. A step not started by
+ * that asks for it (flow-runner) to the slowest boot poll plus this plus two steps' own timeouts (the one in flight,
+ * and Android's wait for a `pm clear` it timed out on). A step not started by
  * then is reported failed rather than run.
  */
 export const RUN_RESET_BUDGET_MS = 60_000

@@ -1856,15 +1856,37 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     const serial = this.adb.getSerial(state.deviceId)
     const apps = [...new Set([...request.uninstall, ...request.clear])]
     const steps: RunResetStep[] = []
+    // `bounded` releases the wait, not the adb child: a `pm clear` that timed out may still land. The run installs its
+    // app right after the ready, so the ready waits for these to settle (below) rather than racing them.
+    const clearing: Promise<unknown>[] = []
     if (apps.length > 0 && serial) {
-      steps.push({ item: 'app-data', run: () => resetApps(apps, (id) => bounded(this.adb.clearAppDataIfInstalled(serial, id), RUN_RESET_CMD_TIMEOUT_MS, `pm clear ${id}`), stop) })
+      const clear = (id: string) => {
+        const work = this.adb.clearAppDataIfInstalled(serial, id)
+        clearing.push(work.catch(() => {}))
+        return bounded(work, RUN_RESET_CMD_TIMEOUT_MS, `pm clear ${id}`)
+      }
+      steps.push({ item: 'app-data', run: () => resetApps(apps, clear, stop) })
     }
     const client = state.grpcClient
     if (client) {
-      // Through the clipboard queue: a clipboard read in flight parks a sentinel on this clipboard.
-      steps.push({ item: 'pasteboard', run: () => this.clipboardQueue(state.deviceId, () => bounded(client.setClipboard(''), RUN_RESET_CMD_TIMEOUT_MS, 'clipboard clear')) })
+      // Through the clipboard queue: a clipboard read in flight parks a sentinel on this clipboard. Read back, because
+      // `setClipboard` resolves when the change is scheduled, not when it is applied — the write path does the same.
+      const clearClipboard = async () => {
+        await client.setClipboard('')
+        const applied = Date.now() + CLIPBOARD_WRITE_DEADLINE_MS
+        while ((await client.getClipboard().catch(() => null)) !== '') {
+          if (Date.now() >= applied) throw new PlatformError('the device clipboard did not take the clear')
+          await new Promise((r) => setTimeout(r, CLIPBOARD_POLL_MS))
+        }
+      }
+      steps.push({ item: 'pasteboard', run: () => this.clipboardQueue(state.deviceId, () => bounded(clearClipboard(), RUN_RESET_CMD_TIMEOUT_MS, 'clipboard clear')) })
     }
-    return runResetSteps(steps, isStale, (item, e) => logger.warn(`run reset: ${item} failed: ${(e as Error).message}`), deadline)
+    const report = await runResetSteps(steps, isStale, (item, e) => logger.warn(`run reset: ${item} failed: ${(e as Error).message}`), deadline)
+    // One more step's time at most: an adb that never answers would hold the install the run sends next anyway.
+    await bounded(Promise.all(clearing), RUN_RESET_CMD_TIMEOUT_MS, 'waiting for a late pm clear').catch((e: unknown) => {
+      logger.warn(`run reset: ${(e as Error).message}; the run's install may race it`)
+    })
+    return report
   }
 
   private async handleDeviceBoot(sessionId: string, avdId: string, fullErase = false, tier?: { secureContext: boolean; external: boolean }, requestId?: string, runReset?: RunResetRequest): Promise<void> {

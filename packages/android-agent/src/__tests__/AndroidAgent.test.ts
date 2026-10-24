@@ -3696,6 +3696,26 @@ describe('AndroidAgent', () => {
       beforeEach(() => { grpcClipboardText = ''; grpcClipboardError = null; grpcClipboardApplyDelayMs = 0 })
       afterEach(() => { grpcClipboardError = null; grpcClipboardApplyDelayMs = 0 })
 
+      // `setClipboard` only schedules the change, so the step is done once the clipboard reads back empty — not before.
+      it('reports the clipboard reset only after the clipboard reads back empty', async () => {
+        grpcClipboardText = 'left by the last run'
+        grpcClipboardApplyDelayMs = 150
+        try {
+          browser = new WebSocket(`ws://localhost:${port}`)
+          await waitForOpen(browser)
+          browser.send(JSON.stringify({ type: 'session:start', sessionId: agent.sessionId }))
+          await waitForType(browser, 'session:joined')
+          const readyPromise = waitForType(browser, 'device:ready')
+          browser.send(JSON.stringify({ type: 'device:boot', requestId: 'rq-reset-clip', sessionId: agent.sessionId, payload: { deviceId: 'avd:Pixel_8_API_34', runReset: { uninstall: [], clear: [] } } }))
+          const ready = await readyPromise
+          expect((ready['payload'] as { runReset?: unknown }).runReset).toEqual({ done: ['pasteboard'], failed: [] })
+          expect(grpcClipboardText).toBe('')
+        } finally {
+          grpcClipboardApplyDelayMs = 0
+          grpcClipboardText = ''
+        }
+      })
+
       // Same gate as iOS: the viewer only enables the bridge when this arrives.
       it('advertises the clipboard capability all the way to the viewer', async () => {
         browser = new WebSocket(`ws://localhost:${port}`)
