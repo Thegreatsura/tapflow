@@ -15,7 +15,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import { directionOf, parseInbound, readServiceTier, readyFacts } from '../validate/index.js'
+import { directionOf, parseInbound, readRunResetReport, readServiceTier, readyFacts } from '../validate/index.js'
 
 /** The narrowing every test does. Written once because `parseInbound` returns a union and each test
  *  would otherwise repeat the same four lines to reach `msg`. */
@@ -396,5 +396,32 @@ describe('readServiceTier checks a tier from outside a frame against the boot\'s
     expect(readServiceTier({ name: 'slim' })).toBeUndefined()
     expect(readServiceTier('slim')).toBeUndefined()
     expect(readServiceTier(undefined)).toBeUndefined()
+  })
+})
+
+describe('a boot can ask for a run reset', () => {
+  const boot = (runReset: unknown) => parseInbound({ type: 'device:boot', sessionId: 's', requestId: 'r', payload: { deviceId: 'd', runReset } })
+  const payloadOf = (r: ReturnType<typeof boot>) => (r.ok ? (r.msg as { payload: Record<string, unknown> }).payload : undefined)
+  it('forwards a well-formed request', () => {
+    expect(payloadOf(boot({ uninstall: ['com.example.app'], clear: [] }))?.runReset).toEqual({ uninstall: ['com.example.app'], clear: [] })
+  })
+  // The agent's report is the evidence, so a reset that cannot be read is dropped and the run warns — the boot stands.
+  it('drops a malformed request and keeps the boot', () => {
+    for (const bad of [{ uninstall: 'com.example.app', clear: [] }, { uninstall: [''], clear: [] }, { uninstall: Array(33).fill('a'), clear: [] }, 'yes']) {
+      const r = boot(bad)
+      expect(r.ok).toBe(true)
+      // What the agent receives is the serialized product, and `undefined` does not survive it.
+      expect(JSON.parse(JSON.stringify(payloadOf(r)))).not.toHaveProperty('runReset')
+    }
+  })
+})
+
+describe('readRunResetReport reads what an agent reported resetting', () => {
+  it('keeps the items it knows and drops the rest', () => {
+    expect(readRunResetReport({ done: ['keychain', 'teleport'], failed: ['location'] })).toEqual({ done: ['keychain'], failed: ['location'] })
+  })
+  it('is undefined for anything that is not a report', () => {
+    expect(readRunResetReport({ done: ['keychain'] })).toBeUndefined()
+    expect(readRunResetReport(undefined)).toBeUndefined()
   })
 })

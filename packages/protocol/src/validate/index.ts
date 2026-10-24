@@ -55,7 +55,7 @@ import * as z from 'zod'
 import type {
   AgentRegister, AgentResourceReport, AgentsList, AppClearState, AppClearStateDone,
   AppClearStateError, AppInstallDone, AppInstallError, AppInstallToRelay, AppLaunchDone,
-  AppLaunchError, AppLaunchToRelay, ServiceTier, ClipboardData, ClipboardError, ClipboardRead, ClipboardWrite,
+  AppLaunchError, AppLaunchToRelay, RunResetItem, RunResetReport, ServiceTier, ClipboardData, ClipboardError, ClipboardRead, ClipboardWrite,
   NetworkError, NetworkSet, NetworkState,
   ClipboardWriteDone, DeviceBoot, DeviceBootError, DeviceBooting, DeviceReady, DeviceShutdown,
   DeviceShutdownDone, DeviceShutdownError, InputButton, InputDone, InputError, InputKey, InputKeyboardToggle,
@@ -83,6 +83,13 @@ const SERVICE_FEATURES = [
 const serviceTier = z.object({ name: z.enum(['stock', 'lean', 'slim']), keep: z.array(z.enum(SERVICE_FEATURES)) })
 /** A tier as an agent reports it. Anything this relay does not know reads as absent rather than refusing the frame. */
 const reportedTier = z.union([serviceTier, z.literal('unsupported')]).optional().catch(undefined)
+
+const RUN_RESET_ITEMS = ['app-uninstall', 'app-files', 'app-data', 'keychain', 'privacy-services', 'pasteboard', 'location'] as const
+const appIds = z.array(z.string().min(1).max(255)).max(32)
+const runResetRequest = z.object({ uninstall: appIds, clear: appIds })
+/** An item this reader does not know is dropped rather than failing the report: a newer agent may reset more. */
+const runResetItems = z.array(z.unknown()).transform((items) => items.filter((i): i is RunResetItem => (RUN_RESET_ITEMS as readonly unknown[]).includes(i)))
+const runResetReport = z.object({ done: runResetItems, failed: runResetItems })
 
 const sessionId = z.string().min(1)
 const requestId = z.string().min(1)
@@ -141,6 +148,9 @@ const BROWSER_INBOUND = {
       acceptH264: z.boolean().optional(),
       secureContext: z.boolean().optional(),
       serviceTier: serviceTier.optional(),
+      // A malformed one drops the reset, never the boot: the agent's report is what says a reset happened, so a run
+      // reads the absence and warns rather than being refused for an optional feature.
+      runReset: runResetRequest.optional().catch(undefined),
     }),
   }),
   'device:shutdown': z.object({
@@ -623,6 +633,15 @@ export function readyFacts(frame: unknown): { cold?: boolean; serviceTier?: Serv
   if (!result.success) return {}
   const { cold, serviceTier: tier } = result.data.payload
   return { ...(cold !== undefined ? { cold } : {}), ...(tier !== undefined ? { serviceTier: tier } : {}) }
+}
+
+/**
+ * What an agent reported resetting, from a run record's body, or `undefined` when it is not a report. Items this relay
+ * does not know are dropped, not the report.
+ */
+export function readRunResetReport(value: unknown): RunResetReport | undefined {
+  const result = runResetReport.safeParse(value)
+  return result.success ? result.data : undefined
 }
 
 /**

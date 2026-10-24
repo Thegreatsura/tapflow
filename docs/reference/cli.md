@@ -386,12 +386,15 @@ tapflow flow run .tapflow/flows/login-smoke.yaml
 | `--keep <features>` | — | Features to keep on under `--service-tier` (comma-separated), such as `push,photos` |
 | `--admission-timeout <seconds>` | `600` | Longest wait while another device boots on the same Mac, the Mac is critically short of memory, every automation device the Mac allows is in use, or it is over its CPU or memory limit (seconds). Past it, the run stops with exit code `2`. |
 | `--no-record` | — | Do not record this run on the relay |
+| `--no-reset` | — | Keep what earlier runs left on the device. See below. |
 | `--include-tags <tags>` | — | Run only flows tagged with at least one of these (comma-separated) |
 | `--exclude-tags <tags>` | — | Skip flows tagged with any of these (comma-separated). Wins over `--include-tags`. |
 
 With neither `--session` nor `--device`, it uses the booted device when exactly one is booted. With none booted, or more than one, it stops with an environment error.
 
 `--service-tier slim` boots the device with almost every background service off, which makes its boot lighter on the other sessions of the same Mac: measured on an 8 GB Mac, the time the boot kept the CPU saturated fell from 20–49 s with `lean` to 7–14 s. It also turns off push, StoreKit, Wallet, photos, contacts, widgets, Spotlight and on-device models, so name what your app needs with `--keep`: `push`, `storekit`, `app-store`, `universal-links`, `spotlight`, `siri`, `icloud`, `keychain-sync`, `contacts`, `calendar`, `reminders`, `mail`, `photos`, `health`, `homekit`, `imessage`, `widgets`, `wallet`, `maps`, `weather`, `news`, `game-center`, `find-my`, `screen-time`. A device already running on another tier is restarted onto the one you ask for. Without the option, the device boots as the agent is set (`agent.lean`), the same as when a person picks it.
+
+Before the flows run, the device is reset so a run does not start from what an earlier one left. On iOS, the build the run installs is uninstalled first when the relay can say which app it is (a token with `builds:write`), which also removes its notification and privacy permissions. Other apps the flows name, or the build when the relay cannot say which app it is, have their data cleared. On iOS the keychain, the privacy permissions `simctl privacy` manages, the pasteboard and the simulated location are reset too, for every app on the device, so point a run at a device a person is using only if that is acceptable. Root certificates added with `simctl keychain add-root-cert` stay trusted. On Android the reset clears the data of the build and the apps the flows name, and the clipboard of an emulator streaming over gRPC (the default). The run prints what it reset, and warns when the agent or relay is too old to reset. Pass `--no-reset` to keep the device as it is.
 
 A Mac boots one device at a time, because a booting device slows the other sessions on that Mac. When another device is booting, the run lets go of its session, waits, and tries again, printing why it is waiting. A boot a person started goes ahead of a waiting run.
 

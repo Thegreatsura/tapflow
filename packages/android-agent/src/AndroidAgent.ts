@@ -8,7 +8,7 @@ import type {
 import { formFactorOf } from './avdConfig.js'
 import type {
   AgentControlOutbound, ClipboardReplyBody, OpenUrlReplyBody,
-  AppInstallReplyBody, AppLaunchReplyBody, AppClearStateReplyBody, DevicePosture, FormFactor,
+  AppInstallReplyBody, AppLaunchReplyBody, AppClearStateReplyBody, DevicePosture, FormFactor, RunResetReport, RunResetRequest,
 } from '@tapflowio/protocol'
 import fs from 'fs'
 import path from 'path'
@@ -43,6 +43,9 @@ import {
   CODEC_H264,
   CODEC_AUDIO,
   sendAudioYieldingToVideo,
+  resetApps,
+  runResetSteps,
+  type RunResetStep,
 } from '@tapflowio/agent-core/utils'
 import { execFile } from 'child_process'
 import { AdbWrapper } from './AdbWrapper.js'
@@ -367,6 +370,9 @@ export interface AndroidAgentOptions {
   /** An AVD's form factor by name, for `agent:register`. Defaults to reading its config.ini (`avdConfig`). */
   avdFormFactor?: (avdName: string) => FormFactor | undefined
 }
+
+/** One `pm clear` or clipboard write of a run reset. */
+const RUN_RESET_CMD_TIMEOUT_MS = 10_000
 
 // Everything inside the per-device clipboard section must be bounded, or one stuck call wedges
 // every later copy/paste on that device. gRPC carries its own deadline; adb does not (and a
@@ -1838,7 +1844,27 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
   // `requestId` is a parameter, never a field on `state`: `bootSeq` exists because two boots overlap,
   // and a correlator hoisted onto shared state would answer the first request with the second's id.
   // Optional because the relay's idle timer boots nothing — but every *browser* boot carries one.
-  private async handleDeviceBoot(sessionId: string, avdId: string, fullErase = false, tier?: { secureContext: boolean; external: boolean }, requestId?: string): Promise<void> {
+  /**
+   * What `flow run` asks reset before a run. `pm clear` takes the app's files, its runtime permissions and its process
+   * together, and an install after it keeps the now-empty data — so both lists get it. The keychain, privacy and
+   * location items have no Android counterpart here and are never reported.
+   */
+  private async resetForRun(state: DeviceState, request: RunResetRequest, isStale: () => boolean): Promise<RunResetReport> {
+    const serial = this.adb.getSerial(state.deviceId)
+    const apps = [...new Set([...request.uninstall, ...request.clear])]
+    const steps: RunResetStep[] = []
+    if (apps.length > 0 && serial) {
+      steps.push({ item: 'app-data', run: () => resetApps(apps, (id) => bounded(this.adb.clearAppDataIfInstalled(serial, id), RUN_RESET_CMD_TIMEOUT_MS, `pm clear ${id}`), isStale) })
+    }
+    const client = state.grpcClient
+    if (client) {
+      // Through the clipboard queue: a clipboard read in flight parks a sentinel on this clipboard.
+      steps.push({ item: 'pasteboard', run: () => this.clipboardQueue(state.deviceId, () => bounded(client.setClipboard(''), RUN_RESET_CMD_TIMEOUT_MS, 'clipboard clear')) })
+    }
+    return runResetSteps(steps, isStale, (item, e) => logger.warn(`run reset: ${item} failed: ${(e as Error).message}`))
+  }
+
+  private async handleDeviceBoot(sessionId: string, avdId: string, fullErase = false, tier?: { secureContext: boolean; external: boolean }, requestId?: string, runReset?: RunResetRequest): Promise<void> {
     const state = this.deviceStates.get(sessionId)
     // Split, because the two halves are not the same kind of nothing. No open control channel means the
     // answer itself has nowhere to go, so this is the one abandonment that stays silent — and the caller
@@ -1965,10 +1991,14 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
 
       await this.startVideoStream(state, streamWs, () => seq === state.bootSeq)
       if (seq !== state.bootSeq) { this.abandonBoot(state, seq, sessionId, requestId); return }
+      // After the stream, which is what opens the gRPC client the clipboard goes through; before the ready, since the
+      // run installs its app after it and the report rides on it.
+      const runResetReport = runReset ? await this.resetForRun(state, runReset, () => seq !== state.bootSeq) : undefined
+      if (seq !== state.bootSeq) { this.abandonBoot(state, seq, sessionId, requestId); return }
       this.sendChrome(state)
       void this.sendPostures(state)
       state.booted = true
-      this.sendMsg({ type: 'device:ready', sessionId, requestId, payload: { deviceId: avdId, cold: launched } })
+      this.sendMsg({ type: 'device:ready', sessionId, requestId, payload: { deviceId: avdId, cold: launched, ...(runResetReport ? { runReset: runResetReport } : {}) } })
       // Clear a network condition the last session left behind, then report (#607).
       //
       // **At boot rather than at teardown**, because airplane mode lives in the AVD's userdata and
@@ -2511,8 +2541,8 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
   private handleRelayMessage(msg: { type: string; sessionId: string; requestId?: string; payload?: unknown }): void {
     switch (msg.type) {
       case 'device:boot': {
-        const { deviceId, resetMode, secureContext, external } = msg.payload as { deviceId: string; resetMode?: 'app-only' | 'full-erase'; secureContext?: boolean; external?: boolean }
-        this.handleDeviceBoot(msg.sessionId, deviceId, resetMode === 'full-erase', { secureContext: !!secureContext, external: !!external }, msg.requestId)
+        const { deviceId, resetMode, secureContext, external, runReset } = msg.payload as { deviceId: string; resetMode?: 'app-only' | 'full-erase'; secureContext?: boolean; external?: boolean; runReset?: RunResetRequest }
+        this.handleDeviceBoot(msg.sessionId, deviceId, resetMode === 'full-erase', { secureContext: !!secureContext, external: !!external }, msg.requestId, runReset)
           .catch((e) => logger.error('handleDeviceBoot failed:', e))
         break
       }

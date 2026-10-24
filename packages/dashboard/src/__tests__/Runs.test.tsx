@@ -14,6 +14,7 @@ function listItem(overrides: Partial<RunListItem> = {}): RunListItem {
     id: 'r1', status: 'passed', finishedBy: 'client', failureKind: null, errorMessage: null, exitCode: 0,
     isCi: true, ci: { provider: 'github', branch: 'main', commit: 'abcdef123456', jobUrl: 'https://github.com/o/r/actions/runs/1' },
     serviceTier: null,
+    deviceReset: null,
     build: { id: 7, appName: 'Coffee', versionName: '1.2.0', buildNumber: '42', platform: 'ios' },
     createdBy: 'ci', flowsTotal: 2, createdAt: '2026-10-11 01:00:00', finishedAt: '2026-10-11 01:01:05',
     flowsPassed: 2, flowsFailed: 0, flowsSkipped: 0,
@@ -263,6 +264,31 @@ describe('Run detail', () => {
     renderAt('/automation/runs/r1')
     await screen.findByRole('status')
     expect(screen.queryByText(/^Services/)).toBeNull()
+  })
+
+  it('says what the run\'s device was reset of, and nothing for a run that predates resets', async () => {
+    const cases: [Run['deviceReset'], string][] = [
+      [{ requested: true, booted: true, cold: false, report: { done: ['keychain'], failed: [] } }, 'reset, already running'],
+      [{ requested: true, booted: true, cold: true, report: { done: ['keychain'], failed: ['location', 'pasteboard'] } }, 'reset except location, pasteboard'],
+      // An empty report is an agent that had nothing to reset, not a reset.
+      [{ requested: true, booted: true, cold: true, report: { done: [], failed: [] } }, 'nothing reset'],
+      [{ requested: true, booted: true, cold: true }, 'reset not confirmed'],
+      [{ requested: false, booted: true }, 'not reset'],
+    ]
+    for (const [deviceReset, label] of cases) {
+      stubRelay(() => Response.json(detail({ deviceReset })))
+      const { unmount } = renderAt('/automation/runs/r1')
+      expect(await screen.findByText(label)).toBeTruthy()
+      unmount()
+    }
+    // Nothing for a run that predates resets, nor for one that never reached a device.
+    for (const deviceReset of [null, { requested: true }]) {
+      stubRelay(() => Response.json(detail({ deviceReset })))
+      const { unmount } = renderAt('/automation/runs/r1')
+      await screen.findByRole('status')
+      expect(screen.queryByText(/^Device/)).toBeNull()
+      unmount()
+    }
   })
 
   it('offers to watch only while the relay says which session the runner holds', async () => {

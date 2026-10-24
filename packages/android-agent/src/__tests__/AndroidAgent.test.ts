@@ -397,6 +397,70 @@ describe('AndroidAgent', () => {
       browser.close()
     })
 
+    describe('run reset (flow run)', () => {
+      /** A booted emulator where `installed` are the packages `pm path` finds. Returns the `pm` calls made. */
+      async function bootWithReset(runReset: unknown, installed: string[], pathFails?: Error) {
+        const adb = mockAdb(true)
+        const pm: string[] = []
+        const runner = (adb as unknown as { runner: AdbRunner }).runner
+        vi.mocked(runner.exec).mockImplementation(async (...args: string[]) => {
+          const at = args.indexOf('pm')
+          if (at < 0) return ''
+          const [verb, pkg] = [args[at + 1]!, args[at + 2]!]
+          // The boot reads `pm list packages` for itself (Lean mode); only the reset's two verbs are recorded.
+          if (verb !== 'path' && verb !== 'clear') return ''
+          pm.push(`${verb} ${pkg}`)
+          if (verb === 'path') {
+            if (pathFails) throw pathFails
+            // What `pm path` does for a package that is not installed: exit 1, no output.
+            if (!installed.includes(pkg)) throw Object.assign(new Error('Command failed'), { code: 1, stdout: '', stderr: '' })
+            return `package:/data/app/${pkg}/base.apk`
+          }
+          if (verb === 'clear') return 'Success'
+          return ''
+        })
+        const agent = new AndroidAgent({}, adb)
+        await agent.connect(`ws://localhost:${port}`)
+        const browser = new WebSocket(`ws://localhost:${port}`)
+        await waitForOpen(browser)
+        browser.send(JSON.stringify({ type: 'session:start', sessionId: agent.sessionId }))
+        await waitForType(browser, 'session:joined')
+        const readyPromise = waitForType(browser, 'device:ready')
+        browser.send(JSON.stringify({ type: 'device:boot', requestId: 'rq-reset', sessionId: agent.sessionId, payload: { deviceId: 'avd:Pixel_8_API_34', runReset } }))
+        const payload = (await readyPromise)['payload'] as Record<string, unknown>
+        agent.disconnect(); browser.close()
+        return { pm, payload }
+      }
+
+      it('clears every app it was named, installed ones only, and reports app-data', async () => {
+        const { pm, payload } = await bootWithReset({ uninstall: ['com.example.app'], clear: ['com.example.helper'] }, ['com.example.app'])
+        expect(pm).toEqual(['path com.example.app', 'clear com.example.app', 'path com.example.helper'])
+        // The scrcpy backend has no gRPC client, so the clipboard is not reset and not claimed.
+        expect(payload['runReset']).toEqual({ done: ['app-data'], failed: [] })
+      })
+
+      // Only "not installed" is nothing to clear: a device that cannot answer has cleared nothing.
+      it('fails app-data when the package manager cannot answer, rather than calling the app clean', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {})
+        const offline = Object.assign(new Error('Command failed'), { code: 1, stdout: '', stderr: 'error: device offline' })
+        const { payload } = await bootWithReset({ uninstall: ['com.example.app'], clear: [] }, ['com.example.app'], offline)
+        expect(payload['runReset']).toEqual({ done: [], failed: ['app-data'] })
+      })
+
+      it('never hands an id that is not an app id to the device shell', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {})
+        const { pm, payload } = await bootWithReset({ uninstall: [], clear: ['x;reboot'] }, [])
+        expect(pm).toEqual([])
+        expect(payload['runReset']).toEqual({ done: [], failed: ['app-data'] })
+      })
+
+      it('resets nothing for a boot that did not ask', async () => {
+        const { pm, payload } = await bootWithReset(undefined, ['com.example.app'])
+        expect(pm).toEqual([])
+        expect(payload).not.toHaveProperty('runReset')
+      })
+    })
+
   })
 
   // ── Lean mode: bundled apps kept disabled, reconciled after every boot ──────────────────────

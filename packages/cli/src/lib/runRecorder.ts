@@ -1,4 +1,4 @@
-import { fetchWithToken, fixedToken, tokenRefusal, type ServiceTier, type SkipReason, type TokenSource } from '@tapflowio/flow-runner'
+import { fetchWithToken, fixedToken, tokenRefusal, type BootOutcome, type ServiceTier, type SkipReason, type TokenSource } from '@tapflowio/flow-runner'
 import type { CiContext } from './ci.js'
 
 /**
@@ -86,7 +86,7 @@ export class RunRecorder {
     return this.id
   }
 
-  create(run: { client: string; buildId?: number; flows: PlannedFlow[]; ci: CiContext | null; serviceTier?: ServiceTier }): void {
+  create(run: { client: string; buildId?: number; flows: PlannedFlow[]; ci: CiContext | null; serviceTier?: ServiceTier; resetRequested?: boolean }): void {
     this.enqueue(false, async () => {
       try {
         await this.createRun(run)
@@ -96,13 +96,14 @@ export class RunRecorder {
     })
   }
 
-  private async createRun(run: { client: string; buildId?: number; flows: PlannedFlow[]; ci: CiContext | null; serviceTier?: ServiceTier }): Promise<void> {
+  private async createRun(run: { client: string; buildId?: number; flows: PlannedFlow[]; ci: CiContext | null; serviceTier?: ServiceTier; resetRequested?: boolean }): Promise<void> {
     const res = await this.post('/api/v1/runs', JSON.stringify({
       client: run.client,
       ...(run.buildId !== undefined ? { buildId: run.buildId } : {}),
       flows: run.flows,
       ...(run.ci ? { ci: run.ci } : {}),
       ...(run.serviceTier ? { serviceTier: run.serviceTier } : {}),
+      ...(run.resetRequested !== undefined ? { resetRequested: run.resetRequested } : {}),
     }), 'application/json')
     // A relay older than run records answers an unknown `/api/` POST with the dashboard's `index.html` and a
     // 200, so "ok" is not "supported". Only an id says it was recorded.
@@ -162,6 +163,23 @@ export class RunRecorder {
           this.skippedWarned = true
           this.deps.warn(`skipped flows not recorded: ${e.message} — update the relay to record them; the rest of the run is still recorded`)
         }
+      }
+    })
+  }
+
+  /**
+   * What the run's boot said about its device: whether it was already up, and what was reset. Sent as soon as the boot
+   * answers, so a run that then fails to install, is cancelled or loses its runner still has it. A relay that predates
+   * the route answers it with the dashboard's `index.html` and 200, so it passes unrecorded; the 400 and 404 caught
+   * below are this relay refusing the body or having lost the run, neither a reason to stop recording the rest.
+   */
+  reportDevice(device: BootOutcome): void {
+    if (this.finished) return
+    this.enqueue(true, async () => {
+      try {
+        await this.post(`/api/v1/runs/${this.id}/device`, JSON.stringify(device), 'application/json')
+      } catch (e) {
+        if (!(e instanceof RecordRefused && (e.status === 400 || e.status === 404))) throw e
       }
     })
   }

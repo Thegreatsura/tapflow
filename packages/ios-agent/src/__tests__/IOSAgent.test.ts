@@ -4690,6 +4690,109 @@ describe('IOSAgent', () => {
       })
     })
   })
+
+  describe('run reset (flow run)', () => {
+    const RESET = { uninstall: ['com.example.app'], clear: ['com.example.helper'] }
+    let calls: string[]
+
+    function resetSimctl(booted: boolean) {
+      calls = []
+      const simctl = mockSimctl(booted)
+      const record = (name: string) => vi.fn(async (_udid: string, id?: string) => { calls.push(id ? `${name}:${id}` : name) })
+      Object.assign(simctl, {
+        uninstallAppForReset: record('uninstall'),
+        clearAppDataIfInstalled: record('clear'),
+        waitForBootStatus: record('bootstatus'),
+        resetKeychain: record('keychain'),
+        resetPrivacy: record('privacy'),
+        clearLocation: record('location'),
+      })
+      return simctl
+    }
+
+    async function bootWith(simctl: SimctlWrapper, payload: Record<string, unknown>) {
+      const agent = new IOSAgent({ intervalMs: 50 }, simctl)
+      await agent.connect(`ws://localhost:${port}`)
+      const browser = new WebSocket(`ws://localhost:${port}`)
+      await waitForOpen(browser)
+      browser.send(JSON.stringify({ type: 'session:start', sessionId: agent.sessionId }))
+      await waitForType(browser, 'session:joined')
+      browser.send(JSON.stringify({ type: 'device:boot', requestId: 'rq-reset', sessionId: agent.sessionId, payload: { deviceId: 'dev-1', ...payload } }))
+      return { agent, browser }
+    }
+
+    it('resets the apps and the device before ready, and reports each item', async () => {
+      const simctl = resetSimctl(true)
+      const { agent, browser } = await bootWith(simctl, { runReset: RESET })
+      const ready = await waitForType(browser, 'device:ready')
+      expect(calls).toEqual(['bootstatus', 'uninstall:com.example.app', 'clear:com.example.helper', 'keychain', 'privacy', 'location'])
+      expect(simctl.setPasteboard).toHaveBeenCalledWith('dev-1', '')
+      expect((ready['payload'] as Record<string, unknown>)['runReset']).toEqual({
+        done: ['app-uninstall', 'app-files', 'keychain', 'privacy-services', 'pasteboard', 'location'], failed: [],
+      })
+      agent.disconnect(); browser.close()
+    })
+
+    // Also when the device was already listed `Booted`: it may have been booted moments ago by someone else.
+    it('waits for the system services before resetting a device it just booted', async () => {
+      const simctl = resetSimctl(false)
+      const { agent, browser } = await bootWith(simctl, { runReset: { uninstall: [], clear: [] } })
+      await waitForType(browser, 'device:ready')
+      expect(calls).toEqual(['bootstatus', 'keychain', 'privacy', 'location'])
+      agent.disconnect(); browser.close()
+    })
+
+    it('goes on past an item that fails, and the boot still succeeds', async () => {
+      const simctl = resetSimctl(true)
+      vi.mocked(simctl.resetKeychain).mockRejectedValue(new Error('keychain busy'))
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const { agent, browser } = await bootWith(simctl, { runReset: { uninstall: [], clear: [] } })
+      const ready = await waitForType(browser, 'device:ready')
+      expect((ready['payload'] as Record<string, unknown>)['runReset']).toEqual({
+        done: ['privacy-services', 'pasteboard', 'location'], failed: ['keychain'],
+      })
+      agent.disconnect(); browser.close()
+    })
+
+    // On Android the same id reaches the device's shell, so neither platform passes one that is not an app id.
+    it('fails the app item for an id that is not an app id, and never passes it on', async () => {
+      const simctl = resetSimctl(true)
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const { agent, browser } = await bootWith(simctl, { runReset: { uninstall: [], clear: ['x;reboot', 'com.example.ok'] } })
+      const ready = await waitForType(browser, 'device:ready')
+      expect(calls).toContain('clear:com.example.ok')
+      expect(calls.some((c) => c.includes('reboot'))).toBe(false)
+      expect((ready['payload'] as { runReset: { failed: string[] } }).runReset.failed).toEqual(['app-files'])
+      agent.disconnect(); browser.close()
+    })
+
+    it('resets nothing for a boot that did not ask', async () => {
+      const simctl = resetSimctl(true)
+      const { agent, browser } = await bootWith(simctl, {})
+      const ready = await waitForType(browser, 'device:ready')
+      expect(calls).toEqual([])
+      expect(ready['payload']).not.toHaveProperty('runReset')
+      agent.disconnect(); browser.close()
+    })
+
+    it('answers the boot as abandoned when a shutdown arrives mid-reset', async () => {
+      const simctl = resetSimctl(true)
+      let release!: () => void
+      vi.mocked(simctl.resetKeychain).mockImplementation(() => new Promise<void>((r) => { release = r }))
+      const { agent, browser } = await bootWith(simctl, { runReset: { uninstall: [], clear: [] } })
+      await vi.waitFor(() => expect(simctl.resetKeychain).toHaveBeenCalled(), { timeout: 2000 })
+      const abandoned = waitForType(browser, 'device:boot-error')
+      browser.send(JSON.stringify({ type: 'device:shutdown', requestId: 'rq-off', sessionId: agent.sessionId, payload: { deviceId: 'dev-1' } }))
+      await vi.waitFor(() => expect(simctl.shutdown).toHaveBeenCalled(), { timeout: 2000 })
+      release()
+      const e = await abandoned
+      expect(e['requestId']).toBe('rq-reset')
+      // The steps after the shutdown did not run, and nothing past the reset touched the device being shut down.
+      expect(simctl.resetPrivacy).not.toHaveBeenCalled()
+      expect(simctl.rotate).not.toHaveBeenCalled()
+      agent.disconnect(); browser.close()
+    })
+  })
 })
 
 describe('streamRestartPlan', () => {
