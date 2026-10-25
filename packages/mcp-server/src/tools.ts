@@ -5,6 +5,7 @@ import path from 'path'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { EnvironmentStepError, isEligible, parseFlow, runFlow, type FlowDriver } from '@tapflowio/flow-runner'
 import { SessionEndedError, SessionLeftError, type TapflowClient } from './client.js'
+import { TESTING_GUIDE } from './guide.js'
 
 // Input refusal reasons that name the environment rather than the product,
 // mirroring flow-runner's ENVIRONMENTAL_INPUT_REASONS. `unsupported`,
@@ -168,6 +169,14 @@ export function registerTools(server: McpServer, client: TapflowClient): void {
       return cb(...args)
     }) as never)) as McpServer['registerTool']
 
+  // The methodology is a tool rather than server instructions so that it costs nothing until it is asked for:
+  // instructions ride along in every session, testing or not. See guide.ts.
+  register(
+    'get_testing_guide',
+    { description: 'How to test a mobile feature with these tools: cases to cover, what cannot be tested here, how to avoid false bugs, how to save a verified flow, and the report format. Call once before testing.' },
+    async () => ok(TESTING_GUIDE),
+  )
+
   register(
     'list_builds',
     { description: 'List all apps and their builds available on the relay. Use this to find buildId before calling install_app or launch_app.' },
@@ -290,7 +299,8 @@ export function registerTools(server: McpServer, client: TapflowClient): void {
     {
       description: 'Join a device session so you can control it. Required before boot_device, install_app, and launch_app. ' +
         'The result carries watchUrl, a dashboard page where the person you are working for can watch the device ' +
-        'live while you drive it — give them that link when you start testing.',
+        'live while you drive it — give them that link when you start testing. Before testing a feature, call ' +
+        'get_testing_guide; when done, call disconnect_device so the device is free for others.',
       inputSchema: {
         sessionId: z.string().describe('Session ID from list_devices'),
       },
@@ -326,7 +336,7 @@ export function registerTools(server: McpServer, client: TapflowClient): void {
   register(
     'boot_device',
     {
-      description: 'Boot a simulator/emulator. Requires connect_device first. Waits up to 30 seconds for the device to be ready.',
+      description: 'Boot a simulator/emulator. Requires connect_device first. Waits up to 3 minutes for the device to be ready.',
       inputSchema: {
         sessionId: z.string().describe('Session ID from list_devices'),
         deviceId: z.string().describe('Device ID from list_devices'),
@@ -640,7 +650,7 @@ export function registerTools(server: McpServer, client: TapflowClient): void {
   register(
     'install_app',
     {
-      description: 'Install an app on the device. Requires connect_device first. Waits up to 60 seconds.',
+      description: 'Install an app on the device. Requires connect_device first. Waits up to 2 minutes.',
       inputSchema: {
         sessionId: z.string().describe('Session ID from list_devices'),
         buildId: z.number().int().describe('Build ID from the tapflow relay builds API'),
