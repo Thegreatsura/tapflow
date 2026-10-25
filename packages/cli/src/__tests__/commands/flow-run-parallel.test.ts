@@ -266,6 +266,20 @@ describe('flow run --parallel', () => {
     mocks.installApp.mockImplementation(async () => {})
   })
 
+  it('does not install on a device that booted after the others ran every flow', async () => {
+    mocks.lease
+      .mockImplementationOnce(async () => ({ ...A, platform: 'ios', source: 'boot', watchUrl: 'http://localhost:4000/automation/sessions/sa', boot: {} }))
+      .mockImplementationOnce(async () => {
+        await new Promise((r) => setTimeout(r, 100))
+        return { ...B, platform: 'ios', source: 'boot', watchUrl: 'http://localhost:4000/automation/sessions/sb', boot: {} }
+      })
+    await cmdFlowRun(flowFiles('one', 'two'), { parallel: 2, build: 7, record: false })
+    expect(ranOn.map(([, s]) => s)).toEqual(['sa', 'sa'])
+    expect(mocks.installApp.mock.calls.map(([s]) => s)).toEqual(['sa'])
+    expect(mocks.leaveSession).toHaveBeenCalledWith('sb')
+    expect(process.exitCode).toBe(0)
+  })
+
   // A worker waiting on a busy relay stops when the queue empties, instead of sleeping out its backoff first.
   it('stops waiting for a device once another device has run every flow', async () => {
     leases(A)

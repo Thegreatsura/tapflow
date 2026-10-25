@@ -335,6 +335,8 @@ async function runParallel(run: ParallelRun, workerCount: number): Promise<Paral
     recorder?.reportDevice(ref, lease.boot)
     if (run.runReset) printReset(lease.boot.runReset, lease.deviceName, prefix)
     try {
+      // Booted after the other devices emptied the queue: an install here would only hold the run's end.
+      if (queue.length === 0 || run.cancelled()) return
       if (opts.build !== undefined && opts.install !== false) {
         console.log(`${prefix}installing build ${opts.build}...`)
         await client.installApp(lease.sessionId, opts.build)
