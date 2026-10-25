@@ -138,12 +138,21 @@ export interface RunSummary {
   serviceTier: ServiceTier | null
   /** What the run's device was reset of before it ran; null for a run from a runner that predates resets. A
    *  requested reset with no report is one nobody confirmed; without `booted` the run never reached a device. `cold: false` means the device was already up. */
-  deviceReset: { requested: boolean; booted?: true; cold?: boolean; report?: RunResetReport } | null
+  deviceReset: { requested: boolean; booted?: true; cold?: boolean; report?: RunResetReport; devices?: RunDevice[] } | null
   build: RunBuild | null
   createdBy: string | null
   flowsTotal: number
   createdAt: string
   finishedAt: string | null
+}
+
+/** A device the run booted, from a runner that names its sessions. The fields beside `devices` are the first one's. */
+export interface RunDevice {
+  sessionId: string
+  deviceId?: string
+  deviceName?: string
+  cold?: boolean
+  report?: RunResetReport
 }
 
 /** A row of `GET /api/v1/runs`. */
@@ -169,7 +178,15 @@ export interface RunStep {
  * chose not to replay (`skipped`): another app's flow, or one the tag filters left out.
  */
 export type RunFlow =
-  | { idx: number; name: string; file: string | null; status: 'running' | 'pending' | 'not-run'; video?: VideoSummary | null }
+  | {
+      idx: number
+      name: string
+      file: string | null
+      status: 'running' | 'pending' | 'not-run'
+      /** The device a running flow is on, when the runner said so as it started it. */
+      device?: { id: string | null; name: string | null; sessionId: string }
+      video?: VideoSummary | null
+    }
   | {
       idx: number
       name: string
@@ -195,8 +212,10 @@ export type RunFlow =
       video?: VideoSummary | null
     }
 
-/** `GET /api/v1/runs/:id`. `watchSessionId` is the session the runner holds now, while it runs. */
+/** `GET /api/v1/runs/:id`. `watchSessionId` is the session the runner holds now, while it runs; `watchSessionIds`
+ *  is every one it holds, one per device of a parallel run, and absent from a relay older than those. */
 export interface RunDetail extends RunSummary {
   flows: RunFlow[]
   watchSessionId: string | null
+  watchSessionIds?: string[]
 }

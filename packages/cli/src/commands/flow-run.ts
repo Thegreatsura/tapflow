@@ -373,7 +373,7 @@ export async function cmdFlowRun(files: string[], opts: FlowRunOptions): Promise
       timeoutMs: admissionTimeout * 1000,
       onWait: (reason, ms) => console.log(`waiting ${Math.round(ms / 1000)}s: ${ADMISSION_WAITS[reason]}`),
     })
-    recorder?.reportDevice(booted)
+    recorder?.reportDevice({ sessionId, id: device.id, name: device.name }, booted)
     if (runReset) {
       const { runReset: report } = booted
       if (!report) console.error('device not reset: the agent or the relay predates run resets — update both, or pass --no-reset')
@@ -405,6 +405,7 @@ export async function cmdFlowRun(files: string[], opts: FlowRunOptions): Promise
     for (const flowIndex of eligible) {
       const flow = flows[flowIndex]
       process.stdout.write(`▶ ${flow.name} `)
+      recorder?.reportFlowStart(flowIndex, { sessionId, id: device.id, name: device.name })
       const sink = video?.lane.video(flowIndex)
       if (sink) video?.tap.begin(sink, device.platform)
       const result = await runFlow(flow, driver, engineOpts)

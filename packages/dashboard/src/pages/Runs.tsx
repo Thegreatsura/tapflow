@@ -274,6 +274,10 @@ function RunRow({ run }: { run: RunListItem }) {
       <TableCell>
         <TechLabel>{run.flowsPassed}/{run.flowsTotal}</TechLabel>
         {run.flowsSkipped > 0 && <span className="ml-1 text-xs text-muted-foreground">({run.flowsSkipped} skipped)</span>}
+        {/* A parallel run: its time is not one device's, so say how many shared it. */}
+        {(run.deviceReset?.devices?.length ?? 0) > 1 && (
+          <span className="ml-1 text-xs text-muted-foreground">on {run.deviceReset!.devices!.length} devices</span>
+        )}
       </TableCell>
       <TableCell className="text-sm text-muted-foreground">{runSourceLabel(run)}</TableCell>
       <TableCell className="text-sm text-muted-foreground">{formatAgo(run.createdAt)}</TableCell>
