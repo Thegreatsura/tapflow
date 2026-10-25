@@ -389,6 +389,8 @@ tapflow flow run .tapflow/flows/login-smoke.yaml
 | `--no-reset` | — | Keep what earlier runs left on the device. See below. |
 | `--include-tags <tags>` | — | Run only flows tagged with at least one of these (comma-separated) |
 | `--exclude-tags <tags>` | — | Skip flows tagged with any of these (comma-separated). Wins over `--include-tags`. |
+| `--parallel <n>` | — | Share the flows across up to `n` devices (1–16) the relay chooses. See below. |
+| `--platform <platform>` | — | The platform of a `--parallel` run without `--build`: `ios` or `android` |
 
 With neither `--session` nor `--device`, it uses the booted device when exactly one is booted. With none booted, or more than one, it stops with an environment error.
 
@@ -398,13 +400,15 @@ Before the flows run, the device is reset so a run does not start from what an e
 
 A Mac boots one device at a time, because a booting device slows the other sessions on that Mac. When another device is booting, the run lets go of its session, waits, and tries again, printing why it is waiting. A boot a person started goes ahead of a waiting run.
 
+With `--parallel 3`, the relay chooses three devices of the platform and gives them to the run: devices an earlier run left up first, then devices it boots. It never picks a device a person is using or may come back to. Each device is reset (unless `--no-reset`) and has the build installed, then takes flows one at a time until none are left, so a slow flow holds up only its own device. The platform comes from the `--build` build, or from `--platform` when there is none, and `--parallel` cannot be combined with `--device` or `--session`. A device that fails to boot or install, or whose flow fails for a reason outside the app, leaves the run and the others go on; that flow is not run again. Each device's lines are prefixed with its name, and the JUnit report has a `<testsuite>` per device. Flows no device ran are reported as errors and end the run with exit code `2`.
+
 With `--build`, a flow whose `appId` differs from that build's bundle ID is skipped rather than run. So is a flow the tag options filter out. A skipped flow does not count as a failure, but when no flow runs at all, the run stops with exit code `2` before choosing a device. See [Choosing flows](/automation/flows#choosing-flows).
 
 | Exit code | Meaning |
 |-----------|---------|
 | `0` | Every flow passed |
 | `1` | At least one flow failed on a product problem |
-| `2` | Environment or config error, or every failed flow failed on an environment problem |
+| `2` | Environment or config error, every failed flow failed on an environment problem, or a `--parallel` run left flows that no device ran |
 | `130` | Cancelled by `SIGINT` |
 | `143` | Cancelled by `SIGTERM` |
 

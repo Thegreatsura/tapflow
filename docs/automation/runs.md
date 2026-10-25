@@ -46,6 +46,8 @@ A flow the runner kept a video of has a **Play the video** button. It downloads 
 
 While a run is in progress, the list and the run's page refresh every few seconds. **Watch the device** on the run's page shows the device the runner is driving, live and read-only: nothing you click reaches the device. Up to 4 people can watch a session.
 
+A run across several devices (`--parallel`) lists them at the top of its page, each with its reset, the flow it is running now and a **Watch** link for that device. A running flow says which device it is on after **Running on**, and the list shows how many devices the run used.
+
 ## What the statuses mean {#statuses}
 
 | Status | Meaning |

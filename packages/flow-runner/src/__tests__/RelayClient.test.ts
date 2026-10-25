@@ -4,6 +4,7 @@ import {
   InputRefusedError,
   InputUnconfirmedError,
   LeaseRefusedError,
+  leasedSessionOf,
   RelayClient,
   RelayClosedError,
   AdmissionRefusedError,
@@ -1688,6 +1689,25 @@ describe('RelayClient.lease', () => {
     expect(err).toBeInstanceOf(AdmissionRefusedError)
     // The caller has no session id to leave with, so the lease leaves it: a retry must not find it still held.
     await vi.waitFor(() => expect(received.filter((m) => m['type'] === 'session:leave')).toEqual([{ type: 'session:leave', sessionId: 's9' }]))
+  })
+
+  // A real boot failure carries no reason. The lease has left the session; the caller is told which it was, so a run
+  // sharing devices can keep it out of its later leases.
+  it('says which session a lease failed on after it was chosen, and nothing for one refused before', async () => {
+    const { client } = await relay((m) => leasedThen(m,
+      { type: 'session:joined', sessionId: 's9', capabilities: [] },
+      { type: 'device:boot-error', sessionId: 's9', requestId: m['requestId'], message: 'simulator failed to boot' },
+    ))
+    const err = await client.lease({ platform: 'ios' }).catch((e: unknown) => e)
+    expect((err as Error).message).toContain('simulator failed to boot')
+    expect(leasedSessionOf(err)).toBe('s9')
+    client.disconnect()
+    for (const c of wss!.clients) c.terminate()
+    await new Promise<void>((r) => wss!.close(() => r()))
+    wss = null
+
+    const refused = await relay((m) => [{ type: 'device:lease-refused', requestId: m['requestId'], reason: 'no-device', message: 'no', retryable: false }])
+    expect(leasedSessionOf(await refused.client.lease({ platform: 'ios' }).catch((e: unknown) => e))).toBeUndefined()
   })
 
   it('fails with the join\'s refusal, leaving the session and no boot waiter behind', async () => {

@@ -140,8 +140,11 @@ export function createCli(): CAC {
     .option('--no-reset', 'Keep what earlier runs left on the device (by default the run resets app data, keychain, privacy grants, pasteboard and location)')
     .option('--include-tags <tags>', 'Run only flows tagged with at least one of these (comma-separated)')
     .option('--exclude-tags <tags>', 'Skip flows tagged with any of these (comma-separated); wins over --include-tags')
+    .option('--parallel <n>', 'Share the flows across up to n devices the relay chooses and boots (1-16)')
+    .option('--platform <platform>', 'ios or android: the platform of a --parallel run without --build')
     .action((subcommand: string, files: string[], opts: Omit<FlowRunOptions, 'includeTags' | 'excludeTags'> & {
       build?: string | number; timeout?: string | number; admissionTimeout?: string | number; includeTags?: TagsArg; excludeTags?: TagsArg
+      parallel?: string | number
     }) => {
       if (subcommand !== 'run') {
         console.error(`unknown flow subcommand: ${subcommand} (expected: run)`)
@@ -152,6 +155,7 @@ export function createCli(): CAC {
         build: opts.build !== undefined ? Number(opts.build) : undefined,
         timeout: opts.timeout !== undefined ? Number(opts.timeout) : undefined,
         admissionTimeout: opts.admissionTimeout !== undefined ? Number(opts.admissionTimeout) : undefined,
+        parallel: opts.parallel !== undefined ? Number(opts.parallel) : undefined,
         includeTags: tagsArg(opts.includeTags),
         excludeTags: tagsArg(opts.excludeTags),
       })
