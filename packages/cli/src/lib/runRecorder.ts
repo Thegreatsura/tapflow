@@ -36,6 +36,10 @@ export interface FlowReport {
   device?: { id: string; name: string; platform?: string }
 }
 
+/** The device a flow or a boot happened on, named by the session that holds it, so a run on several devices can tell
+ *  them apart. */
+export interface RunDeviceRef { sessionId: string; id: string; name: string }
+
 export interface RunOutcome {
   status: 'passed' | 'failed' | 'aborted'
   exitCode: number
@@ -173,11 +177,30 @@ export class RunRecorder {
    * the route answers it with the dashboard's `index.html` and 200, so it passes unrecorded; the 400 and 404 caught
    * below are this relay refusing the body or having lost the run, neither a reason to stop recording the rest.
    */
-  reportDevice(device: BootOutcome): void {
+  reportDevice(device: RunDeviceRef, booted: BootOutcome): void {
     if (this.finished) return
     this.enqueue(true, async () => {
       try {
-        await this.post(`/api/v1/runs/${this.id}/device`, JSON.stringify(device), 'application/json')
+        await this.post(`/api/v1/runs/${this.id}/device`, JSON.stringify({
+          sessionId: device.sessionId, deviceId: device.id, deviceName: device.name, ...booted,
+        }), 'application/json')
+      } catch (e) {
+        if (!(e instanceof RecordRefused && (e.status === 400 || e.status === 404))) throw e
+      }
+    })
+  }
+
+  /**
+   * Flow `idx` is starting on `device`, so the runs page can show it running there rather than guess. Refusals are
+   * dropped for `reportDevice`'s reasons; an older relay has no route for it and answers 404, or `index.html` and 200.
+   */
+  reportFlowStart(idx: number, device: RunDeviceRef): void {
+    if (this.finished) return
+    this.enqueue(true, async () => {
+      try {
+        await this.post(`/api/v1/runs/${this.id}/flows/${idx}/start`, JSON.stringify({
+          sessionId: device.sessionId, deviceId: device.id, deviceName: device.name,
+        }), 'application/json')
       } catch (e) {
         if (!(e instanceof RecordRefused && (e.status === 400 || e.status === 404))) throw e
       }

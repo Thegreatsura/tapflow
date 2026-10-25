@@ -10,6 +10,7 @@ import { RelayServer } from '../RelayServer'
 import { initDb, getDb, closeDb } from '../db'
 import { signJwt, hashPat } from '../middleware/auth'
 import { purgeExpiredBuilds } from '../api/builds'
+import { forgetStartedFlowsOfStoppedRuns, startedFlowRunCount } from '../api/runs'
 
 // Run records written by `tapflow flow run` (A3). The CLI writes with its `builds:write` token; anyone who
 // may view reads. The cases are the plan's table: who may write, what liveness means, and that a run's
@@ -33,8 +34,9 @@ interface Body {
   serviceTier: unknown
   deviceReset: unknown
   build: unknown
-  flows: { name: string; status: string; hasScreenshot?: boolean; steps?: object[]; skipReason?: string }[]
+  flows: { name: string; status: string; hasScreenshot?: boolean; steps?: object[]; skipReason?: string; device?: unknown }[]
   watchSessionId: string | null
+  watchSessionIds: string[]
   items: { id: string; flowsSkipped?: number }[]
   nextCursor: string | null
   prevCursor: string | null
@@ -216,6 +218,84 @@ describe('flow run records', () => {
     expect((await call('POST', `/api/v1/runs/${id}/device`, bearer(PAT_SOMEONE), { cold: false })).status).toBe(403)
     await call('POST', `/api/v1/runs/${id}/finish`, bearer(PAT_CI), { status: 'passed', exitCode: 0 })
     expect((await call('POST', `/api/v1/runs/${id}/device`, bearer(PAT_CI), { cold: false })).status).toBe(409)
+  })
+
+  // A parallel run's devices report at once, each naming its session; none may overwrite another's.
+  it('keeps each device a run booted, by session, with the first one\'s account at the top', async () => {
+    const id = await create({ resetRequested: true })
+    const a = { done: ['app-uninstall'], failed: [] }
+    const b = { done: ['app-uninstall'], failed: ['location'] }
+    // A's body arrives after B's report is written: A must merge into the row as B left it, not as it was when A
+    // was authorized.
+    const late = sendLate(`/api/v1/runs/${id}/device`, Buffer.from(JSON.stringify({ sessionId: 's-a', deviceId: 'dev-a', deviceName: 'iPhone A', cold: true, runReset: a })), () => {})
+    await new Promise((r) => setTimeout(r, 30))
+    expect((await call('POST', `/api/v1/runs/${id}/device`, bearer(PAT_CI), { sessionId: 's-b', deviceName: 'iPhone B', cold: false, runReset: b })).status).toBe(200)
+    expect(await late).toBe(200)
+    type Reset = { report: unknown; cold: boolean; devices: object[] }
+    const reset = (await call('GET', `/api/v1/runs/${id}`, bearer(PAT_VIEW))).body.deviceReset as Reset
+    expect(reset.devices).toEqual([
+      { sessionId: 's-b', deviceName: 'iPhone B', cold: false, report: b },
+      { sessionId: 's-a', deviceId: 'dev-a', deviceName: 'iPhone A', cold: true, report: a },
+    ])
+    expect(reset).toMatchObject({ requested: true, booted: true, cold: false, report: b })
+
+    // A device reporting again replaces its own entry, and leaves the top alone when it is not the first.
+    await call('POST', `/api/v1/runs/${id}/device`, bearer(PAT_CI), { sessionId: 's-a', deviceName: 'again', cold: false })
+    const after = (await call('GET', `/api/v1/runs/${id}`, bearer(PAT_VIEW))).body.deviceReset as Reset
+    expect(after.devices[1]).toEqual({ sessionId: 's-a', deviceName: 'again', cold: false })
+    expect(after).toMatchObject({ cold: false, report: b })
+  })
+
+  it('shows the flows the runner says are on a device as running, and no guess once it says so', async () => {
+    const id = (await call('POST', '/api/v1/runs', bearer(PAT_CI), {
+      client: 'runner-1', flows: [{ name: 'one' }, { name: 'two' }, { name: 'three' }],
+    })).body.id
+    const flows = async () => (await call('GET', `/api/v1/runs/${id}`, bearer(PAT_VIEW))).body.flows.map((f) => [f.name, f.status, f.device ?? null])
+    expect(await flows()).toEqual([['one', 'running', null], ['two', 'pending', null], ['three', 'pending', null]])
+
+    await call('POST', `/api/v1/runs/${id}/flows/0/start`, bearer(PAT_CI), { sessionId: 's-a', deviceId: 'dev-a', deviceName: 'iPhone A' })
+    await call('POST', `/api/v1/runs/${id}/flows/2/start`, bearer(PAT_CI), { sessionId: 's-b', deviceName: 'iPhone B' })
+    expect(await flows()).toEqual([
+      ['one', 'running', { id: 'dev-a', name: 'iPhone A', sessionId: 's-a' }],
+      ['two', 'pending', null],
+      ['three', 'running', { id: null, name: 'iPhone B', sessionId: 's-b' }],
+    ])
+
+    // Reported: no longer running, and the first unreported flow is not guessed to be.
+    await call('POST', `/api/v1/runs/${id}/flows/0`, bearer(PAT_CI), passed)
+    expect((await flows()).slice(1)).toEqual([['two', 'pending', null], ['three', 'running', { id: null, name: 'iPhone B', sessionId: 's-b' }]])
+    // A start arriving after the report cannot make the flow running again.
+    await call('POST', `/api/v1/runs/${id}/flows/0/start`, bearer(PAT_CI), { sessionId: 's-a' })
+    expect((await flows())[0]![1]).toBe('passed')
+
+    await call('POST', `/api/v1/runs/${id}/finish`, bearer(PAT_CI), { status: 'failed', exitCode: 2 })
+    expect((await flows()).map((f) => f[1])).toEqual(['passed', 'not-run', 'not-run'])
+  })
+
+  // A run's row can go under it (its build or app deleted) by code that never tells the run records; the daily purge
+  // lets go of what such a run had started.
+  it('lets go of the started flows of a run deleted while it ran', async () => {
+    const before = startedFlowRunCount()
+    const id = await create()
+    await call('POST', `/api/v1/runs/${id}/flows/0/start`, bearer(PAT_CI), { sessionId: 's-a' })
+    const live = await create()
+    await call('POST', `/api/v1/runs/${live}/flows/0/start`, bearer(PAT_CI), { sessionId: 's-b' })
+    expect(startedFlowRunCount()).toBe(before + 2)
+    getDb().prepare('DELETE FROM flow_runs WHERE id = ?').run(id)
+    forgetStartedFlowsOfStoppedRuns()
+    expect(startedFlowRunCount()).toBe(before + 1)
+    await call('POST', `/api/v1/runs/${live}/finish`, bearer(PAT_CI), { status: 'passed', exitCode: 0 })
+    expect(startedFlowRunCount()).toBe(before)
+  })
+
+  it('takes a flow start only from the run\'s runner, for a flow of the run, naming a session', async () => {
+    const id = await create()
+    expect((await call('POST', `/api/v1/runs/${id}/flows/0/start`, bearer(PAT_SOMEONE), { sessionId: 's' })).status).toBe(403)
+    expect((await call('POST', `/api/v1/runs/${id}/flows/2/start`, bearer(PAT_CI), { sessionId: 's' })).status).toBe(404)
+    expect((await call('POST', `/api/v1/runs/${id}/flows/0/start`, bearer(PAT_CI), {})).status).toBe(400)
+    expect((await call('GET', `/api/v1/runs/${id}`, bearer(PAT_VIEW))).body.flows[0]!.device).toBeUndefined()
+    await call('POST', `/api/v1/runs/${id}/finish`, bearer(PAT_CI), { status: 'passed', exitCode: 0 })
+    expect((await call('POST', `/api/v1/runs/${id}/flows/0/start`, bearer(PAT_CI), { sessionId: 's' })).status).toBe(409)
   })
 
   // ── results ───────────────────────────────────────────────────────────────
@@ -492,6 +572,29 @@ describe('flow run records', () => {
 
     await call('POST', `/api/v1/runs/${id}/finish`, bearer(PAT_CI), { status: 'passed', exitCode: 0 })
     expect((await call('GET', `/api/v1/runs/${id}`, bearer(PAT_VIEW))).body.watchSessionId).toBeNull()
+    agent.close()
+  })
+
+  // A parallel run: one runner, a socket per device, every one of them under the run's client id.
+  it('offers every session the runner\'s sockets hold to watch', async () => {
+    const agent = new WebSocket(`ws://localhost:${port}`)
+    await waitForOpen(agent)
+    agent.send(JSON.stringify({
+      type: 'agent:register', platform: 'ios', agentName: 'mac',
+      devices: [{ id: 'dev0', name: 'iPhone', platform: 'ios', status: 'shutdown' }, { id: 'dev1', name: 'iPad', platform: 'ios', status: 'shutdown' }],
+    }))
+    const sessions = (await waitForType<AgentRegistered>(agent, 'agent:registered')).registeredSessions.map((r) => r.sessionId)
+    const id = await create()
+    for (const sessionId of sessions) {
+      const ws = await runnerSocket()
+      ws.send(JSON.stringify({ type: 'session:start', sessionId, clientKind: 'flow-runner' }))
+      await waitForType<SessionJoined>(ws, 'session:joined')
+    }
+    const body = (await call('GET', `/api/v1/runs/${id}`, bearer(PAT_VIEW))).body
+    expect([...body.watchSessionIds].sort()).toEqual([...sessions].sort())
+    expect(sessions).toContain(body.watchSessionId)
+    await call('POST', `/api/v1/runs/${id}/finish`, bearer(PAT_CI), { status: 'passed', exitCode: 0 })
+    expect((await call('GET', `/api/v1/runs/${id}`, bearer(PAT_VIEW))).body.watchSessionIds).toEqual([])
     agent.close()
   })
 

@@ -111,7 +111,7 @@ import { handleGetSettings, handleUpdateSettings } from './api/settings.js'
 import { handleUpdateProfile } from './api/profile.js'
 import { handleUploadRecording, handleListRecordings, handleDownloadRecording, purgeExpiredRecordings } from './api/recordings.js'
 import { handleEndVideo, handleOpenVideo, handleVideoChunk, handleVideoData, handleVideoIndex, purgeRunVideos, releaseStaleVideoReservations, runVideosDirFor, videoSummaries } from './api/runVideos.js'
-import { abandonRunsOf, handleCreateRun, handleFinishRun, handleReportDevice, handleGetFlowScreenshot, handleGetRun, handleListRuns, handleReportFlow, handleUploadFlowScreenshot, purgeExpiredRuns, runScreenshotsDirFor, type RunHolders } from './api/runs.js'
+import { abandonRunsOf, handleCreateRun, handleFinishRun, handleReportDevice, handleStartFlow, handleGetFlowScreenshot, handleGetRun, handleListRuns, handleReportFlow, handleUploadFlowScreenshot, purgeExpiredRuns, runScreenshotsDirFor, type RunHolders } from './api/runs.js'
 import { handleListAgents, handleGetAgentResources } from './api/agents.js'
 
 const MIME_TYPES: Record<string, string> = {
@@ -615,6 +615,7 @@ export class RelayServer {
     this.router.post('/api/v1/runs/:id/device', handleReportDevice)
     this.router.post('/api/v1/runs/:id/finish', handleFinishRun)
     this.router.post('/api/v1/runs/:id/flows/:idx', handleReportFlow)
+    this.router.post('/api/v1/runs/:id/flows/:idx/start', handleStartFlow)
     this.router.post('/api/v1/runs/:id/flows/:idx/screenshot', (req, res, params) => handleUploadFlowScreenshot(req, res, params, this.runScreenshotsDir))
     this.router.get('/api/v1/runs/:id/flows/:idx/screenshot', (req, res, params) => handleGetFlowScreenshot(req, res, params, this.runScreenshotsDir))
     // a flow's video (A4) — uploaded by the runner while the flow runs, kept by the retention policy
@@ -994,13 +995,7 @@ export class RelayServer {
       }
       return keys
     },
-    heldSession: (keys) => {
-      for (const ws of this.openSocketsOf(keys)) {
-        const held = this.sessions.getByBrowserSocket(ws)
-        if (held.length > 0) return held[0].id
-      }
-      return null
-    },
+    heldSessions: (keys) => this.openSocketsOf(keys).flatMap((ws) => this.sessions.getByBrowserSocket(ws).map((s) => s.id)),
   }
 
   private isAlive(ws: WebSocket): boolean {

@@ -366,15 +366,19 @@ describe('cmdFlowRun records the run on the relay (A3)', () => {
       'https://relay.example.test/api/v1/runs',
       // What the boot said about the device, before anything that can fail after it.
       'https://relay.example.test/api/v1/runs/run-1/device',
+      // Which device the flow is on as it starts, so the page shows it running there rather than guessing.
+      'https://relay.example.test/api/v1/runs/run-1/flows/0/start',
       'https://relay.example.test/api/v1/runs/run-1/flows/0',
       'https://relay.example.test/api/v1/runs/run-1/flows/0/screenshot',
       'https://relay.example.test/api/v1/runs/run-1/finish',
     ])
     expect(relay.calls[1]!.body).toEqual({ client: 'client-1', buildId: 7, flows: [{ name: file, file }], resetRequested: true })
-    expect(relay.calls[3]!.body).toMatchObject({
+    expect(relay.calls[2]!.body).toMatchObject({ sessionId: 's1', deviceId: 'dev1', deviceName: 'dev' })
+    expect(relay.calls[3]!.body).toEqual({ sessionId: 's1', deviceId: 'dev1', deviceName: 'dev' })
+    expect(relay.calls[4]!.body).toMatchObject({
       status: 'failed', failureKind: 'product', deviceId: 'dev1', deviceName: 'dev', platform: 'ios',
     })
-    expect(relay.calls[5]!.body).toEqual({ status: 'failed', exitCode: 1, failureKind: 'product' })
+    expect(relay.calls[6]!.body).toEqual({ status: 'failed', exitCode: 1, failureKind: 'product' })
     // Outside CI, with the page's link on the watch link's origin.
     expect(console.log).toHaveBeenCalledWith('recorded as run run-1: http://localhost:4000/automation/runs/run-1')
     expect(process.exitCode).toBe(1)
@@ -701,7 +705,7 @@ describe('cmdFlowRun runs only the flows that apply to this build and these tags
       return defaultAnswer(url)
     })
     await cmdFlowRun([flowFile('other.yaml', { appId: 'com.a' }), flowFile('mine.yaml')], { token: 'tflw_pat_x', build: 7 })
-    expect(relay.calls.map((c) => c.url.replace(/^.*\/api\/v1/, ''))).toEqual(['/builds/7', '/runs', '/runs/run-1/flows/0', '/runs/run-1/device', '/runs/run-1/flows/1', '/runs/run-1/finish'])
+    expect(relay.calls.map((c) => c.url.replace(/^.*\/api\/v1/, ''))).toEqual(['/builds/7', '/runs', '/runs/run-1/flows/0', '/runs/run-1/device', '/runs/run-1/flows/1/start', '/runs/run-1/flows/1', '/runs/run-1/finish'])
     expect(errLines().filter((l) => l.startsWith('skipped flows not recorded'))).toHaveLength(1)
     expect(logLines().some((l) => l.startsWith('recorded as run run-1') && !l.includes('incomplete'))).toBe(true)
   })
@@ -749,7 +753,7 @@ describe('cmdFlowRun runs only the flows that apply to this build and these tags
       mocks.bootDevice.mockResolvedValueOnce({ cold: false, runReset: REPORT })
       await cmdFlowRun([flowFile('mine.yaml', { appId: 'com.b' })], { token: 'tflw_pat_x', build: 7 })
       expect(relay.calls.find((c) => c.url.endsWith('/api/v1/runs'))!.body).toMatchObject({ resetRequested: true })
-      expect(relay.calls.find((c) => c.url.endsWith('/run-1/device'))!.body).toEqual({ cold: false, runReset: REPORT })
+      expect(relay.calls.find((c) => c.url.endsWith('/run-1/device'))!.body).toEqual({ sessionId: 's1', deviceId: 'dev1', deviceName: 'dev', cold: false, runReset: REPORT })
       expect(logLines()).toContain('reset on dev: app-uninstall, keychain')
       expect(errLines().some((l) => l.startsWith('reset failed: location'))).toBe(true)
       // Before the install: a run that fails to install still has its device recorded.
@@ -839,8 +843,8 @@ describe('cmdFlowRun keeps each flow\'s video beside the record (A4)', () => {
     // The record is unchanged by its video.
     expect(relay.calls.filter((c) => !c.url.includes('/video')).map((c) => c.url.replace('http://localhost:4000', ''))).toEqual([
       '/api/v1/runs', '/api/v1/runs/run-1/device',
-      '/api/v1/runs/run-1/flows/0', '/api/v1/runs/run-1/flows/0/screenshot',
-      '/api/v1/runs/run-1/flows/1', '/api/v1/runs/run-1/flows/1/screenshot',
+      '/api/v1/runs/run-1/flows/0/start', '/api/v1/runs/run-1/flows/0', '/api/v1/runs/run-1/flows/0/screenshot',
+      '/api/v1/runs/run-1/flows/1/start', '/api/v1/runs/run-1/flows/1', '/api/v1/runs/run-1/flows/1/screenshot',
       '/api/v1/runs/run-1/finish',
     ])
     expect(process.exitCode).toBe(1)

@@ -42,8 +42,36 @@ const ORPHAN_GRACE_SECONDS = 60
 export interface RunHolders {
   /** The owner keys of every open socket, built once per pass so a check costs a lookup, not a scan. */
   connectedKeys(): Set<string>
-  /** The session a socket with one of these keys holds now — the one a watch link should open — or null. */
-  heldSession(keys: string[]): string | null
+  /** The sessions the sockets with these keys hold now — the ones a watch link should open. A parallel run holds one
+   *  per device. */
+  heldSessions(keys: string[]): string[]
+}
+
+/** A flow the runner said it started, on which device. */
+interface StartedFlow { sessionId: string; deviceId: string | null; deviceName: string | null }
+
+/**
+ * The flows each running run has started and not yet reported, by run id. **Memory, not the database**: which flow is
+ * on a device right now means something only while the runner's socket is open, and a relay restart drops that socket,
+ * so the run is closed as `holder-lost` within `ORPHAN_GRACE_SECONDS` anyway. A run is present from its first start
+ * report, even with nothing in flight, so the page can tell a runner that reports starts from one that predates them.
+ */
+const startedFlows = new Map<string, Map<number, StartedFlow>>()
+
+/**
+ * Drop the started flows of every run that is no longer running. The paths in this file forget a run as it ends, but a
+ * run's row can also be deleted under it — its build or app deleted, its expiry passed — by code that never calls in
+ * here; the daily purge sweeps those, whichever path took them.
+ */
+export function forgetStartedFlowsOfStoppedRuns(): void {
+  if (startedFlows.size === 0) return
+  const running = getDb().prepare(`SELECT 1 FROM flow_runs WHERE id = ? AND status = 'running'`)
+  for (const id of startedFlows.keys()) if (!running.get(id)) startedFlows.delete(id)
+}
+
+/** How many runs have started flows held in memory, for tests of when they are let go. */
+export function startedFlowRunCount(): number {
+  return startedFlows.size
 }
 
 /**
@@ -194,14 +222,16 @@ export function abandonRunsOf(socketKey: string, holders: RunHolders): void {
   const client = socketKey.slice(colon + 1)
   const db = getDb()
   const runs = (user === 'anon'
-    ? db.prepare(`SELECT seq, created_by, holder_client FROM flow_runs WHERE status = 'running' AND holder_client = ?`).all(client)
-    : db.prepare(`SELECT seq, created_by, holder_client FROM flow_runs WHERE status = 'running' AND holder_client = ? AND created_by = ?`).all(client, Number(user))
-  ) as { seq: number; created_by: number | null; holder_client: string }[]
+    ? db.prepare(`SELECT seq, id, created_by, holder_client FROM flow_runs WHERE status = 'running' AND holder_client = ?`).all(client)
+    : db.prepare(`SELECT seq, id, created_by, holder_client FROM flow_runs WHERE status = 'running' AND holder_client = ? AND created_by = ?`).all(client, Number(user))
+  ) as { seq: number; id: string; created_by: number | null; holder_client: string }[]
   if (runs.length === 0) return
   const open = holders.connectedKeys()
   const stmt = db.prepare(`${ABANDON} AND seq = ?`)
   for (const r of runs) {
-    if (!holderKeys(r.created_by, r.holder_client).some((k) => open.has(k))) stmt.run(r.seq)
+    if (holderKeys(r.created_by, r.holder_client).some((k) => open.has(k))) continue
+    stmt.run(r.seq)
+    startedFlows.delete(r.id)
   }
 }
 
@@ -211,14 +241,16 @@ export function abandonRunsOf(socketKey: string, holders: RunHolders): void {
  */
 export function settleOrphanedRuns(holders: RunHolders): void {
   const running = getDb().prepare(`
-    SELECT seq, created_by, holder_client FROM flow_runs
+    SELECT seq, id, created_by, holder_client FROM flow_runs
      WHERE status = 'running' AND last_activity_at < datetime('now', ?)
-  `).all(`-${ORPHAN_GRACE_SECONDS} seconds`) as { seq: number; created_by: number | null; holder_client: string }[]
+  `).all(`-${ORPHAN_GRACE_SECONDS} seconds`) as { seq: number; id: string; created_by: number | null; holder_client: string }[]
   if (running.length === 0) return
   const open = holders.connectedKeys()
   const stmt = getDb().prepare(`${ABANDON} AND seq = ?`)
   for (const r of running) {
-    if (!holderKeys(r.created_by, r.holder_client).some((k) => open.has(k))) stmt.run(r.seq)
+    if (holderKeys(r.created_by, r.holder_client).some((k) => open.has(k))) continue
+    stmt.run(r.seq)
+    startedFlows.delete(r.id)
   }
 }
 
@@ -405,6 +437,40 @@ export async function handleReportFlow(
   json(res, 200, { ok: true })
 }
 
+/**
+ * The runner started flow `idx` on a device. Without it the page could only guess the first unreported flow, which a
+ * run on several devices makes wrong: several flows run at once, and not in order. A start for a flow already
+ * reported changes nothing on the page, which reads a reported flow's row before this, so nothing here checks for one
+ * or forgets an entry when its flow reports; entries go with the run, and there are at most `flows_total`.
+ */
+export async function handleStartFlow(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  params: Record<string, string>,
+): Promise<void> {
+  const run = ownRun(req, res, params.id)
+  if (!run) return
+  const idx = Number(params.idx)
+  if (!Number.isInteger(idx) || idx < 0 || idx >= run.flows_total) return json(res, 404, { error: 'No such flow in this run' })
+  const body = await readJsonBody(req, res)
+  if (!body) return
+  const sessionId = str(body.sessionId, MAX_NAME)
+  if (sessionId === null) return json(res, 400, { error: 'sessionId is required' })
+  const db = getDb()
+  // Judged after the body, as the flow report is: the run may have finished or gone while it arrived.
+  const now = db.prepare('SELECT status FROM flow_runs WHERE seq = ?').get(run.seq) as { status: string } | undefined
+  if (!now) return json(res, 404, { error: 'Run not found' })
+  // A run the relay closed (`holder-lost`) still takes the runner's reports, as `ownRun` allows, but has nothing
+  // running to show; `ownRun` already refused one the runner finished itself.
+  if (now.status === 'running') {
+    let started = startedFlows.get(run.id)
+    if (!started) { started = new Map(); startedFlows.set(run.id, started) }
+    started.set(idx, { sessionId, deviceId: str(body.deviceId, MAX_NAME), deviceName: str(body.deviceName, MAX_NAME) })
+  }
+  db.prepare(`UPDATE flow_runs SET last_activity_at = datetime('now') WHERE seq = ?`).run(run.seq)
+  json(res, 200, { ok: true })
+}
+
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 const JPEG_MAGIC = Buffer.from([0xff, 0xd8, 0xff])
 
@@ -463,6 +529,17 @@ interface DeviceReset {
   booted?: true
   cold?: boolean
   report?: RunResetReport
+  /** Each device the run booted, from a runner that names its session. The fields above stay the first device's, so a
+   *  reader that knows only them reads one real device rather than a mix of several. */
+  devices?: RunDevice[]
+}
+
+interface RunDevice {
+  sessionId: string
+  deviceId?: string
+  deviceName?: string
+  cold?: boolean
+  report?: RunResetReport
 }
 
 export async function handleReportDevice(
@@ -475,15 +552,35 @@ export async function handleReportDevice(
   const body = await readJsonBody(req, res)
   if (!body) return
   // A field that cannot be read is dropped rather than refused, as the create's are: recording never fails a run.
-  const before = run.device_reset_json ? JSON.parse(run.device_reset_json) as DeviceReset : null
   const report = readRunResetReport(body.runReset)
-  const next: DeviceReset = {
-    requested: before?.requested ?? false,
-    booted: true,
-    ...(typeof body.cold === 'boolean' ? { cold: body.cold } : {}),
-    ...(report ? { report } : {}),
-  }
-  getDb().prepare(`UPDATE flow_runs SET device_reset_json = ?, last_activity_at = datetime('now') WHERE seq = ?`).run(JSON.stringify(next), run.seq)
+  const cold = typeof body.cold === 'boolean' ? { cold: body.cold } : {}
+  const sessionId = str(body.sessionId, MAX_NAME)
+  const deviceId = str(body.deviceId, MAX_NAME)
+  const deviceName = str(body.deviceName, MAX_NAME)
+  const db = getDb()
+  // **Read inside the write, not from `run`**: that row was read before the body arrived, and the devices of a parallel
+  // run report at once, so merging into it would keep whichever report wrote last and lose the others.
+  const gone = db.transaction((): boolean => {
+    const row = db.prepare('SELECT device_reset_json FROM flow_runs WHERE seq = ?').get(run.seq) as { device_reset_json: string | null } | undefined
+    if (!row) return true
+    const before = row.device_reset_json ? JSON.parse(row.device_reset_json) as DeviceReset : null
+    const devices = [...(before?.devices ?? [])]
+    if (sessionId !== null) {
+      const device: RunDevice = {
+        sessionId, ...(deviceId !== null ? { deviceId } : {}), ...(deviceName !== null ? { deviceName } : {}), ...cold, ...(report ? { report } : {}),
+      }
+      const at = devices.findIndex((d) => d.sessionId === sessionId)
+      if (at >= 0) devices[at] = device
+      else devices.push(device)
+    }
+    const first = sessionId === null || devices[0]?.sessionId === sessionId
+    const next: DeviceReset = first
+      ? { requested: before?.requested ?? false, booted: true, ...cold, ...(report ? { report } : {}), ...(devices.length > 0 ? { devices } : {}) }
+      : { ...before!, devices }
+    db.prepare(`UPDATE flow_runs SET device_reset_json = ?, last_activity_at = datetime('now') WHERE seq = ?`).run(JSON.stringify(next), run.seq)
+    return false
+  })()
+  if (gone) return json(res, 404, { error: 'Run not found' })
   json(res, 200, { ok: true })
 }
 
@@ -519,6 +616,7 @@ export async function handleFinishRun(
       ? json(res, 409, { error: 'Run already finished' })
       : json(res, 404, { error: 'Run not found' })
   }
+  startedFlows.delete(run.id)
   json(res, 200, { ok: true })
 }
 
@@ -655,11 +753,20 @@ export function handleGetRun(
   )
   const planned = JSON.parse(run.flows_json) as { name: string; file: string | null }[]
   const firstUnreported = planned.findIndex((_, i) => !reported.has(i))
+  if (run.status !== 'running') startedFlows.delete(run.id)
+  const started = startedFlows.get(run.id)
   const flows = planned.map((p, idx) => {
     const f = reported.get(idx)
     if (!f) {
-      // Not reported yet: the first is the one running now, the rest are waiting — unless the run is over.
-      const status = run.status !== 'running' ? 'not-run' : idx === firstUnreported ? 'running' : 'pending'
+      if (run.status !== 'running') return { idx, name: p.name, file: p.file, status: 'not-run', video: videos.get(idx) ?? null }
+      // A runner that reports starts says which flows are on a device. One that predates them leaves a guess: the
+      // first unreported flow is the one running, which holds while a run replays its flows one at a time.
+      const on = started?.get(idx)
+      if (on) {
+        const device = { id: on.deviceId, name: on.deviceName, sessionId: on.sessionId }
+        return { idx, name: p.name, file: p.file, status: 'running', device, video: videos.get(idx) ?? null }
+      }
+      const status = !started && idx === firstUnreported ? 'running' : 'pending'
       return { idx, name: p.name, file: p.file, status, video: videos.get(idx) ?? null }
     }
     // A skipped flow never ran, so it has no device, steps, duration or screen to report.
@@ -678,8 +785,8 @@ export function handleGetRun(
 
   // The session to watch is the one the holder holds **now**, never a stored one: session ids outlive runs,
   // so a stored id would open whoever took the device next.
-  const watchSessionId = run.status === 'running' ? holders.heldSession(holderKeys(run.created_by, run.holder_client)) : null
-  json(res, 200, { ...runSummary(run), flows, watchSessionId })
+  const watchSessionIds = run.status === 'running' ? holders.heldSessions(holderKeys(run.created_by, run.holder_client)) : []
+  json(res, 200, { ...runSummary(run), flows, watchSessionId: watchSessionIds[0] ?? null, watchSessionIds })
 }
 
 export function handleGetFlowScreenshot(
@@ -715,6 +822,7 @@ export function handleGetFlowScreenshot(
 export function purgeExpiredRuns(screenshotsDir: string, videosDir: string, holders: RunHolders): void {
   settleOrphanedRuns(holders)
   const db = getDb()
+  forgetStartedFlowsOfStoppedRuns()
   const expired = db.prepare(`
     SELECT seq FROM flow_runs WHERE build_id IS NULL AND delete_after IS NOT NULL AND delete_after < datetime('now')
   `).all() as { seq: number }[]

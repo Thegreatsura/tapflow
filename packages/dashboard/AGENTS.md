@@ -76,7 +76,8 @@ links lead to it: the one an MCP client hands to the person who asked it to test
 belongs to that person), and the **Watch the device** button on a running flow run in Flow Runs
 (`/automation/runs/:id`), which anyone on the team may open — a CI run is a test the team handed to automation.
 That button appears only while the relay reports the session the runner holds **now** (`watchSessionId`); a
-stored session id would open whoever took the device next. Up to four people can watch one session, and a
+stored session id would open whoever took the device next. A run on several devices lists them instead, each with
+its own **Watch** link from `watchSessionIds`, under the same rule. Up to four people can watch one session, and a
 fifth is refused with the reason (`watchRefusalText`).
 **That page must never send `session:start`, `device:boot` or `device:shutdown`, and must not use
 `useAgentSession`** — it shuts the device down on unmount, and a watch page closing would end what the agent

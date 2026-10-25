@@ -813,6 +813,7 @@ Body (JSON):
   buildId  number  optional  The build under test
   ci       object  optional  { provider?, branch?, commit?, jobUrl? }. jobUrl is kept only for an http(s) address
   serviceTier  object  optional  { name: "stock" | "lean" | "slim", keep: [feature] } the run asked its device to boot with. Recorded as requested, before any device boots. Not kept when it is not one
+  resetRequested  boolean  optional  Whether the run asked for its device to be reset. Tells a run whose reset was never reported apart from one that asked for none
 ```
 
 **Response `201`**
@@ -820,6 +821,34 @@ Body (JSON):
 ```json
 { "id": "3f2b0c7e-8a41-4b5e-9d0f-1c2d3e4f5a6b" }
 ```
+
+### `POST /api/v1/runs/:id/device`
+
+Report what booting the device found: whether it was already up, and what was reset. The runner sends it as soon as the boot answers, so a run that then fails to install or is cancelled still has it.
+
+```
+Body (JSON):
+  sessionId   string   optional  The session holding the device. A run on several devices keeps one entry per session
+  deviceId, deviceName  string  optional
+  cold        boolean  optional  false when the device was already up
+  runReset    object   optional  { done: [item], failed: [item] }. Not kept when it is not one
+```
+
+Reporting again with the same session replaces that device's entry only.
+
+**Response `200`** `{ "ok": true }`
+
+### `POST /api/v1/runs/:id/flows/:idx/start`
+
+Say that flow `idx` started on a device. The dashboard shows a flow reported this way as running on that device. A flow whose result is already reported is not changed.
+
+```
+Body (JSON):
+  sessionId   string  required  The session of the device running the flow
+  deviceId, deviceName  string  optional
+```
+
+**Response `200`** `{ "ok": true }`. A body without `sessionId` gets `400`.
 
 ### `POST /api/v1/runs/:id/flows/:idx`
 
@@ -913,8 +942,10 @@ A `build`, `before` or `after` that is not a non-negative integer gets `400`. An
 
 One run with each flow's result. It has the list item's fields plus:
 
-- `flows`: in the planned order. A reported flow carries `status` (`passed` or `failed`), `steps`, `device`, `durationMs` and `hasScreenshot`. A skipped flow carries `status: "skipped"`, `skipReason` and a `failureMessage` that says why. A flow with a video carries `video` with `ended`, `endReason`, `evicted`, `notRecorded` and `bytes`, and `null` when it has none; `notRecorded` says why the runner could not keep one (`jpeg`, `no-keyframe`). A flow not reported yet is `running` (in progress now) or `pending` on a run in progress, and `not-run` on a finished one.
+- `deviceReset`: whether the run reset its device; `null` for a run from a runner that predates resets. `requested` says whether it asked, and once the boot is reported `booted`, `cold` and `report` are added. When the runner names its sessions, `devices` holds `sessionId`, `deviceId`, `deviceName`, `cold` and `report` for each device; with several, the fields beside it are the first device's. List items carry this field too.
+- `flows`: in the planned order. A reported flow carries `status` (`passed` or `failed`), `steps`, `device`, `durationMs` and `hasScreenshot`. A skipped flow carries `status: "skipped"`, `skipReason` and a `failureMessage` that says why. A flow with a video carries `video` with `ended`, `endReason`, `evicted`, `notRecorded` and `bytes`, and `null` when it has none; `notRecorded` says why the runner could not keep one (`jpeg`, `no-keyframe`). A flow not reported yet is `running` (in progress now) or `pending` on a run in progress, and `not-run` on a finished one. A `running` flow whose start the runner reported carries `device` (`id`, `name`, `sessionId`). On a run from a runner that does not report starts, the first flow not reported yet is shown as `running`.
 - `watchSessionId`: the session the runner holds now. Set only while the run is in progress; it goes in the [watch page](/automation/mcp-server#watch-the-device) address.
+- `watchSessionIds`: every session the runner holds now, one per device on a run across several, and empty on a finished run.
 
 An unknown run gets `404`.
 
