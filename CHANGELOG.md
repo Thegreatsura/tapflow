@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-10-26
+
 ### Added
 
+- **A coding agent using the MCP server is told how to test with tapflow.** Ask it to "test the login screen" and it can look up which cases to cover, what tapflow cannot test, how to check a finding before calling it a bug, and how to report, through the new `get_testing_guide` tool. Short server instructions also tell it to read the screen from the UI tree rather than screenshots and to release the device when done. The instructions cost about 400 tokens per session; the guide costs about 1,200, and only when the agent asks for it.
 - **A flow run can boot its iOS simulator with almost every background service off.** `tapflow flow run --service-tier slim` makes the boot much lighter on the other sessions of the same Mac (measured on an 8 GB Mac: the CPU stayed saturated for 7–14 s instead of 20–49 s). It also turns off push, StoreKit, Wallet, photos, contacts, widgets, Spotlight and on-device models, so keep what your app needs with `--keep`, such as `--keep push,photos`. A device already running on another tier is restarted onto the one asked for, and a device a run left slim is put back on the usual services the next time a person starts it. Without the option nothing changes. iOS 18.5 and later.
 - **A run's record says which services it asked its device to boot with.** A run started with `--service-tier` shows the request on the run page (`slim, keeping push`), so a flow that failed for want of a service can be told from the app's regression.
 - **A device a run left with most services off is marked in the device list.** It reads **Most services off**, and the info card says a restart turns them back on. `tapflow doctor` counts devices by service tier.
@@ -17,7 +20,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A client can ask the relay for a device instead of naming one.** The new `device:lease` message has the relay choose a free device of a platform, or of a build's platform, make the client its holder and boot it in one step, so two clients asking at once never get the same device. It takes a device automation left running first, and otherwise boots one on the Mac with the most memory left that would let the boot through, so a burst of requests spreads over Macs. It never takes a device a person is using, started, or may come back to. `@tapflowio/flow-runner`'s `RelayClient` gains `lease()`; `agents:listed` lists `features: ['device-lease']` so a client can tell a relay that does not lease. `tapflow flow run --parallel` uses it.
 - **`tapflow flow run --parallel N` runs flows on several devices at once.** The relay picks up to N devices, reusing ones an earlier run left up before booting more, and never takes a device a person is using. Each device is reset (unless `--no-reset`) and has the build installed, then takes the next flow until none are left, so a slow flow holds up only its own device. Without `--build`, name the platform with `--platform ios` or `--platform android`. A device that fails drops out and the others carry on; the JUnit report has a suite per device, and flows no device ran are reported as errors.
 - **The run page shows which device each running flow is on.** `tapflow flow run` now says when it starts a flow, so the page marks that flow **Running on** its device instead of guessing the first one not yet reported. The record also keeps each device a run booted, ready for runs across several devices: the page lists them with their reset and a watch link each, and the runs list says how many a run shared.
-- **A coding agent using the MCP server is told how to test with tapflow.** Ask it to "test the login screen" and it can look up which cases to cover, what tapflow cannot test, how to check a finding before calling it a bug, and how to report, through the new `get_testing_guide` tool. Short server instructions also tell it to read the screen from the UI tree rather than screenshots and to release the device when done. The instructions cost about 400 tokens per session; the guide costs about 1,200, and only when the agent asks for it.
 
 ### Changed
 
@@ -1090,7 +1092,8 @@ found out by waiting.
 
 - Automatic `tapflow.config.json` creation as a side effect of `tapflow start` / `tapflow relay start`.
 
-[Unreleased]: https://github.com/jo-duchan/tapflow/compare/v0.28.1...HEAD
+[Unreleased]: https://github.com/jo-duchan/tapflow/compare/v0.29.0...HEAD
+[0.29.0]: https://github.com/jo-duchan/tapflow/compare/v0.28.1...v0.29.0
 [0.28.1]: https://github.com/jo-duchan/tapflow/compare/v0.28.0...v0.28.1
 [0.28.0]: https://github.com/jo-duchan/tapflow/compare/v0.27.1...v0.28.0
 [0.27.1]: https://github.com/jo-duchan/tapflow/compare/v0.27.0...v0.27.1
