@@ -286,6 +286,18 @@ export class LeaseRefusedError extends PlatformError {
   }
 }
 
+/** The session a failed lease had been given, by the error it failed with. A WeakMap, so the error keeps its own type. */
+const leasedSessions = new WeakMap<object, string>()
+
+/**
+ * The session a lease was given before its join or boot failed, which `lease()` has already left. A caller sharing
+ * devices across workers needs it to keep that device out of its later leases; the error alone does not say which
+ * device it was. `undefined` for any other error, including a lease refused before a device was chosen.
+ */
+export function leasedSessionOf(e: unknown): string | undefined {
+  return typeof e === 'object' && e !== null ? leasedSessions.get(e) : undefined
+}
+
 /** What the relay chose for a lease, and what the boot it sent said. */
 export interface Lease {
   sessionId: string
@@ -973,6 +985,7 @@ export class RelayClient {
       // The caller never learns this session's id, so it could not leave it; held, it would stay this run's until the
       // run's last socket closed, and a retry would be handed another device. Not connected: the close let it go.
       try { this.leaveSession(sessionId) } catch { /* not connected */ }
+      if (typeof e === 'object' && e !== null) leasedSessions.set(e, sessionId)
       throw e
     }
   }

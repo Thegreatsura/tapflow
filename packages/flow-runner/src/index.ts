@@ -2,7 +2,7 @@ export { parseFlow } from './schema.js'
 export type { Flow, Step, Selector, ScrollDirection } from './schema.js'
 export { runFlow, matchSelector, activityLabel } from './engine.js'
 export type { FlowDriver, FlowResult, StepResult, EngineOptions, SelectorSuggestion } from './engine.js'
-export { toJUnitXml } from './junit.js'
+export { toJUnitXml, toJUnitXmlSuites, type JUnitSuite } from './junit.js'
 export type { SkippedFlow } from './junit.js'
 export { isEligible, parseTagList, lookupBuild } from './eligibility.js'
 export type { EligibilityTarget, Eligibility, SkipReason, BuildLookup } from './eligibility.js'
@@ -17,6 +17,7 @@ export {
   InputRefusedError,
   InputUnconfirmedError,
   LeaseRefusedError,
+  leasedSessionOf,
   RelayClient,
   RelayUnavailableError,
   RelayClosedError,
