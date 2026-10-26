@@ -52,8 +52,11 @@ function checkArgument(key: string, value: unknown): string | null {
     if (value.length === 0) return `${at}: a list needs at least one item`
     for (const [i, item] of value.entries()) {
       if (typeof item !== 'string') return `${at}[${i}]: list items are strings`
-      // Android's string-array extra splits on commas, so the app would read a different list.
+      // Android's string-array extra splits on commas, so the app would read a different list. It does not split on a
+      // comma after a backslash (`Intent.parseCommandArgs`, `(?<!\\),`), so an item ending in one would swallow the
+      // next. Refused on every item rather than all but the last, to keep one rule.
       if (item.includes(',')) return `${at}[${i}]: list items cannot contain ","`
+      if (item.endsWith('\\')) return `${at}[${i}]: list items cannot end with "\\"`
       const bad = checkString(item, `${at}[${i}]`)
       if (bad) return bad
     }

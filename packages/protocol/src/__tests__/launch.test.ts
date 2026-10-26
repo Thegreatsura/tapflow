@@ -32,6 +32,9 @@ describe('launchOptionsProblem', () => {
   it('refuses lists Android would split or retype', () => {
     expect(problem({ arguments: { l: [] } })).toMatch(/at least one/)
     expect(problem({ arguments: { l: ['a,b'] } })).toMatch(/","/)
+    // Android reads `a\,b` as one item.
+    expect(problem({ arguments: { l: ['a\\', 'b'] } })).toMatch(/cannot end with/)
+    expect(problem({ arguments: { l: ['a\\b', 'c'] } })).toBeNull()
     expect(problem({ arguments: { l: [1] } })).toMatch(/strings/)
   })
 

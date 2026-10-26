@@ -85,7 +85,7 @@
                           { "type": "string" },
                           { "type": "boolean" },
                           { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
-                          { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[^,]*$" } }
+                          { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^([^,]*[^,\\\\])?$" } }
                         ]
                       }
                     },
