@@ -144,6 +144,7 @@ steps:
 - tapflow가 쓰는 환경 변수 이름(`DYLD_`, `TAPFLOW_`, `SIMULATOR_`로 시작하는 이름, `HOME`, `TMPDIR` 등)은 쓸 수 없습니다.
 - 서드파티 SDK의 디버그 옵션은 플랫폼마다 켜는 방법이 다릅니다. 예를 들어 Firebase DebugView는 iOS에서는 `FIRDebugEnabled: true`로 켜지지만 Android에서는 intent extra로 켜지지 않고 기기에서 `adb shell setprop debug.firebase.analytics.app <패키지>`를 실행해야 합니다.
 - 릴레이와 실행 기기의 에이전트가 모두 실행 인자를 지원하는 버전이어야 합니다. 둘 중 하나라도 이전 버전이면 인자 없이 실행하지 않고 스텝이 실패합니다.
+- 릴레이가 `tapflow.config.json`의 [실행 기본값](/ko/reference/configuration#launch-defaults)을 함께 넘길 수 있습니다. 스텝과 기본값에 같은 키가 있으면 스텝의 값을 씁니다. 실행 기록에는 적용된 기본값의 키가 스텝의 인자 뒤에 붙습니다. 값은 남지 않습니다. 예: `launchApp(apiHost="staging.example.com"; config: FIRDebugEnabled, env API_TOKEN)`.
 
 ## 실행
 

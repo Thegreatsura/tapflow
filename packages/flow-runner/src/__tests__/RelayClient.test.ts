@@ -1793,8 +1793,14 @@ describe('RelayClient launch options', () => {
 
   it('sends the options to a relay that carries them, and accepts the applied keys', async () => {
     const { client, received } = await relay({ features: ['launch-options'], applied: true })
-    await client.launchApp('s1', 7, { arguments: { flag: true } })
+    expect(await client.launchApp('s1', 7, { arguments: { flag: true } })).toEqual({ arguments: ['flag'], env: [] })
     expect(received.find((m) => m['type'] === 'app:launch')).toMatchObject({ buildId: 7, arguments: { flag: true } })
+  })
+
+  // The relay's per-app defaults reach a plain launch too, and their names are what the run record shows.
+  it('returns the applied keys of a launch that sent none', async () => {
+    const { client } = await relay({ features: ['launch-options'], applied: true })
+    expect(await client.launchApp('s1', 7)).toEqual({ arguments: [], env: [] })
   })
 
   it('refuses before sending when the relay does not carry them', async () => {

@@ -5,6 +5,7 @@ vi.mock('@tapflowio/relay', () => ({
     start: vi.fn().mockResolvedValue(undefined),
   }) }),
   initDb: vi.fn(),
+  loadLaunchDefaults: vi.fn(() => new Map()),
   loadedEnvPath: null,
   createCertProvider: vi.fn(),
   startTlsBackgroundTasks: vi.fn(() => () => {}),

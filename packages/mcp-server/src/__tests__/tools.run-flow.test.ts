@@ -282,6 +282,21 @@ describe('launch_app — launch options', () => {
     expect(client.launchApp).toHaveBeenLastCalledWith('s1', 5, undefined)
   })
 
+  // #1047, PR 2: the relay's per-app defaults reach the app without the agent naming them, so the result does.
+  it('reports the applied keys, defaults included', async () => {
+    const client = fakeClient([])
+    vi.mocked(client.launchApp).mockResolvedValue({ arguments: ['a'], env: ['LOG_LEVEL'] })
+    const res = await launchHandler(client)({ sessionId: 's1', buildId: 5 })
+    expect(JSON.parse((res.content as { text: string }[])[0]!.text)).toEqual({ launched: true, buildId: 5, applied: { arguments: ['a'], env: ['LOG_LEVEL'] } })
+  })
+
+  // The interface allows `void`, so a driver that dropped the value would compile and lose the run record's names.
+  it('passes the applied keys through the run_flow driver', async () => {
+    const client = fakeClient([])
+    vi.mocked(client.launchApp).mockResolvedValue({ arguments: ['a'], env: [] })
+    expect(await makeFlowDriver(client, 's1', 5).launchApp()).toEqual({ arguments: ['a'], env: [] })
+  })
+
   it('refuses what the shared check refuses, before calling the relay', async () => {
     const client = fakeClient([])
     const res = await launchHandler(client)({ sessionId: 's1', buildId: 5, env: { DYLD_INSERT_LIBRARIES: 'x' } })

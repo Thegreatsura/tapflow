@@ -47,6 +47,25 @@ describe('runFlow', () => {
     expect(JSON.stringify(result)).not.toContain('hunter2')
   })
 
+  // #1047, PR 2. The relay's per-app defaults are applied outside the YAML, so the run record names them — keys only,
+  // since the relay sends no values back — or the same flow's result would depend on a config nobody can see.
+  it.each([
+    ['a plain launch', 'steps:\n  - launchApp\n', 'launchApp(config: a, b, env LOG_LEVEL)'],
+    ['a launch whose own keys overlap the defaults', 'steps:\n  - launchApp: { arguments: { b: 3 } }\n', 'launchApp(b=3; config: a, env LOG_LEVEL)'],
+  ])('names the defaults the relay added to %s', async (_, yaml, expected) => {
+    const driver = fakeDriver([[el({ label: 'Home' })]])
+    vi.mocked(driver.launchApp).mockResolvedValue({ arguments: ['a', 'b'], env: ['LOG_LEVEL'] })
+    const result = await runFlow(flowOf(yaml), driver, OPTS)
+    expect(result.steps[0]!.name).toBe(expected)
+  })
+
+  it('keeps the plain name when nothing was applied, and when a driver answers nothing', async () => {
+    const driver = fakeDriver([[el({ label: 'Home' })]])
+    vi.mocked(driver.launchApp).mockResolvedValue({ arguments: [], env: [] })
+    expect((await runFlow(flowOf('steps:\n  - launchApp\n'), driver, OPTS)).steps[0]!.name).toBe('launchApp')
+    expect((await runFlow(flowOf('steps:\n  - launchApp\n'), fakeDriver([[el({ label: 'Home' })]]), OPTS)).steps[0]!.name).toBe('launchApp')
+  })
+
   it('taps the center of the matched element frame', async () => {
     const driver = fakeDriver([[el({ label: '로그인', frame: { x: 0.2, y: 0.8, width: 0.6, height: 0.1 } })]])
     const result = await runFlow(flowOf('steps:\n  - tapOn: "로그인"\n'), driver, OPTS)

@@ -873,7 +873,7 @@ describe('TapflowClient', () => {
       echoReply(relay, 'agents:list', { type: 'agents:listed', sessions: [], features: ['launch-options'] })
       echoReply(relay, 'app:launch', { type: 'app:launch-done', sessionId: 'sess-1', applied: { arguments: ['flag'], env: [] } })
       const sent = waitForMessage(relay, 'app:launch')
-      await expect(client.launchApp('sess-1', 42, { arguments: { flag: true } })).resolves.toBeUndefined()
+      await expect(client.launchApp('sess-1', 42, { arguments: { flag: true } })).resolves.toEqual({ arguments: ['flag'], env: [] })
       expect(await sent).toMatchObject({ buildId: 42, arguments: { flag: true } })
     })
 

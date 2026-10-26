@@ -1,6 +1,6 @@
 import path from 'path'
 import { z } from 'zod'
-import { RelayServer, initDb, config, loadedEnvPath, install, configFound, assertInstallDir, createCertProvider, startTlsBackgroundTasks, buildCorsOrigins, proxyWithoutPublicUrlWarning, resolveRelayDisplayHost, resolveTunnelPort, isInitialized } from '@tapflowio/relay'
+import { RelayServer, initDb, config, loadLaunchDefaults, loadedEnvPath, install, configFound, assertInstallDir, createCertProvider, startTlsBackgroundTasks, buildCorsOrigins, proxyWithoutPublicUrlWarning, resolveRelayDisplayHost, resolveTunnelPort, isInitialized } from '@tapflowio/relay'
 import type { TunnelRuntime } from '@tapflowio/relay'
 import { banner, step, warn } from '../lib/print.js'
 import { startConfiguredTunnel, tunnelRuntimeFor } from '../lib/tunnel-runner.js'
@@ -90,7 +90,7 @@ export async function cmdRelayStart(opts: RelayStartOptions): Promise<void> {
   let server: RelayServer
   try {
     // Construction is inside the try too: a TLS key that does not match its cert throws here.
-    server = new RelayServer({ port, uploadsDir: path.join(config.local.dataDir, 'uploads'), wsBackpressureBytes: config.local.wsBackpressureBytes, trustedProxies: config.local.trustedProxies, corsOrigins: buildCorsOrigins(config, port, tunnelRuntime), tls, tunnel: tunnelRuntime, tunnelPort })
+    server = new RelayServer({ port, uploadsDir: path.join(config.local.dataDir, 'uploads'), wsBackpressureBytes: config.local.wsBackpressureBytes, trustedProxies: config.local.trustedProxies, corsOrigins: buildCorsOrigins(config, port, tunnelRuntime), tls, tunnel: tunnelRuntime, tunnelPort, launchDefaults: loadLaunchDefaults() })
     await server.start()
   } catch (err) {
     await tunnel?.stop()

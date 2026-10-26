@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type {
-  AdmissionRefusal, BootRefusalReason, BrowserToRelay, LaunchOptions, RunResetRequest, ServiceTier, DeviceSummary, InputErrorReason, SessionStartFailure, SessionTerminatedReason,
+  AdmissionRefusal, BootRefusalReason, BrowserToRelay, LaunchApplied, LaunchOptions, RunResetRequest, ServiceTier, DeviceSummary, InputErrorReason, SessionStartFailure, SessionTerminatedReason,
 } from '@tapflowio/protocol'
 import { WebSocket } from 'ws'
 import type { UIElement } from '@tapflowio/agent-core'
@@ -1007,7 +1007,8 @@ export class RelayClient {
     if (msg['type'] === 'app:install-error') throw this.failed(sessionId, (msg['message'] as string) ?? 'install failed')
   }
 
-  async launchApp(sessionId: string, buildId: number, options?: LaunchOptions): Promise<void> {
+  /** The names the agent applied, which can include the relay's per-app defaults; undefined from an older agent. */
+  async launchApp(sessionId: string, buildId: number, options?: LaunchOptions): Promise<LaunchApplied | undefined> {
     // An older relay's validator strips both fields and the launch still answers done, so a flow that asked for
     // arguments would pass having launched without them.
     if (options && !(await this.relayFeatures()).includes('launch-options')) {
@@ -1031,6 +1032,7 @@ export class RelayClient {
     if (options && msg['applied'] === undefined) {
       throw markEnvironmentFailure(this.failed(sessionId, 'The device\'s tapflow agent launched the app without the launch arguments — update tapflow on that Mac'))
     }
+    return msg['applied'] as LaunchApplied | undefined
   }
 
   async clearState(sessionId: string, bundleId: string): Promise<void> {

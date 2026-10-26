@@ -329,11 +329,34 @@ export class AdbWrapper {
    * returns before the app even has focus (measured 0.2–0.36 s against 0.5–0.9 s), so a step sent right after the
    * reply could reach the launcher instead. Monkey stays as the fallback, and its error text is what a failure says.
    */
-  async launchApp(serial: string, packageName: string, options?: LaunchOptions): Promise<void> {
-    if (hasLaunchOptions(options)) return this.launchFresh(serial, packageName, options!)
+  async launchApp(serial: string, packageName: string, options?: LaunchOptions, defaultsOnly = false): Promise<LaunchOptions | undefined> {
+    if (hasLaunchOptions(options)) {
+      // The relay's per-app defaults, none of them asked for by the caller: what this device cannot take is left out
+      // rather than failing a launch that works without it. A caller's own options still fail below.
+      const deliverable: { options: LaunchOptions; component?: string } | undefined = defaultsOnly ? await this.deliverableDefaults(serial, packageName, options!) : { options: options! }
+      if (deliverable) {
+        await this.launchFresh(serial, packageName, deliverable.options, deliverable.component)
+        return deliverable.options
+      }
+    }
     const component = await this.launcherComponent(serial, packageName)
-    if (component && await this.startAndWait(serial, component)) return
+    if (component && await this.startAndWait(serial, component)) return undefined
     await this.launchWithMonkey(serial, packageName)
+    return undefined
+  }
+
+  // The part of the relay's defaults `launchFresh` can deliver here, with the component it resolved, or undefined when
+  // none of it can. A relay that knows this agent has no `launch-env` sends no env default, so env here means a relay
+  // that checked less.
+  private async deliverableDefaults(serial: string, packageName: string, options: LaunchOptions): Promise<{ options: LaunchOptions; component: string } | undefined> {
+    if (Object.keys(options.env ?? {}).length > 0) console.warn(`[tapflow] ${packageName}: env defaults left out — Android cannot set an app's environment`)
+    if (Object.keys(options.arguments ?? {}).length === 0) return undefined
+    const component = await this.launcherComponent(serial, packageName)
+    if (!component) {
+      console.warn(`[tapflow] ${packageName}: no single launcher activity, so its launch defaults were left out and the app launched without them`)
+      return undefined
+    }
+    return { options: { arguments: options.arguments }, component }
   }
 
   /**
@@ -344,11 +367,11 @@ export class AdbWrapper {
    * - `-S` stops the app first in the same command, since a running app would only be brought forward and its intent
    *   never re-read; and the two `Activity not started` warnings, which the plain launch counts as launched, fail.
    */
-  private async launchFresh(serial: string, packageName: string, options: LaunchOptions): Promise<void> {
+  private async launchFresh(serial: string, packageName: string, options: LaunchOptions, resolved?: string): Promise<void> {
     if (Object.keys(options.env ?? {}).length > 0) {
       throw new ValidationError('env is iOS-only: Android has no way to set an app\'s environment. Pass it in arguments instead, read from the intent extras')
     }
-    const component = await this.launcherComponent(serial, packageName)
+    const component = resolved ?? await this.launcherComponent(serial, packageName)
     if (!component) {
       throw new ValidationError(`Could not find a single launcher activity for ${packageName}, so the launch arguments cannot be delivered`)
     }

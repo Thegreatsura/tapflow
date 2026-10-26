@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type {
-  BootRefusalReason, BrowserToRelay, DeviceSummary, InputErrorReason, LaunchOptions, SessionTerminatedReason, UIElement,
+  BootRefusalReason, BrowserToRelay, DeviceSummary, InputErrorReason, LaunchApplied, LaunchOptions, SessionTerminatedReason, UIElement,
 } from '@tapflowio/protocol'
 import { AdmissionRefusedError, EnvironmentStepError, TransientQueryError, markEnvironmentFailure, authHeader, fetchWithToken, fixedToken, lookupBuild, tokenRefusal, type BuildLookup, type TokenSource } from '@tapflowio/flow-runner'
 
@@ -1212,7 +1212,7 @@ export class TapflowClient {
     }
   }
 
-  async launchApp(sessionId: string, buildId: number, options?: LaunchOptions): Promise<void> {
+  async launchApp(sessionId: string, buildId: number, options?: LaunchOptions): Promise<LaunchApplied | undefined> {
     // An older relay's validator strips both fields and still answers done. Same check as flow-runner's client.
     if (options && !(await this.relayFeatures()).includes('launch-options')) {
       throw markEnvironmentFailure(this.failed(sessionId, 'This tapflow relay is too old to pass launch arguments — update the relay'))
@@ -1234,6 +1234,7 @@ export class TapflowClient {
     if (options && msg['applied'] === undefined) {
       throw markEnvironmentFailure(this.failed(sessionId, 'The device\'s tapflow agent launched the app without the launch arguments — update tapflow on that Mac'))
     }
+    return msg['applied'] as LaunchApplied | undefined
   }
 
   async screenshot(sessionId: string, format: 'png' | 'jpeg' = 'png', signal?: AbortSignal): Promise<Buffer> {

@@ -3,9 +3,9 @@
 // accepts is never refused by the next with a different message — or, worse, accepted by an agent that a stricter
 // door would have stopped. A subpath rather than the main entry, which must stay free of runtime values (see AGENTS.md).
 
-import type { LaunchArgumentValue, LaunchOptions } from '../index.js'
+import type { LaunchApplied, LaunchArgumentValue, LaunchOptions } from '../index.js'
 
-export type { LaunchArgumentValue, LaunchOptions }
+export type { LaunchApplied, LaunchArgumentValue, LaunchOptions }
 
 export const MAX_LAUNCH_KEYS = 32
 /**
@@ -118,7 +118,7 @@ export function hasLaunchOptions(opts: LaunchOptions | undefined): boolean {
 }
 
 /** The `applied` an agent reports for these options: the names, never the values. */
-export function appliedKeys(opts: LaunchOptions): { arguments: string[]; env: string[] } {
+export function appliedKeys(opts: LaunchOptions): LaunchApplied {
   return { arguments: Object.keys(opts.arguments ?? {}), env: Object.keys(opts.env ?? {}) }
 }
 

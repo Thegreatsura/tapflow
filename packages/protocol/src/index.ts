@@ -463,7 +463,12 @@ export interface AppLaunchToAgent {
   type: 'app:launch'
   sessionId: string
   requestId: string
-  payload: { bundleId: string } & LaunchOptions
+  payload: { bundleId: string } & LaunchOptions & {
+    /** Everything in the options came from the relay's per-app defaults, none from the caller. An agent that cannot
+     *  deliver them all may launch without them and report an empty `applied`, where it would refuse a caller's: a
+     *  default written for automation must not break the plain Launch button on an app it does not fit. */
+    defaultsOnly?: boolean
+  }
 }
 
 /**
@@ -480,6 +485,12 @@ export type LaunchArgumentValue = string | number | boolean | string[]
 export interface LaunchOptions {
   arguments?: Record<string, LaunchArgumentValue>
   env?: Record<string, string>
+}
+
+/** The names of the launch options an agent applied: never the values. */
+export interface LaunchApplied {
+  arguments: string[]
+  env: string[]
 }
 
 export interface ScreenshotRequest {
@@ -1412,7 +1423,7 @@ export interface AppLaunchDone {
   requestId: string
   /** The keys the agent applied, present when the launch carried any. Names only: an env value can be a secret, and
    *  this reaches run records. A launch that sent keys and got no `applied` back lost them somewhere on the way. */
-  applied?: { arguments: string[]; env: string[] }
+  applied?: LaunchApplied
 }
 
 export interface AppClearStateDone {
