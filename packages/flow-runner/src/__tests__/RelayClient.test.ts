@@ -1797,13 +1797,18 @@ describe('RelayClient launch options', () => {
 
   it('refuses before sending when the relay does not carry them', async () => {
     const { client, received } = await relay({ features: ['device-lease'] })
-    await expect(client.launchApp('s1', 7, { arguments: { flag: true } })).rejects.toThrow(/relay is too old/)
+    const err = await client.launchApp('s1', 7, { arguments: { flag: true } }).catch((e: unknown) => e)
+    expect((err as Error).message).toMatch(/relay is too old/)
+    // An environment failure (exit 2), not a product one: the app did nothing wrong.
+    expect(isEnvironmentStepFailure(err)).toBe(true)
     expect(received.some((m) => m['type'] === 'app:launch')).toBe(false)
   })
 
   it('fails a launch the agent answered without naming what it applied', async () => {
     const { client } = await relay({ features: ['launch-options'] })
-    await expect(client.launchApp('s1', 7, { env: { A: '1' } })).rejects.toThrow(/without the launch arguments/)
+    const err = await client.launchApp('s1', 7, { env: { A: '1' } }).catch((e: unknown) => e)
+    expect((err as Error).message).toMatch(/without the launch arguments/)
+    expect(isEnvironmentStepFailure(err)).toBe(true)
   })
 
   it('asks the relay nothing for a plain launch, and needs no applied keys', async () => {

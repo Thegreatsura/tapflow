@@ -3,7 +3,7 @@ import type { IncomingMessage } from 'node:http'
 import { WebSocketServer, WebSocket } from 'ws'
 import { TapflowClient, REASON_ADVICE, SessionEndedError, SessionLeftError, reasonAdvice } from '../client.js'
 import { makeFlowDriver } from '../tools.js'
-import { EnvironmentStepError, TransientQueryError } from '@tapflowio/flow-runner'
+import { EnvironmentStepError, TransientQueryError, isEnvironmentStepFailure } from '@tapflowio/flow-runner'
 
 // inputAck models the agent's terminal-input ack: 'done' = new agent (booted), 'error' = rejects with prose only, 'error-with-reason' = rejects with the machine-readable reason too, 'none' = older agent that never acks (degradation).
 function createMockRelay(): {
@@ -879,7 +879,10 @@ describe('TapflowClient', () => {
 
     it('refuses options before sending when the relay does not carry them', async () => {
       echoReply(relay, 'agents:list', { type: 'agents:listed', sessions: [] })
-      await expect(client.launchApp('sess-1', 42, { arguments: { flag: true } })).rejects.toThrow(/relay is too old/)
+      const err = await client.launchApp('sess-1', 42, { arguments: { flag: true } }).catch((e: unknown) => e)
+      expect((err as Error).message).toMatch(/relay is too old/)
+      // run_flow reports it as an environment failure, as the CLI does.
+      expect(isEnvironmentStepFailure(err)).toBe(true)
     })
 
     it('fails a launch answered without the applied keys', async () => {

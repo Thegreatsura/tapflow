@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type {
   BootRefusalReason, BrowserToRelay, DeviceSummary, InputErrorReason, LaunchOptions, SessionTerminatedReason, UIElement,
 } from '@tapflowio/protocol'
-import { AdmissionRefusedError, EnvironmentStepError, TransientQueryError, authHeader, fetchWithToken, fixedToken, lookupBuild, tokenRefusal, type BuildLookup, type TokenSource } from '@tapflowio/flow-runner'
+import { AdmissionRefusedError, EnvironmentStepError, TransientQueryError, markEnvironmentFailure, authHeader, fetchWithToken, fixedToken, lookupBuild, tokenRefusal, type BuildLookup, type TokenSource } from '@tapflowio/flow-runner'
 
 // Protocol owns the wire shape; this file used to declare an identical copy under a name the
 // relay uses for a *different* shape. Kept exported as `DeviceInfo` because that is this
@@ -1215,7 +1215,7 @@ export class TapflowClient {
   async launchApp(sessionId: string, buildId: number, options?: LaunchOptions): Promise<void> {
     // An older relay's validator strips both fields and still answers done. Same check as flow-runner's client.
     if (options && !(await this.relayFeatures()).includes('launch-options')) {
-      throw this.failed(sessionId, 'This tapflow relay is too old to pass launch arguments — update the relay')
+      throw markEnvironmentFailure(this.failed(sessionId, 'This tapflow relay is too old to pass launch arguments — update the relay'))
     }
     const requestId = randomUUID()
     this.send({ type: 'app:launch', sessionId, requestId, buildId, ...options })
@@ -1231,7 +1231,7 @@ export class TapflowClient {
     }
     // The agent names the keys it applied; an agent that predates them launched without them.
     if (options && msg['applied'] === undefined) {
-      throw this.failed(sessionId, 'The device\'s tapflow agent launched the app without the launch arguments — update tapflow on that Mac')
+      throw markEnvironmentFailure(this.failed(sessionId, 'The device\'s tapflow agent launched the app without the launch arguments — update tapflow on that Mac'))
     }
   }
 

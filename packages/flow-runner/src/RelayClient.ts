@@ -5,7 +5,7 @@ import type {
 import { WebSocket } from 'ws'
 import type { UIElement } from '@tapflowio/agent-core'
 import { PlatformError } from '@tapflowio/agent-core'
-import { TransientQueryError } from './errors.js'
+import { TransientQueryError, markEnvironmentFailure } from './errors.js'
 import { authHeader, fetchWithToken, fixedToken, tokenRefusal, type TokenSource } from './credentials.js'
 
 // Carries the HTTP status so ui-tree queries can tell a transient failure (retry) from a permanent one.
@@ -1011,7 +1011,7 @@ export class RelayClient {
     // An older relay's validator strips both fields and the launch still answers done, so a flow that asked for
     // arguments would pass having launched without them.
     if (options && !(await this.relayFeatures()).includes('launch-options')) {
-      throw this.failed(sessionId, 'This tapflow relay is too old to pass launch arguments — update the relay')
+      throw markEnvironmentFailure(this.failed(sessionId, 'This tapflow relay is too old to pass launch arguments — update the relay'))
     }
     const requestId = randomUUID()
     this.send({ type: 'app:launch', sessionId, requestId, buildId, ...options })
@@ -1025,7 +1025,7 @@ export class RelayClient {
     // The agent names the keys it applied. Sent with keys and answered without them means something on the way
     // dropped them, which the feature check above cannot see past the relay.
     if (options && msg['applied'] === undefined) {
-      throw this.failed(sessionId, 'The device\'s tapflow agent launched the app without the launch arguments — update tapflow on that Mac')
+      throw markEnvironmentFailure(this.failed(sessionId, 'The device\'s tapflow agent launched the app without the launch arguments — update tapflow on that Mac'))
     }
   }
 
