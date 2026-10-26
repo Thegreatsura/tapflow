@@ -814,11 +814,6 @@ export class RelayServer {
     return this.tunnelServer?.address() ?? null
   }
 
-  /**
-   * Migration 014 normalizes stored addresses but leaves alone any two that normalize to the same one —
-   * rewriting them would break `UNIQUE(email)` and the migration with it. Each still signs in by its
-   * exact address; name them so an Admin can remove the duplicate.
-   */
   // Once per app and reason: an app shared by iOS and Android with an env default would otherwise warn on every
   // Android launch.
   private warnDroppedDefaults(bundleId: string, dropped: 'all' | 'env'): void {
@@ -827,7 +822,7 @@ export class RelayServer {
     this.warnedDroppedDefaults.add(key)
     logger.warn(dropped === 'all'
       ? `${bundleId}: launched without its launch defaults — the device's tapflow agent is too old to pass them`
-      : `${bundleId}: launched without its env defaults on a device that cannot set an app's environment (Android)`)
+      : `${bundleId}: launched without its env defaults — the device's tapflow agent cannot set an app's environment (Android, or an older agent)`)
   }
 
   private warnUnmatchedLaunchDefaults(): void {
@@ -837,6 +832,11 @@ export class RelayServer {
     for (const warning of unmatchedLaunchKeys(keys, uploaded)) logger.warn(warning)
   }
 
+  /**
+   * Migration 014 normalizes stored addresses but leaves alone any two that normalize to the same one —
+   * rewriting them would break `UNIQUE(email)` and the migration with it. Each still signs in by its
+   * exact address; name them so an Admin can remove the duplicate.
+   */
   private warnDuplicateEmails(): void {
     const groups = getDb().prepare(`
       SELECT ${EMAIL_KEY_SQL} AS email, GROUP_CONCAT(id) AS ids FROM users

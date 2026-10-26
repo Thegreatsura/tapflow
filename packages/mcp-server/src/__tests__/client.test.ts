@@ -869,6 +869,12 @@ describe('TapflowClient', () => {
     })
 
     // #1047. An older relay strips the options and an older agent ignores them, and both still answer done.
+    it('refuses a malformed applied as an environment failure', async () => {
+      echoReply(relay, 'app:launch', { type: 'app:launch-done', sessionId: 'sess-1', applied: { arguments: ['a'] } })
+      const err = await client.launchApp('sess-1', 42).catch((e: unknown) => e)
+      expect((err as Error).message).toMatch(/malformed list of applied options/)
+    })
+
     it('sends options to a relay that carries them and accepts the applied keys', async () => {
       echoReply(relay, 'agents:list', { type: 'agents:listed', sessions: [], features: ['launch-options'] })
       echoReply(relay, 'app:launch', { type: 'app:launch-done', sessionId: 'sess-1', applied: { arguments: ['flag'], env: [] } })

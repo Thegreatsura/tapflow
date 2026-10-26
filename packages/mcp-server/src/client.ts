@@ -1234,7 +1234,14 @@ export class TapflowClient {
     if (options && msg['applied'] === undefined) {
       throw markEnvironmentFailure(this.failed(sessionId, 'The device\'s tapflow agent launched the app without the launch arguments — update tapflow on that Mac'))
     }
-    return msg['applied'] as LaunchApplied | undefined
+    const applied = msg['applied']
+    if (applied === undefined) return undefined
+    // Read off an agent's reply, which nothing on the way validates; a malformed one would throw later, after the
+    // app is up, and be counted as the app failing.
+    if (!isLaunchApplied(applied)) {
+      throw markEnvironmentFailure(this.failed(sessionId, 'The device\'s tapflow agent answered the launch with a malformed list of applied options — update tapflow on that Mac'))
+    }
+    return applied
   }
 
   async screenshot(sessionId: string, format: 'png' | 'jpeg' = 'png', signal?: AbortSignal): Promise<Buffer> {
@@ -1461,4 +1468,9 @@ export class TapflowClient {
         })),
     }))
   }
+}
+
+function isLaunchApplied(v: unknown): v is LaunchApplied {
+  const names = (x: unknown) => Array.isArray(x) && x.every((s) => typeof s === 'string')
+  return typeof v === 'object' && v !== null && names((v as Record<string, unknown>)['arguments']) && names((v as Record<string, unknown>)['env'])
 }
