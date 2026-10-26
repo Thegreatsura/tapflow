@@ -4,6 +4,8 @@ import type { LaunchArgumentValue, LaunchOptions } from '@tapflowio/protocol'
 // what follows a `-key`. Unquoted, a value starting with "-" is taken for the next key and one that is not valid plist
 // text (a lone "(") is dropped: measured on iOS 26.5, `-offset -1` and `-paren (` both read back as nil, while
 // `"-1"` and `"("` read back as the strings. Quoting also keeps "true" a string, which `bool(forKey:)` reads as true.
+// A raw newline, tab, Korean or emoji inside the quotes reads back unchanged (measured the same way), so only the
+// backslash and the quote are escaped.
 function plistString(s: string): string {
   return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
 }

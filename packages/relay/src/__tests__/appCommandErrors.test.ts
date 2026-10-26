@@ -377,6 +377,8 @@ describe('app command failures reach the caller (#445)', () => {
     const msg = await waitForType(browser, 'app:launch-error')
     expect(msg.requestId).toBe('rq-13')
     expect(msg.message).toMatch(/too old to pass launch arguments/)
+    // What lets a flow runner count it as a version mismatch (exit 2) rather than the app failing.
+    expect(msg.reason).toBe('agent-outdated')
 
     browser.send(JSON.stringify({ type: 'app:launch', requestId: 'rq-14', sessionId, buildId, arguments: {}, env: {} }))
     expect((await waitForType(agent, 'app:launch')).requestId).toBe('rq-14')
@@ -392,6 +394,7 @@ describe('app command failures reach the caller (#445)', () => {
     const msg = await waitForType(browser, 'app:launch-error')
     expect(msg.requestId).toBe('rq-15')
     expect(msg.message).toMatch(/^env\.SIMULATOR_UDID: reserved/)
+    expect(msg.reason).toBeUndefined()
     await barrier(agent)
     expect(await waitForTypeOrNull(agent, 'app:launch', 0)).toBeNull()
 

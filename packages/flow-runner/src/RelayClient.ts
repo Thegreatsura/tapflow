@@ -1021,7 +1021,11 @@ export class RelayClient {
       'app launch',
       sessionId,
     )
-    if (msg['type'] === 'app:launch-error') throw this.failed(sessionId, (msg['message'] as string) ?? 'launch failed')
+    if (msg['type'] === 'app:launch-error') {
+      const err = this.failed(sessionId, (msg['message'] as string) ?? 'launch failed')
+      // A version mismatch, not the app failing: exit 2, like the two checks around it.
+      throw msg['reason'] === 'agent-outdated' ? markEnvironmentFailure(err) : err
+    }
     // The agent names the keys it applied. Sent with keys and answered without them means something on the way
     // dropped them, which the feature check above cannot see past the relay.
     if (options && msg['applied'] === undefined) {

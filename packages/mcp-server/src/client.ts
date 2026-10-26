@@ -1227,7 +1227,8 @@ export class TapflowClient {
       sessionId,
     )
     if (msg['type'] === 'app:launch-error') {
-      throw this.failed(sessionId, (msg['message'] as string) ?? 'Launch failed')
+      const err = this.failed(sessionId, (msg['message'] as string) ?? 'Launch failed')
+      throw msg['reason'] === 'agent-outdated' ? markEnvironmentFailure(err) : err
     }
     // The agent names the keys it applied; an agent that predates them launched without them.
     if (options && msg['applied'] === undefined) {

@@ -11,6 +11,11 @@ describe('iosLaunchArgv', () => {
     ])
   })
 
+  // Measured on iOS 26.5: a raw newline, tab, Korean and emoji inside the quotes read back unchanged.
+  it('passes newline, tab and non-ASCII through unescaped', () => {
+    expect(iosLaunchArgv({ v: 'a\nb\tc 한글 😀' })).toEqual(['-v', '"a\nb\tc 한글 😀"'])
+  })
+
   it('renders a list as a plist array of strings', () => {
     expect(iosLaunchArgv({ AppleLanguages: ['en', 'ko'] })).toEqual(['-AppleLanguages', '("en","ko")'])
   })

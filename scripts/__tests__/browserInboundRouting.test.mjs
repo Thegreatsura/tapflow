@@ -322,7 +322,7 @@ describe('browser-inbound routing matches the protocol union', () => {
       'device:postures': 'payload sessionId',
       'device:ready': 'payload requestId? sessionId?',
       'app:install-error': 'message requestId sessionId',
-      'app:launch-error': 'message requestId sessionId',
+      'app:launch-error': 'message reason? requestId sessionId',
       'device:boot-error': 'message reason? requestId? sessionId',
       'open-url:error': 'message requestId sessionId',
       'app:clear-state-error': 'message requestId sessionId',

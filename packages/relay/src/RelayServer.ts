@@ -3487,7 +3487,8 @@ export class RelayServer {
     // fifth: a throw out of `getDb().prepare(…).get(…)` — SQLITE_BUSY, a closed db, I/O — unwinds to the
     // message-loop catch and answers nothing at all. Pre-existing and unchanged here, but "every exit
     // carries the request's id" would be false.
-    const fail = (message: string) => this.sendTo(ws, { type: 'app:launch-error', sessionId, requestId, message })
+    const fail = (message: string, reason?: 'agent-outdated') =>
+      this.sendTo(ws, { type: 'app:launch-error', sessionId, requestId, message, ...(reason ? { reason } : {}) })
 
     const session = this.sessions.get(sessionId)
     if (!session) return fail('Session not found')
@@ -3512,7 +3513,7 @@ export class RelayServer {
     const options = compactLaunchOptions({ arguments: msg.arguments, env: msg.env })
     // An agent that predates the options ignores both fields and launches without them, then answers done.
     if (options && !hasCapability(session.agentCapabilities, 'launch-options')) {
-      return fail('This device\'s tapflow agent is too old to pass launch arguments. Update tapflow on the Mac running it')
+      return fail('This device\'s tapflow agent is too old to pass launch arguments. Update tapflow on the Mac running it', 'agent-outdated')
     }
 
     // See `handleBrowserAppInstall` — the correlator rides across the rebuild, and only a test says the

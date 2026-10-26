@@ -330,6 +330,17 @@ describe('AdbWrapper', () => {
         expect(ran(runner, 'monkey')).toHaveLength(0)
       })
 
+      // The cause is what the agent logs. Node's exec error carries the whole argv in its message and `cmd`, and an
+      // argument value can be a token.
+      it('keeps argument values out of the cause when adb fails before the intent went out', async () => {
+        const failed = Object.assign(new Error("Command failed: adb -s emulator-5554 shell … --es 'token' 'sekrit'"), { cmd: "adb … 'sekrit'", stderr: 'error: closed\n', stdout: '' })
+        const runner = launcher({ resolve: RESOLVED, start: failed })
+        const e = await new AdbWrapper(runner).launchApp('emulator-5554', PKG, { arguments: { token: 'sekrit' } }).catch((x: unknown) => x) as Error
+        expect(e.message).toBe('adb did not finish the launch')
+        expect(String((e.cause as Error).message)).toBe('error: closed')
+        expect(JSON.stringify({ m: e.message, c: (e.cause as Error).message, k: (e.cause as { cmd?: string }).cmd })).not.toContain('sekrit')
+      })
+
       it('fails instead of falling back to monkey when no single launcher activity resolves', async () => {
         const runner = launcher({ resolve: 'No activity found\n' })
         await expect(new AdbWrapper(runner).launchApp('emulator-5554', PKG, { arguments: ARGS })).rejects.toThrow(/launcher activity/)

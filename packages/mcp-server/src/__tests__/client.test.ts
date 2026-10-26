@@ -885,6 +885,14 @@ describe('TapflowClient', () => {
       expect(isEnvironmentStepFailure(err)).toBe(true)
     })
 
+    it('counts an agent-outdated refusal as an environment failure', async () => {
+      echoReply(relay, 'agents:list', { type: 'agents:listed', sessions: [], features: ['launch-options'] })
+      echoReply(relay, 'app:launch', { type: 'app:launch-error', sessionId: 'sess-1', message: 'agent too old', reason: 'agent-outdated' })
+      const err = await client.launchApp('sess-1', 42, { arguments: { flag: true } }).catch((e: unknown) => e)
+      expect((err as Error).message).toMatch(/agent too old/)
+      expect(isEnvironmentStepFailure(err)).toBe(true)
+    })
+
     it('fails a launch answered without the applied keys', async () => {
       echoReply(relay, 'agents:list', { type: 'agents:listed', sessions: [], features: ['launch-options'] })
       echoReply(relay, 'app:launch', { type: 'app:launch-done', sessionId: 'sess-1' })

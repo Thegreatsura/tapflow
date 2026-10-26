@@ -362,7 +362,11 @@ export class AdbWrapper {
       )
     } catch (e) {
       out = (e as { stdout?: string }).stdout ?? ''
-      if (!out.includes('Starting: Intent')) throw new PlatformError('adb did not finish the launch', { cause: e })
+      // Not `cause: e`: node's message and `cmd` carry the whole argv, argument values included, and the cause is
+      // what the agent logs. stderr says why without them.
+      if (!out.includes('Starting: Intent')) {
+        throw new PlatformError('adb did not finish the launch', { cause: new Error((e as { stderr?: string }).stderr?.trim() || 'no output') })
+      }
     }
     const lines = out.split('\n').map((l) => l.trim())
     const failed = lines.find((l) => l.startsWith('Error') || l.startsWith('Exception') || l.startsWith('Warning: Activity not started'))

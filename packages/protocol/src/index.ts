@@ -719,6 +719,9 @@ export interface AppLaunchError extends SessionScoped {
   type: 'app:launch-error'
   message: string
   requestId: string
+  /** Set when the launch was refused because the device's agent predates launch options. A version mismatch, not
+   *  the app failing, so a flow runner counts it as an environment failure. Absent on every other refusal. */
+  reason?: 'agent-outdated'
 }
 
 // The only error on this surface whose correlator is optional, and it is not for compatibility.

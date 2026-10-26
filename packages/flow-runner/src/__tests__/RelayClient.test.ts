@@ -1769,7 +1769,7 @@ describe('RelayClient launch options', () => {
     await new Promise<void>((r) => s.close(() => r()))
   })
 
-  async function relay(opts: { features?: string[]; applied?: boolean }) {
+  async function relay(opts: { features?: string[]; applied?: boolean; refuse?: Record<string, unknown> }) {
     const received: Record<string, unknown>[] = []
     wss = new WebSocketServer({ port: 0 })
     wss.on('connection', (ws) => {
@@ -1777,7 +1777,9 @@ describe('RelayClient launch options', () => {
         const msg = JSON.parse(String(data)) as Record<string, unknown>
         received.push(msg)
         if (msg['type'] === 'agents:list') ws.send(JSON.stringify({ type: 'agents:listed', sessions: [], ...(opts.features ? { features: opts.features } : {}) }))
-        if (msg['type'] === 'app:launch') {
+        if (msg['type'] === 'app:launch' && opts.refuse) {
+          ws.send(JSON.stringify({ type: 'app:launch-error', sessionId: msg['sessionId'], requestId: msg['requestId'], ...opts.refuse }))
+        } else if (msg['type'] === 'app:launch') {
           const applied = opts.applied ? { applied: { arguments: Object.keys((msg['arguments'] as object) ?? {}), env: [] } } : {}
           ws.send(JSON.stringify({ type: 'app:launch-done', sessionId: msg['sessionId'], requestId: msg['requestId'], ...applied }))
         }
@@ -1809,6 +1811,21 @@ describe('RelayClient launch options', () => {
     const err = await client.launchApp('s1', 7, { env: { A: '1' } }).catch((e: unknown) => e)
     expect((err as Error).message).toMatch(/without the launch arguments/)
     expect(isEnvironmentStepFailure(err)).toBe(true)
+  })
+
+  // The relay supports the options but the device's agent does not: a version mismatch, so exit 2. Any other
+  // refusal stays what a launch failure always was.
+  it('counts the relay\'s agent-outdated refusal as an environment failure, and no other', async () => {
+    const outdated = await relay({ features: ['launch-options'], refuse: { message: 'agent too old', reason: 'agent-outdated' } })
+    expect(isEnvironmentStepFailure(await outdated.client.launchApp('s1', 7, { arguments: { a: 1 } }).catch((e: unknown) => e))).toBe(true)
+    outdated.client.disconnect()
+    for (const c of wss!.clients) c.terminate()
+    await new Promise<void>((r) => wss!.close(() => r()))
+    wss = null
+    const other = await relay({ features: ['launch-options'], refuse: { message: 'env is iOS-only' } })
+    const err = await other.client.launchApp('s1', 7, { env: { A: '1' } }).catch((e: unknown) => e)
+    expect((err as Error).message).toMatch(/env is iOS-only/)
+    expect(isEnvironmentStepFailure(err)).toBe(false)
   })
 
   it('asks the relay nothing for a plain launch, and needs no applied keys', async () => {
