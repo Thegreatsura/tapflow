@@ -35,6 +35,13 @@
       "tsx": "./src/validate/index.ts",
       "import": "./dist/validate/index.js",
       "default": "./dist/validate/index.js"
+    },
+    "./launch": {
+      "types": "./dist/launch/index.d.ts",
+      "source": "./src/launch/index.ts",
+      "tsx": "./src/launch/index.ts",
+      "import": "./dist/launch/index.js",
+      "default": "./dist/launch/index.js"
     }
   },
   "files": [

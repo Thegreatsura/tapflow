@@ -8,8 +8,9 @@ import type {
 import { formFactorOf } from './avdConfig.js'
 import type {
   AgentControlOutbound, ClipboardReplyBody, OpenUrlReplyBody,
-  AppInstallReplyBody, AppLaunchReplyBody, AppClearStateReplyBody, DevicePosture, FormFactor, RunResetReport, RunResetRequest,
+  AppInstallReplyBody, AppLaunchReplyBody, AppLaunchToAgent, LaunchOptions, AppClearStateReplyBody, DevicePosture, FormFactor, RunResetReport, RunResetRequest,
 } from '@tapflowio/protocol'
+import { appliedKeys, compactLaunchOptions, launchOptionsProblem } from '@tapflowio/protocol/launch'
 import fs from 'fs'
 import path from 'path'
 import { tmpdir } from 'os'
@@ -74,7 +75,7 @@ const logger = createLogger('android-agent')
 // actually works on a given image is per device, and `network:state.available` carries that — the
 // split the protocol documents. Added last, after the handler and the boot-time reset, because the
 // string on its own is what puts a control on screen.
-const AGENT_CAPABILITIES: AgentCapability[] = ['clipboard', 'full-reset', 'network-control', 'build-download']
+const AGENT_CAPABILITIES: AgentCapability[] = ['clipboard', 'full-reset', 'network-control', 'build-download', 'launch-options']
 
 // Parse H.264 SPS NAL unit to extract frame dimensions.
 // scrcpy sends a new SPS (inside an IDR keyframe) whenever the capture size changes —
@@ -2683,7 +2684,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
         break
       }
       case 'app:launch': {
-        const { bundleId } = msg.payload as { bundleId: string }
+        const { bundleId, arguments: args, env } = msg.payload as AppLaunchToAgent['payload']
         const sessionId = msg.sessionId
         const { requestId } = msg
         if (typeof requestId !== 'string' || requestId === '') {
@@ -2698,10 +2699,18 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
           respond({ type: 'app:launch-error', message: 'No booted device' })
           break
         }
+        // The relay checks with the same function; this is the last door before an `adb shell` line, and a relay of
+        // another version may check less. See the iOS handler.
+        const problem = launchOptionsProblem({ arguments: args, env })
+        if (problem) {
+          respond({ type: 'app:launch-error', message: problem })
+          break
+        }
+        const options = compactLaunchOptions({ arguments: args, env })
         // Same reason as `app:install`: a launched app writes data a late `pm clear` would take.
         this.awaitPendingClears(state!.deviceId)
-          .then(() => this.adb.launchApp(serial, bundleId))
-          .then(() => respond({ type: 'app:launch-done' }))
+          .then(() => this.adb.launchApp(serial, bundleId, options))
+          .then(() => respond(options ? { type: 'app:launch-done', applied: appliedKeys(options) } : { type: 'app:launch-done' }))
           .catch((e: unknown) => {
             const message = e instanceof Error ? e.message : String(e)
             // The toast gets the reason alone; the full adb output (the cause) stays in this log.
@@ -3456,8 +3465,10 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     })
   }
 
-  async launchApp(packageName: string): Promise<void> {
-    await this.adb.launchApp(this.soleLive().serial, packageName)
+  async launchApp(packageName: string, options?: LaunchOptions): Promise<void> {
+    const problem = launchOptionsProblem(options ?? {})
+    if (problem) throw new ValidationError(problem)
+    await this.adb.launchApp(this.soleLive().serial, packageName, compactLaunchOptions(options))
   }
 
   async screenshot(): Promise<Buffer> {

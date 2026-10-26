@@ -1,4 +1,5 @@
 import type { UIElement } from '@tapflowio/agent-core'
+import type { LaunchOptions } from '@tapflowio/protocol'
 import type { Flow, Selector, Step, ScrollDirection } from './schema.js'
 import { matchSelector } from './selector.js'
 import { suggestSelectors, type SelectorSuggestion } from './suggest.js'
@@ -15,7 +16,8 @@ export interface FlowDriver {
   inputText(text: string): Promise<void>
   pressKey(code: string): Promise<void>
   openUrl(url: string): Promise<void>
-  launchApp(): Promise<void>
+  /** With options, the app is started fresh with them, or the launch fails; they are never dropped (#1047). */
+  launchApp(options?: LaunchOptions): Promise<void>
   clearState(appId: string): Promise<void>
   screenshot(signal?: AbortSignal): Promise<Buffer>
 }
@@ -115,10 +117,18 @@ function describeSelector(sel: Selector): string {
   return parts.join(', ')
 }
 
+// What a run record and a failure message show. Argument values are shown, since they are what makes this launch
+// differ from a plain one; env values never are, because env is where a flow is told to put a secret.
+function describeLaunchOptions(opts: LaunchOptions): string {
+  const args = Object.entries(opts.arguments ?? {}).map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+  const env = Object.keys(opts.env ?? {}).map((k) => `${k}=***`)
+  return [...args, ...(env.length > 0 ? [`env ${env.join(', ')}`] : [])].join(', ')
+}
+
 function describeStep(step: Step): string {
   switch (step.type) {
     case 'clearState': return step.appId ? `clearState(${step.appId})` : 'clearState'
-    case 'launchApp': return 'launchApp'
+    case 'launchApp': return step.options ? `launchApp(${describeLaunchOptions(step.options)})` : 'launchApp'
     case 'tapOn': return `tapOn(${describeSelector(step.selector)})`
     case 'inputText': return `inputText("${step.text}")`
     case 'pressKey': return `pressKey(${step.code})`
@@ -391,7 +401,7 @@ async function executeStep(step: Step, flow: Flow, driver: FlowDriver, timeoutMs
       return
     }
     case 'launchApp': {
-      await driver.launchApp()
+      await driver.launchApp(step.options)
       return waitForScreen(driver, timeoutMs, pollIntervalMs)
     }
     case 'tapOn': {

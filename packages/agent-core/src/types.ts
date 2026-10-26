@@ -50,6 +50,10 @@ export interface Device {
 // booted. So it means "this agent has the code", and `network:state.available` carries the rest.
 // Reading it as a promise that the toggle will work is the mistake this comment exists to prevent.
 //
+// `launch-options`: the agent applies `app:launch`'s `arguments` and `env`, or refuses what its platform cannot
+// take (#1047). An agent without it ignores both fields, so the relay refuses a launch carrying them rather than
+// forwarding it to be silently dropped.
+//
 // **The vocabulary, not a declaration (#700).** This is every capability any agent can name. What one
 // agent *implements* is its own list, typed against this — an agent that announced the whole set
 // would start claiming a feature the moment another platform gained it. Same split as
@@ -58,7 +62,7 @@ export interface Device {
 // A runtime value rather than only a union so the relay, which can import from here, checks its
 // gates through `hasCapability` and a rename fails to compile there. The dashboard still cannot, and
 // `scripts/__tests__/agentCapabilityConsumers.test.mjs` holds its literals against this array.
-export const KNOWN_AGENT_CAPABILITIES = ['clipboard', 'full-reset', 'network-control', 'build-download'] as const
+export const KNOWN_AGENT_CAPABILITIES = ['clipboard', 'full-reset', 'network-control', 'build-download', 'launch-options'] as const
 export type AgentCapability = (typeof KNOWN_AGENT_CAPABILITIES)[number]
 
 export function isAgentCapability(s: string): s is AgentCapability {

@@ -26,7 +26,7 @@ function fakeDriver(trees: UIElement[][]): FlowDriver & { calls: Array<[string, 
     inputText: vi.fn(async (text: string) => { calls.push(['inputText', text]) }),
     pressKey: vi.fn(async (code: string) => { calls.push(['pressKey', code]) }),
     openUrl: vi.fn(async (url: string) => { calls.push(['openUrl', url]) }),
-    launchApp: vi.fn(async () => { calls.push(['launchApp']) }),
+    launchApp: vi.fn(async (options?: unknown) => { calls.push(options === undefined ? ['launchApp'] : ['launchApp', options]) }),
     clearState: vi.fn(async (appId: string) => { calls.push(['clearState', appId]) }),
     screenshot: vi.fn(async () => Buffer.from('PNG')),
   }
@@ -37,6 +37,16 @@ const OPTS = { pollIntervalMs: 1, defaultTimeoutMs: 20 }
 const flowOf = (yaml: string) => parseFlow(yaml, 'test.yaml')
 
 describe('runFlow', () => {
+  // #1047. The step's name is what a run record and a failure message show: argument values yes, env values never.
+  it('launches with the step\'s options and names them without env values', async () => {
+    const driver = fakeDriver([[el({ label: 'Home' })]])
+    const result = await runFlow(flowOf('steps:\n  - launchApp: { arguments: { flag: true, host: s.example.com }, env: { TOKEN: hunter2 } }\n'), driver, OPTS)
+    expect(driver.calls[0]).toEqual(['launchApp', { arguments: { flag: true, host: 's.example.com' }, env: { TOKEN: 'hunter2' } }])
+    const name = result.steps[0]!.name
+    expect(name).toBe('launchApp(flag=true, host="s.example.com", env TOKEN=***)')
+    expect(JSON.stringify(result)).not.toContain('hunter2')
+  })
+
   it('taps the center of the matched element frame', async () => {
     const driver = fakeDriver([[el({ label: '로그인', frame: { x: 0.2, y: 0.8, width: 0.6, height: 0.1 } })]])
     const result = await runFlow(flowOf('steps:\n  - tapOn: "로그인"\n'), driver, OPTS)

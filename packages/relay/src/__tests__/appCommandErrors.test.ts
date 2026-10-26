@@ -44,12 +44,13 @@ describe('app command failures reach the caller (#445)', () => {
     await server.stop()
   })
 
-  async function connectAgentAndBrowser() {
+  async function connectAgentAndBrowser(capabilities?: string[]) {
     const agent = new WebSocket(`ws://localhost:${port}`)
     await waitForOpen(agent)
     agent.send(JSON.stringify({
       type: 'agent:register', platform: 'ios', agentName: 'appCommandErrors-1',
       devices: [{ id: 'dev-1', name: 'iPhone', platform: 'ios', status: 'booted' }],
+      ...(capabilities ? { capabilities } : {}),
     }))
     const reply = await waitForType<AgentRegistered>(agent, 'agent:registered')
     const sessionId = reply.registeredSessions[0]!.sessionId
@@ -347,8 +348,66 @@ describe('app command failures reach the caller (#445)', () => {
     expect(forwarded.sessionId).toBe(sessionId)
     expect((forwarded.payload as { bundleId: string }).bundleId).toBe('com.example.demo')
     expect(forwarded.requestId).toBe('rq-11')
+    // No options asked for, none invented: an agent of any version reads this payload as it always did.
+    expect(forwarded.payload).toEqual({ bundleId: 'com.example.demo' })
 
     agent.close(); browser.close()
+  })
+
+  // #1047. The relay forwards the parse product, so these fields reach the agent only because the schema names them.
+  it('forwards launch arguments and env to an agent that applies them', async () => {
+    const { agent, browser, sessionId } = await connectAgentAndBrowser(['launch-options'])
+    const buildId = insertBuild('com.example.demo')
+
+    browser.send(JSON.stringify({ type: 'app:launch', requestId: 'rq-12', sessionId, buildId, arguments: { FIRDebugEnabled: true }, env: { API_HOST: 'x' } }))
+    const forwarded = await waitForType(agent, 'app:launch')
+
+    expect(forwarded.payload).toEqual({ bundleId: 'com.example.demo', arguments: { FIRDebugEnabled: true }, env: { API_HOST: 'x' } })
+
+    agent.close(); browser.close()
+  })
+
+  // An agent without the capability ignores both fields and launches anyway, answering done — so the launch the
+  // caller asked for never happens and nothing says so.
+  it('refuses launch arguments for an agent that predates them, and still forwards a plain launch', async () => {
+    const { agent, browser, sessionId } = await connectAgentAndBrowser()
+    const buildId = insertBuild('com.example.demo')
+
+    browser.send(JSON.stringify({ type: 'app:launch', requestId: 'rq-13', sessionId, buildId, arguments: { a: 1 } }))
+    const msg = await waitForType(browser, 'app:launch-error')
+    expect(msg.requestId).toBe('rq-13')
+    expect(msg.message).toMatch(/too old to pass launch arguments/)
+    // What lets a flow runner count it as a version mismatch (exit 2) rather than the app failing.
+    expect(msg.reason).toBe('agent-outdated')
+
+    browser.send(JSON.stringify({ type: 'app:launch', requestId: 'rq-14', sessionId, buildId, arguments: {}, env: {} }))
+    expect((await waitForType(agent, 'app:launch')).requestId).toBe('rq-14')
+
+    agent.close(); browser.close()
+  })
+
+  it('refuses options the shared check refuses, naming the key, without forwarding', async () => {
+    const { agent, browser, sessionId } = await connectAgentAndBrowser(['launch-options'])
+    const buildId = insertBuild('com.example.demo')
+
+    browser.send(JSON.stringify({ type: 'app:launch', requestId: 'rq-15', sessionId, buildId, env: { SIMULATOR_UDID: 'other' } }))
+    const msg = await waitForType(browser, 'app:launch-error')
+    expect(msg.requestId).toBe('rq-15')
+    expect(msg.message).toMatch(/^env\.SIMULATOR_UDID: reserved/)
+    expect(msg.reason).toBeUndefined()
+    await barrier(agent)
+    expect(await waitForTypeOrNull(agent, 'app:launch', 0)).toBeNull()
+
+    agent.close(); browser.close()
+  })
+
+  it('advertises launch options to clients', async () => {
+    const browser = new WebSocket(`ws://localhost:${port}`)
+    await waitForOpen(browser)
+    const listed = waitForType(browser, 'agents:listed')
+    browser.send(JSON.stringify({ type: 'agents:list' }))
+    expect((await listed).features).toContain('launch-options')
+    browser.close()
   })
 
   // Door drops. Each asserts the request does not reach the agent, which is the half a compile error

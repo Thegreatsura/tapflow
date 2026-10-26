@@ -463,7 +463,23 @@ export interface AppLaunchToAgent {
   type: 'app:launch'
   sessionId: string
   requestId: string
-  payload: { bundleId: string }
+  payload: { bundleId: string } & LaunchOptions
+}
+
+/**
+ * One launch argument's value. A map of these is passed to the app on both platforms: on iOS as `-key value` pairs
+ * after the bundle id (read through `UserDefaults` and `ProcessInfo.arguments`), on Android as intent extras typed by
+ * the value (read through `getIntent().getExtras()`). No fractional numbers: Android's double extra (`--ed`) is
+ * missing on older images and its float one loses precision, so a decimal travels as a string. The limits and the
+ * rules every producer applies are in `@tapflowio/protocol/launch`.
+ */
+export type LaunchArgumentValue = string | number | boolean | string[]
+
+/** What a launch can carry besides the bundle id (#1047). `env` reaches the app's process environment on iOS only;
+ *  Android has no such channel, and an agent there refuses it rather than launching without it. */
+export interface LaunchOptions {
+  arguments?: Record<string, LaunchArgumentValue>
+  env?: Record<string, string>
 }
 
 export interface ScreenshotRequest {
@@ -703,6 +719,9 @@ export interface AppLaunchError extends SessionScoped {
   type: 'app:launch-error'
   message: string
   requestId: string
+  /** Set when the launch was refused because the device's agent predates launch options. A version mismatch, not
+   *  the app failing, so a flow runner counts it as an environment failure. Absent on every other refusal. */
+  reason?: 'agent-outdated'
 }
 
 // The only error on this surface whose correlator is optional, and it is not for compatibility.
@@ -1088,8 +1107,10 @@ export interface AgentsListed {
   features?: RelayFeature[]
 }
 
-/** Values of `AgentsListed.features`. A client meeting one it does not know ignores it. */
-export type RelayFeature = 'device-lease'
+/** Values of `AgentsListed.features`. A client meeting one it does not know ignores it.
+ *  `'launch-options'`: `app:launch` carries `arguments` and `env` through. An older relay's validator strips both and
+ *  still answers `app:launch-done`, so a client checks this before sending either. */
+export type RelayFeature = 'device-lease' | 'launch-options'
 
 export interface SessionJoined {
   type: 'session:joined'
@@ -1389,6 +1410,9 @@ export interface AppLaunchDone {
   type: 'app:launch-done'
   sessionId: string
   requestId: string
+  /** The keys the agent applied, present when the launch carried any. Names only: an env value can be a secret, and
+   *  this reaches run records. A launch that sent keys and got no `applied` back lost them somewhere on the way. */
+  applied?: { arguments: string[]; env: string[] }
 }
 
 export interface AppClearStateDone {
@@ -1884,7 +1908,7 @@ export interface AppInstallToRelay {
   buildId: number
 }
 
-export interface AppLaunchToRelay {
+export interface AppLaunchToRelay extends LaunchOptions {
   type: 'app:launch'
   sessionId: string
   requestId: string

@@ -17,6 +17,7 @@ import { classifyBoot } from './admission/classifyBoot.js'
 import { hostKeyOf } from './admission/hostKey.js'
 import { chooseLease, type LeaseCandidate, type LeaseHost } from './admission/leaseChoice.js'
 import { directionOf, parseInbound, readyFacts } from '@tapflowio/protocol/validate'
+import { compactLaunchOptions, launchOptionsProblem } from '@tapflowio/protocol/launch'
 import type { ParsedInbound, ParseFailure, ParseResult } from '@tapflowio/protocol/validate'
 import { Router, json } from './router.js'
 import { requireViewAuth, requireAuth, getAuth, verifyPat, touchPat, findPat, findUser } from './middleware/auth.js'
@@ -1583,7 +1584,7 @@ export class RelayServer {
         this.sendTo(ws, {
           type: 'agents:listed',
           sessions: this.sessions.list(this.ownerOf(ws), (holder) => this.isAlive(holder), (group) => this.macAdmission(group)),
-          features: ['device-lease'],
+          features: ['device-lease', 'launch-options'],
         })
         break
       }
@@ -3486,7 +3487,8 @@ export class RelayServer {
     // fifth: a throw out of `getDb().prepare(…).get(…)` — SQLITE_BUSY, a closed db, I/O — unwinds to the
     // message-loop catch and answers nothing at all. Pre-existing and unchanged here, but "every exit
     // carries the request's id" would be false.
-    const fail = (message: string) => this.sendTo(ws, { type: 'app:launch-error', sessionId, requestId, message })
+    const fail = (message: string, reason?: 'agent-outdated') =>
+      this.sendTo(ws, { type: 'app:launch-error', sessionId, requestId, message, ...(reason ? { reason } : {}) })
 
     const session = this.sessions.get(sessionId)
     if (!session) return fail('Session not found')
@@ -3505,13 +3507,22 @@ export class RelayServer {
 
     if (session.agentSocket.readyState !== WebSocket.OPEN) return fail('agent offline')
 
+    // The door checked the shape; this is the same rule every producer applies, answered with the key and the reason.
+    const problem = launchOptionsProblem({ arguments: msg.arguments, env: msg.env })
+    if (problem) return fail(problem)
+    const options = compactLaunchOptions({ arguments: msg.arguments, env: msg.env })
+    // An agent that predates the options ignores both fields and launches without them, then answers done.
+    if (options && !hasCapability(session.agentCapabilities, 'launch-options')) {
+      return fail('This device\'s tapflow agent is too old to pass launch arguments. Update tapflow on the Mac running it', 'agent-outdated')
+    }
+
     // See `handleBrowserAppInstall` — the correlator rides across the rebuild, and only a test says the
     // value is the request's.
     this.sendTo(session.agentSocket, {
       type: 'app:launch',
       sessionId,
       requestId,
-      payload: { bundleId: build.bundle_id },
+      payload: { bundleId: build.bundle_id, ...options },
     })
     this.tellWatchersAction(sessionId, { kind: 'launch' })
   }
