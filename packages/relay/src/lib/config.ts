@@ -205,7 +205,8 @@ export function parseLaunchDefaults(raw: unknown, env: NodeJS.ProcessEnv, reserv
     if (unknown.length > 0) { problems.push(`${at}: unknown ${unknown.join(', ')} (expected arguments, env, envFrom)`); continue }
     const { envFrom } = entry
     if (envFrom !== undefined && !isRecord(envFrom)) { problems.push(`${at}.envFrom: a map of app variable to the name of a variable in .env`); continue }
-    const fromEnv: Record<string, unknown> = {}
+    // No prototype, so an app variable named `__proto__` is kept as data rather than silently dropped.
+    const fromEnv = Object.create(null) as Record<string, unknown>
     let bad = false
     for (const [name, source] of Object.entries(envFrom ?? {})) {
       if (isRecord(entry.env) && Object.hasOwn(entry.env, name)) { problems.push(`${at}: ${name} is in both env and envFrom`); bad = true; continue }

@@ -330,33 +330,26 @@ export class AdbWrapper {
    * reply could reach the launcher instead. Monkey stays as the fallback, and its error text is what a failure says.
    */
   async launchApp(serial: string, packageName: string, options?: LaunchOptions, defaultsOnly = false): Promise<LaunchOptions | undefined> {
+    // Resolved once and reused by whichever launch follows, so a default that falls back costs no second resolve.
+    let resolved: { component: string | undefined } | undefined
     if (hasLaunchOptions(options)) {
+      if (!defaultsOnly) {
+        await this.launchFresh(serial, packageName, options!)
+        return options
+      }
       // The relay's per-app defaults, none of them asked for by the caller: what this device cannot take is left out
-      // rather than failing a launch that works without it. A caller's own options still fail below.
-      const deliverable: { options: LaunchOptions; component?: string } | undefined = defaultsOnly ? await this.deliverableDefaults(serial, packageName, options!) : { options: options! }
+      // rather than failing a launch that works without it. A caller's own options fail in `launchFresh` instead.
+      resolved = { component: await this.launcherComponent(serial, packageName) }
+      const deliverable = deliverableDefaults(packageName, options!, resolved.component)
       if (deliverable) {
-        await this.launchFresh(serial, packageName, deliverable.options, deliverable.component)
-        return deliverable.options
+        await this.launchFresh(serial, packageName, deliverable, resolved.component)
+        return deliverable
       }
     }
-    const component = await this.launcherComponent(serial, packageName)
+    const component = resolved ? resolved.component : await this.launcherComponent(serial, packageName)
     if (component && await this.startAndWait(serial, component)) return undefined
     await this.launchWithMonkey(serial, packageName)
     return undefined
-  }
-
-  // The part of the relay's defaults `launchFresh` can deliver here, with the component it resolved, or undefined when
-  // none of it can. A relay that knows this agent has no `launch-env` sends no env default, so env here means a relay
-  // that checked less.
-  private async deliverableDefaults(serial: string, packageName: string, options: LaunchOptions): Promise<{ options: LaunchOptions; component: string } | undefined> {
-    if (Object.keys(options.env ?? {}).length > 0) console.warn(`[tapflow] ${packageName}: env defaults left out — Android cannot set an app's environment`)
-    if (Object.keys(options.arguments ?? {}).length === 0) return undefined
-    const component = await this.launcherComponent(serial, packageName)
-    if (!component) {
-      console.warn(`[tapflow] ${packageName}: no single launcher activity, so its launch defaults were left out and the app launched without them`)
-      return undefined
-    }
-    return { options: { arguments: options.arguments }, component }
   }
 
   /**
@@ -697,4 +690,16 @@ function hierarchyXml(output: string): string | undefined {
   const start = output.indexOf('<?xml') >= 0 ? output.indexOf('<?xml') : output.indexOf('<hierarchy')
   const end = output.lastIndexOf('</hierarchy>')
   return start < 0 || end < 0 ? undefined : output.slice(start, end + '</hierarchy>'.length)
+}
+
+// The part of the relay's defaults `launchFresh` can deliver, or undefined when none of it can. A relay that knows this
+// agent has no `launch-env` sends no env default, so env here means a relay that checked less.
+function deliverableDefaults(packageName: string, options: LaunchOptions, component: string | undefined): LaunchOptions | undefined {
+  if (Object.keys(options.env ?? {}).length > 0) console.warn(`[tapflow] ${packageName}: env defaults left out — Android cannot set an app's environment`)
+  if (Object.keys(options.arguments ?? {}).length === 0) return undefined
+  if (!component) {
+    console.warn(`[tapflow] ${packageName}: no single launcher activity, so its launch defaults were left out and the app launched without them`)
+    return undefined
+  }
+  return { arguments: options.arguments }
 }

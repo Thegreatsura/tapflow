@@ -70,6 +70,13 @@ describe('parseLaunchDefaults', () => {
     expect(defaults.get('constructor')).toEqual({ arguments: { b: 2 } })
     expect(defaults.has('toString')).toBe(false)
   })
+
+  it('keeps an envFrom variable named __proto__ instead of dropping it', async () => {
+    const raw = JSON.parse('{"com.example.app": {"envFrom": {"__proto__": "SRC"}}}') as unknown
+    const { defaults, problems } = await parse(raw, { SRC: 'v' })
+    expect(problems).toEqual([])
+    expect(Object.keys(defaults.get('com.example.app')!.env!)).toEqual(['__proto__'])
+  })
 })
 
 // The section is resolved only by what starts a relay. Every CLI command imports the config module, and an agent-only

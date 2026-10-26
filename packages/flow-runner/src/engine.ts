@@ -129,7 +129,8 @@ function describeLaunchOptions(opts: LaunchOptions): string {
 }
 
 // The step's own options, then the keys the relay's per-app defaults added (names only: their values are not sent
-// back, and a run record must not depend on reading the relay's config to be understood).
+// back, and a run record must not depend on reading the relay's config to be understood). The relay keeps a step name
+// to 500 characters, so a launch with dozens of long keys loses the last of them there.
 function describeLaunch(options: LaunchOptions | undefined, applied: LaunchApplied | void): string {
   const own = options ? describeLaunchOptions(options) : ''
   const args = applied ? applied.arguments.filter((k) => !Object.hasOwn(options?.arguments ?? {}, k)) : []

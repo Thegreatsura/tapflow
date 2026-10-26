@@ -369,6 +369,7 @@ describe('AdbWrapper', () => {
           const applied = await new AdbWrapper(runner).launchApp('emulator-5554', PKG, { arguments: { flag: true } }, true)
           expect(applied).toBeUndefined()
           expect(ran(runner, 'monkey')).toHaveLength(1)
+          expect(ran(runner, 'resolve-activity')).toHaveLength(1)
         })
 
         it('leaves env out instead of refusing, and launches plainly when nothing else is left', async () => {
@@ -376,6 +377,7 @@ describe('AdbWrapper', () => {
           const applied = await new AdbWrapper(runner).launchApp('emulator-5554', PKG, { env: { A: '1' } }, true)
           expect(applied).toBeUndefined()
           expect(ran(runner, 'am')[0]).not.toContain('-S')
+          expect(ran(runner, 'resolve-activity')).toHaveLength(1)
         })
 
         it('still fails when the app itself does not start', async () => {
