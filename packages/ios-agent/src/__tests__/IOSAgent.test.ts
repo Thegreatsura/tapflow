@@ -2326,7 +2326,50 @@ describe('IOSAgent', () => {
         })
         await vi.waitFor(() => expect(simctl.launchApp).toHaveBeenCalled())
 
-        expect(simctl.launchApp).toHaveBeenCalledWith('dev-1', 'com.example.app')
+        expect(simctl.launchApp).toHaveBeenCalledWith('dev-1', 'com.example.app', undefined)
+
+        agent.disconnect(); browser.close()
+      })
+
+      // #1047. The wire handler calls simctl itself rather than `DeviceAgent.launchApp`, so the frame is what is tested.
+      it('launch passes arguments and env through and reports their names, never their values', async () => {
+        const { simctl, agent, browser } = await bootedAgent()
+
+        const done = waitForType(browser, 'app:launch-done')
+        deliver(agent, {
+          type: 'app:launch', requestId: 'rq-opt', sessionId: agent.sessionId,
+          payload: { bundleId: 'com.example.app', arguments: { FIRDebugEnabled: true }, env: { API_TOKEN: 'secret' } },
+        })
+        const msg = await done
+        expect(simctl.launchApp).toHaveBeenCalledWith('dev-1', 'com.example.app', { arguments: { FIRDebugEnabled: true }, env: { API_TOKEN: 'secret' } })
+        expect(msg['applied']).toEqual({ arguments: ['FIRDebugEnabled'], env: ['API_TOKEN'] })
+        expect(JSON.stringify(msg)).not.toContain('secret')
+
+        agent.disconnect(); browser.close()
+      })
+
+      it('launch with empty option maps is a plain launch, with no applied keys', async () => {
+        const { simctl, agent, browser } = await bootedAgent()
+
+        const done = waitForType(browser, 'app:launch-done')
+        deliver(agent, { type: 'app:launch', requestId: 'rq-empty', sessionId: agent.sessionId, payload: { bundleId: 'com.example.app', arguments: {}, env: {} } })
+        expect((await done)['applied']).toBeUndefined()
+        expect(simctl.launchApp).toHaveBeenCalledWith('dev-1', 'com.example.app', undefined)
+
+        agent.disconnect(); browser.close()
+      })
+
+      // The relay checks with the same function, but a relay of another version may check less, and this is the last
+      // door before a command line.
+      it('launch refuses options the shared check refuses, without launching', async () => {
+        const { simctl, agent, browser } = await bootedAgent()
+
+        const err = waitForType(browser, 'app:launch-error')
+        deliver(agent, { type: 'app:launch', requestId: 'rq-bad', sessionId: agent.sessionId, payload: { bundleId: 'com.example.app', env: { TAPFLOW_TARGET_BUNDLE: '' } } })
+        const msg = await err
+        expect(msg['requestId']).toBe('rq-bad')
+        expect(msg['message']).toMatch(/reserved/)
+        expect(simctl.launchApp).not.toHaveBeenCalled()
 
         agent.disconnect(); browser.close()
       })

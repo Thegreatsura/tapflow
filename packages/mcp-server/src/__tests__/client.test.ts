@@ -867,6 +867,26 @@ describe('TapflowClient', () => {
       echoReply(relay, 'app:launch', { type: 'app:launch-error', sessionId: 'sess-1', message: 'Bundle ID not available' })
       await expect(client.launchApp('sess-1', 99)).rejects.toThrow('Bundle ID not available')
     })
+
+    // #1047. An older relay strips the options and an older agent ignores them, and both still answer done.
+    it('sends options to a relay that carries them and accepts the applied keys', async () => {
+      echoReply(relay, 'agents:list', { type: 'agents:listed', sessions: [], features: ['launch-options'] })
+      echoReply(relay, 'app:launch', { type: 'app:launch-done', sessionId: 'sess-1', applied: { arguments: ['flag'], env: [] } })
+      const sent = waitForMessage(relay, 'app:launch')
+      await expect(client.launchApp('sess-1', 42, { arguments: { flag: true } })).resolves.toBeUndefined()
+      expect(await sent).toMatchObject({ buildId: 42, arguments: { flag: true } })
+    })
+
+    it('refuses options before sending when the relay does not carry them', async () => {
+      echoReply(relay, 'agents:list', { type: 'agents:listed', sessions: [] })
+      await expect(client.launchApp('sess-1', 42, { arguments: { flag: true } })).rejects.toThrow(/relay is too old/)
+    })
+
+    it('fails a launch answered without the applied keys', async () => {
+      echoReply(relay, 'agents:list', { type: 'agents:listed', sessions: [], features: ['launch-options'] })
+      echoReply(relay, 'app:launch', { type: 'app:launch-done', sessionId: 'sess-1' })
+      await expect(client.launchApp('sess-1', 42, { arguments: { flag: true } })).rejects.toThrow(/without the launch arguments/)
+    })
   })
 
   describe('screenshot', () => {

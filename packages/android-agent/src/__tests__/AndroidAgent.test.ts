@@ -3598,7 +3598,31 @@ describe('AndroidAgent', () => {
         const done = waitForType(browser, 'app:launch-done')
         inject({ type: 'app:launch', requestId: 'rqi-1', payload: { bundleId: 'com.example.app' } })
         await done
-        expect(launchSpy).toHaveBeenCalledWith('emulator-5554', 'com.example.app')
+        expect(launchSpy).toHaveBeenCalledWith('emulator-5554', 'com.example.app', undefined)
+      })
+
+      it('passes launch arguments through and reports their names', async () => {
+        const launchSpy = vi.spyOn(adb, 'launchApp').mockResolvedValue()
+        const done = waitForType(browser, 'app:launch-done')
+        inject({ type: 'app:launch', requestId: 'rqi-2', payload: { bundleId: 'com.example.app', arguments: { flag: true } } })
+        expect((await done)['applied']).toEqual({ arguments: ['flag'], env: [] })
+        expect(launchSpy).toHaveBeenCalledWith('emulator-5554', 'com.example.app', { arguments: { flag: true } })
+      })
+
+      it('refuses options the shared check refuses, without launching', async () => {
+        const launchSpy = vi.spyOn(adb, 'launchApp')
+        const err = waitForType(browser, 'app:launch-error')
+        inject({ type: 'app:launch', requestId: 'rqi-3', payload: { bundleId: 'com.example.app', arguments: { '-x': 1 } } })
+        const msg = await err
+        expect(msg['requestId']).toBe('rqi-3')
+        expect(msg['message']).toMatch(/leading "-"/)
+        expect(launchSpy).not.toHaveBeenCalled()
+      })
+
+      it('answers an env launch with the platform refusal', async () => {
+        const err = waitForType(browser, 'app:launch-error')
+        inject({ type: 'app:launch', requestId: 'rqi-4', payload: { bundleId: 'com.example.app', env: { A: '1' } } })
+        expect((await err)['message']).toMatch(/env is iOS-only/)
       })
     })
 

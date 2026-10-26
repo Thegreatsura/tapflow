@@ -10,8 +10,9 @@ import type { RunResetStep } from '@tapflowio/agent-core/utils'
 import { createLogger, PlatformError, ValidationError, bootAbandonMessage, BOOT_NO_SESSION_STATE, SHUTDOWN_NO_SESSION_STATE, downloadBuild } from '@tapflowio/agent-core'
 import type {
   AgentControlOutbound, InputErrorReason, ClipboardReplyBody, OpenUrlReplyBody,
-  AppInstallReplyBody, AppLaunchReplyBody, AppClearStateReplyBody, FormFactor, ServiceTier, RunResetReport, RunResetRequest,
+  AppInstallReplyBody, AppLaunchReplyBody, AppLaunchToAgent, LaunchOptions, AppClearStateReplyBody, FormFactor, ServiceTier, RunResetReport, RunResetRequest,
 } from '@tapflowio/protocol'
+import { appliedKeys, compactLaunchOptions, launchOptionsProblem } from '@tapflowio/protocol/launch'
 
 const logger = createLogger('ios-agent')
 
@@ -25,7 +26,7 @@ const RUN_RESET_PASTEBOARD_TIMEOUT_MS = 10_000
 // actually took is per device and per app, and `network:state.available` carries that — the split the
 // protocol documents. Added last, after the handler and the boot-time arming, because the string on
 // its own is what puts a control on screen.
-const AGENT_CAPABILITIES: AgentCapability[] = ['clipboard', 'full-reset', 'network-control', 'build-download']
+const AGENT_CAPABILITIES: AgentCapability[] = ['clipboard', 'full-reset', 'network-control', 'build-download', 'launch-options']
 
 // Human prose for each reason. Not in `@tapflowio/protocol`: that package's main entry must stay
 // runtime-free so it erases under `import type` and never reaches the dashboard bundle — a lookup
@@ -1374,7 +1375,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
         break
       }
       case 'app:launch': {
-        const { bundleId } = msg.payload as { bundleId: string }
+        const { bundleId, arguments: args, env } = msg.payload as AppLaunchToAgent['payload']
         const sessionId = msg.sessionId
         const { requestId } = msg
         if (typeof requestId !== 'string' || requestId === '') {
@@ -1389,12 +1390,20 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
           respond({ type: 'app:launch-error', message: 'No booted device' })
           break
         }
+        // Checked again here rather than trusted: the relay checks with the same function, but an agent is the last
+        // door before a command line, and a relay of another version may check less.
+        const problem = launchOptionsProblem({ arguments: args, env })
+        if (problem) {
+          respond({ type: 'app:launch-error', message: problem })
+          break
+        }
+        const options = compactLaunchOptions({ arguments: args, env })
         // The target is named BEFORE the launch, and the order is the whole point: dyld reads the
         // environment when the process starts, so naming it afterwards arms the next launch and leaves
         // this one unhooked while `available` would still say true.
         this.network.target(launchState.deviceId, bundleId)
           .catch((e: unknown) => logger.warn('could not name the network target:', (e as Error).message))
-          .then(() => this.simctl.launchApp(launchState.deviceId, bundleId))
+          .then(() => this.simctl.launchApp(launchState.deviceId, bundleId, options))
           .then((pid) => {
             // **After the launch, with the pid it returned.** The network control measures how long a
             // started process has gone without reporting its hooks; opening that window before
@@ -1405,7 +1414,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
             this.lastBundleIds.set(launchState.deviceId, bundleId)
             // Audio: the whole-sim tap's poll picks up the launched app process within one interval;
             // no per-launch helper needed.
-            respond({ type: 'app:launch-done' })
+            respond(options ? { type: 'app:launch-done', applied: appliedKeys(options) } : { type: 'app:launch-done' })
           })
           .catch((e: unknown) => {
             // The toast gets the reason alone; the full simctl output stays in this log.
@@ -2197,8 +2206,10 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     return this.network.state(await this.soleLiveDeviceId())
   }
 
-  async launchApp(bundleId: string): Promise<void> {
-    await this.simctl.launchApp(await this.soleLiveDeviceId(), bundleId)
+  async launchApp(bundleId: string, options?: LaunchOptions): Promise<void> {
+    const problem = launchOptionsProblem(options ?? {})
+    if (problem) throw new ValidationError(problem)
+    await this.simctl.launchApp(await this.soleLiveDeviceId(), bundleId, compactLaunchOptions(options))
   }
 
   /** The one booted session, or undefined when there is no unambiguous answer. Callers that can

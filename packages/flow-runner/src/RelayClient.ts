@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type {
-  AdmissionRefusal, BootRefusalReason, BrowserToRelay, RunResetRequest, ServiceTier, DeviceSummary, InputErrorReason, SessionStartFailure, SessionTerminatedReason,
+  AdmissionRefusal, BootRefusalReason, BrowserToRelay, LaunchOptions, RunResetRequest, ServiceTier, DeviceSummary, InputErrorReason, SessionStartFailure, SessionTerminatedReason,
 } from '@tapflowio/protocol'
 import { WebSocket } from 'ws'
 import type { UIElement } from '@tapflowio/agent-core'
@@ -909,10 +909,15 @@ export class RelayClient {
 
   /** Whether the relay serves `device:lease`. An older one drops the message without a word, so ask first. */
   async canLease(): Promise<boolean> {
+    return (await this.relayFeatures()).includes('device-lease')
+  }
+
+  /** What the relay says it understands beyond the base protocol. An older relay omits the list. */
+  private async relayFeatures(): Promise<string[]> {
     this.sendFirstRequest({ type: 'agents:list' })
     const msg = await this.waitFor((m) => m['type'] === 'agents:listed', 5_000, 'agents:list')
     const features = msg['features']
-    return Array.isArray(features) && features.includes('device-lease')
+    return Array.isArray(features) ? features.filter((f): f is string => typeof f === 'string') : []
   }
 
   /**
@@ -1002,9 +1007,14 @@ export class RelayClient {
     if (msg['type'] === 'app:install-error') throw this.failed(sessionId, (msg['message'] as string) ?? 'install failed')
   }
 
-  async launchApp(sessionId: string, buildId: number): Promise<void> {
+  async launchApp(sessionId: string, buildId: number, options?: LaunchOptions): Promise<void> {
+    // An older relay's validator strips both fields and the launch still answers done, so a flow that asked for
+    // arguments would pass having launched without them.
+    if (options && !(await this.relayFeatures()).includes('launch-options')) {
+      throw this.failed(sessionId, 'This tapflow relay is too old to pass launch arguments — update the relay')
+    }
     const requestId = randomUUID()
-    this.send({ type: 'app:launch', sessionId, requestId, buildId })
+    this.send({ type: 'app:launch', sessionId, requestId, buildId, ...options })
     const msg = await this.waitFor(
       (m) => (m['type'] === 'app:launch-done' || m['type'] === 'app:launch-error') && m['requestId'] === requestId,
       30_000,
@@ -1012,6 +1022,11 @@ export class RelayClient {
       sessionId,
     )
     if (msg['type'] === 'app:launch-error') throw this.failed(sessionId, (msg['message'] as string) ?? 'launch failed')
+    // The agent names the keys it applied. Sent with keys and answered without them means something on the way
+    // dropped them, which the feature check above cannot see past the relay.
+    if (options && msg['applied'] === undefined) {
+      throw this.failed(sessionId, 'The device\'s tapflow agent launched the app without the launch arguments — update tapflow on that Mac')
+    }
   }
 
   async clearState(sessionId: string, bundleId: string): Promise<void> {
