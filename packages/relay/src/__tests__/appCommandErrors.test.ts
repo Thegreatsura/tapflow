@@ -13,6 +13,8 @@ import type { AgentRegistered } from '@tapflowio/protocol'
 // it was asked about. A dashboard viewer holds one session per socket so an unattributed error
 // still lands somewhere sensible; an MCP caller waits for its own sessionId and cannot tell an
 // unattributed error from silence. The worst of the three paths sent nothing at all.
+const DEFAULTS = { arguments: { a: 1, b: 2 }, env: { LOG_LEVEL: 'debug' } }
+
 describe('app command failures reach the caller (#445)', () => {
   let server: RelayServer
   let port: number
@@ -35,7 +37,8 @@ describe('app command failures reach the caller (#445)', () => {
   })
 
   beforeEach(async () => {
-    server = new RelayServer({ port: 0 })
+    // Defaults for an app of its own, so every other test here launches an app with none.
+    server = new RelayServer({ port: 0, launchDefaults: new Map([['com.example.defaults', DEFAULTS]]) })
     await server.start()
     port = (server.address() as { port: number }).port
   })
@@ -399,6 +402,53 @@ describe('app command failures reach the caller (#445)', () => {
     expect(await waitForTypeOrNull(agent, 'app:launch', 0)).toBeNull()
 
     agent.close(); browser.close()
+  })
+
+  // #1047, PR 2: tapflow.config.json's per-app defaults, merged here so the dashboard, MCP and flows all get them.
+  describe('launch defaults', () => {
+    const launch = async (caps: string[] | undefined, extra: Record<string, unknown> = {}) => {
+      const { agent, browser, sessionId } = await connectAgentAndBrowser(caps)
+      const buildId = insertBuild('com.example.defaults')
+      browser.send(JSON.stringify({ type: 'app:launch', requestId: 'rq-d', sessionId, buildId, ...extra }))
+      return { agent, browser }
+    }
+
+    it('sends them on a plain launch, marked as defaults only', async () => {
+      const { agent, browser } = await launch(['launch-options', 'launch-env'])
+      expect((await waitForType(agent, 'app:launch')).payload).toEqual({ bundleId: 'com.example.defaults', ...DEFAULTS, defaultsOnly: true })
+      agent.close(); browser.close()
+    })
+
+    it('merges the caller\'s options per key, the caller winning, and is no longer defaults only', async () => {
+      const { agent, browser } = await launch(['launch-options', 'launch-env'], { arguments: { b: 3 }, env: { X: '1' } })
+      expect((await waitForType(agent, 'app:launch')).payload).toEqual({
+        bundleId: 'com.example.defaults', arguments: { a: 1, b: 3 }, env: { LOG_LEVEL: 'debug', X: '1' },
+      })
+      agent.close(); browser.close()
+    })
+
+    it('leaves env defaults out for an agent that cannot set an app\'s environment', async () => {
+      const { agent, browser } = await launch(['launch-options'])
+      expect((await waitForType(agent, 'app:launch')).payload).toEqual({ bundleId: 'com.example.defaults', arguments: DEFAULTS.arguments, defaultsOnly: true })
+      agent.close(); browser.close()
+    })
+
+    // Refusing would fail every dashboard Launch of the app on that Mac until it is updated.
+    it('launches plainly on an agent that predates options, instead of refusing', async () => {
+      const { agent, browser } = await launch(undefined)
+      expect((await waitForType(agent, 'app:launch')).payload).toEqual({ bundleId: 'com.example.defaults' })
+      agent.close(); browser.close()
+    })
+
+    it('refuses when the caller\'s options and the defaults together pass a limit, naming the config', async () => {
+      const many = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`k${i}`, i]))
+      const { agent, browser } = await launch(['launch-options', 'launch-env'], { arguments: many })
+      const msg = await waitForType(browser, 'app:launch-error')
+      expect(msg.message).toMatch(/at most 32 .*launch defaults in tapflow\.config\.json/)
+      await barrier(agent)
+      expect(await waitForTypeOrNull(agent, 'app:launch', 0)).toBeNull()
+      agent.close(); browser.close()
+    })
   })
 
   it('advertises launch options to clients', async () => {

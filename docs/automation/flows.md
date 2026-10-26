@@ -144,6 +144,7 @@ If the app is already running, `launchApp` does not restart it: it brings the ap
 - Environment names tapflow depends on are refused: names starting with `DYLD_`, `TAPFLOW_` or `SIMULATOR_`, `HOME`, `TMPDIR` and a few more.
 - Third-party SDKs turn on their debug options differently on each platform. Firebase DebugView, for example, turns on with `FIRDebugEnabled: true` on iOS, but on Android no intent extra turns it on: run `adb shell setprop debug.firebase.analytics.app <package>` on the device instead.
 - The relay and the agent on the device's Mac both need a version that supports launch arguments. If either is older, the step fails rather than launching without them.
+- The relay can add [launch defaults](/reference/configuration#launch-defaults) for the app from `tapflow.config.json`. When the step and the defaults set the same key, the step's value is used. In the run record, the keys of the defaults a launch applied follow the step's own options, without their values: `launchApp(apiHost="staging.example.com"; config: FIRDebugEnabled, env API_TOKEN)`.
 
 ## Running flows
 

@@ -3598,15 +3598,24 @@ describe('AndroidAgent', () => {
         const done = waitForType(browser, 'app:launch-done')
         inject({ type: 'app:launch', requestId: 'rqi-1', payload: { bundleId: 'com.example.app' } })
         await done
-        expect(launchSpy).toHaveBeenCalledWith('emulator-5554', 'com.example.app', undefined)
+        expect(launchSpy).toHaveBeenCalledWith('emulator-5554', 'com.example.app', undefined, false)
       })
 
       it('passes launch arguments through and reports their names', async () => {
-        const launchSpy = vi.spyOn(adb, 'launchApp').mockResolvedValue()
+        const launchSpy = vi.spyOn(adb, 'launchApp').mockResolvedValue({ arguments: { flag: true } })
         const done = waitForType(browser, 'app:launch-done')
         inject({ type: 'app:launch', requestId: 'rqi-2', payload: { bundleId: 'com.example.app', arguments: { flag: true } } })
         expect((await done)['applied']).toEqual({ arguments: ['flag'], env: [] })
-        expect(launchSpy).toHaveBeenCalledWith('emulator-5554', 'com.example.app', { arguments: { flag: true } })
+        expect(launchSpy).toHaveBeenCalledWith('emulator-5554', 'com.example.app', { arguments: { flag: true } }, false)
+      })
+
+      // The relay's defaults the device could not take are reported as not applied, which is what a run record shows.
+      it('reports what was delivered of the relay defaults, down to nothing', async () => {
+        const launchSpy = vi.spyOn(adb, 'launchApp').mockResolvedValue(undefined)
+        const done = waitForType(browser, 'app:launch-done')
+        inject({ type: 'app:launch', requestId: 'rqi-5', payload: { bundleId: 'com.example.app', arguments: { flag: true }, defaultsOnly: true } })
+        expect((await done)['applied']).toEqual({ arguments: [], env: [] })
+        expect(launchSpy).toHaveBeenCalledWith('emulator-5554', 'com.example.app', { arguments: { flag: true } }, true)
       })
 
       it('refuses options the shared check refuses, without launching', async () => {

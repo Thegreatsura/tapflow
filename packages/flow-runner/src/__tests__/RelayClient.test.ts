@@ -1769,7 +1769,7 @@ describe('RelayClient launch options', () => {
     await new Promise<void>((r) => s.close(() => r()))
   })
 
-  async function relay(opts: { features?: string[]; applied?: boolean; refuse?: Record<string, unknown> }) {
+  async function relay(opts: { features?: string[]; applied?: boolean | unknown; refuse?: Record<string, unknown> }) {
     const received: Record<string, unknown>[] = []
     wss = new WebSocketServer({ port: 0 })
     wss.on('connection', (ws) => {
@@ -1780,7 +1780,8 @@ describe('RelayClient launch options', () => {
         if (msg['type'] === 'app:launch' && opts.refuse) {
           ws.send(JSON.stringify({ type: 'app:launch-error', sessionId: msg['sessionId'], requestId: msg['requestId'], ...opts.refuse }))
         } else if (msg['type'] === 'app:launch') {
-          const applied = opts.applied ? { applied: { arguments: Object.keys((msg['arguments'] as object) ?? {}), env: [] } } : {}
+          const applied = opts.applied === true ? { applied: { arguments: Object.keys((msg['arguments'] as object) ?? {}), env: [] } }
+            : opts.applied ? { applied: opts.applied } : {}
           ws.send(JSON.stringify({ type: 'app:launch-done', sessionId: msg['sessionId'], requestId: msg['requestId'], ...applied }))
         }
       })
@@ -1793,8 +1794,22 @@ describe('RelayClient launch options', () => {
 
   it('sends the options to a relay that carries them, and accepts the applied keys', async () => {
     const { client, received } = await relay({ features: ['launch-options'], applied: true })
-    await client.launchApp('s1', 7, { arguments: { flag: true } })
+    expect(await client.launchApp('s1', 7, { arguments: { flag: true } })).toEqual({ arguments: ['flag'], env: [] })
     expect(received.find((m) => m['type'] === 'app:launch')).toMatchObject({ buildId: 7, arguments: { flag: true } })
+  })
+
+  // The relay's per-app defaults reach a plain launch too, and their names are what the run record shows.
+  // The engine reads both lists after the app is up; a malformed reply would throw there and count as the app failing.
+  it.each([[{ arguments: ['a'] }], [{ arguments: 'a', env: [] }], [{ arguments: [1], env: [] }]])('fails as environment on a malformed applied %j', async (malformed) => {
+    const { client } = await relay({ features: ['launch-options'], applied: malformed })
+    const err = await client.launchApp('s1', 7).catch((e: unknown) => e)
+    expect((err as Error).message).toMatch(/malformed list of applied options/)
+    expect(isEnvironmentStepFailure(err)).toBe(true)
+  })
+
+  it('returns the applied keys of a launch that sent none', async () => {
+    const { client } = await relay({ features: ['launch-options'], applied: true })
+    expect(await client.launchApp('s1', 7)).toEqual({ arguments: [], env: [] })
   })
 
   it('refuses before sending when the relay does not carry them', async () => {

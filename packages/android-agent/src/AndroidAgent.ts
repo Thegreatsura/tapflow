@@ -2684,7 +2684,7 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
         break
       }
       case 'app:launch': {
-        const { bundleId, arguments: args, env } = msg.payload as AppLaunchToAgent['payload']
+        const { bundleId, arguments: args, env, defaultsOnly } = msg.payload as AppLaunchToAgent['payload']
         const sessionId = msg.sessionId
         const { requestId } = msg
         if (typeof requestId !== 'string' || requestId === '') {
@@ -2709,8 +2709,9 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
         const options = compactLaunchOptions({ arguments: args, env })
         // Same reason as `app:install`: a launched app writes data a late `pm clear` would take.
         this.awaitPendingClears(state!.deviceId)
-          .then(() => this.adb.launchApp(serial, bundleId, options))
-          .then(() => respond(options ? { type: 'app:launch-done', applied: appliedKeys(options) } : { type: 'app:launch-done' }))
+          .then(() => this.adb.launchApp(serial, bundleId, options, defaultsOnly === true))
+          // What was delivered, which for the relay's defaults can be less than what was sent, down to nothing.
+          .then((applied) => respond(options ? { type: 'app:launch-done', applied: appliedKeys(applied ?? {}) } : { type: 'app:launch-done' }))
           .catch((e: unknown) => {
             const message = e instanceof Error ? e.message : String(e)
             // The toast gets the reason alone; the full adb output (the cause) stays in this log.
