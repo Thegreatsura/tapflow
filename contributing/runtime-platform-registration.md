@@ -13,9 +13,9 @@ status: stable
 ## The design
 
 `Platform` is `string`, not `'ios' | 'android'`. Each agent package self-registers at
-import time through `AgentRegistry.register(platform, AgentClass, { canRun })`. The
+import time through `AgentRegistry.register(platform, AgentClass, { connect, canRun })`. The
 registry answers two questions: `platforms()` (everything registered) and `available()`
-(those whose `canRun()` returns true or is undefined). The CLI drives startup from
+(those registered with a `connect` hook whose `canRun()` returns true or is undefined). The CLI drives startup from
 `available()` instead of `runIOS`/`runAndroid` branches.
 
 Adding a platform is then: a new agent package plus one `register()` call. agent-core,
