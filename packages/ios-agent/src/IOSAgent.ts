@@ -280,6 +280,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
    *  falling back to nothing would blank a form factor it already had until the next reconnect. */
   private formFactors = new Map<string, FormFactor>()
   private resourcesTimer: ReturnType<typeof setInterval> | null = null
+  private resourcesInFlight: WebSocket | null = null
   private readonly resources = createResourceSampler()
   private _stopping = false
   private _reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -433,8 +434,8 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
               this.handleRelayMessage(m as { type: string; sessionId: string; requestId?: string; payload?: unknown })
             } catch { /* ignore malformed */ }
           })
-          this.reportResources()
-          this.resourcesTimer = setInterval(() => this.reportResources(), 5000)
+          void this.reportResources()
+          this.resourcesTimer = setInterval(() => { void this.reportResources() }, 5000)
           this.lastPingAt = null
           this.lastSocketError = undefined
           ws.on('ping', () => { this.lastPingAt = Date.now() })
@@ -567,23 +568,37 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     }, delay)
   }
 
-  private reportResources(): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
-    const bootedCount = Array.from(this.deviceStates.values()).filter((s) => s.streamReader !== null).length
-    const slotsTotal = this.deviceStates.size
-    const { memUsedMB, memTotalMB } = this.resources.getMemoryUsage()
-    this.sendOn(this.ws, {
-      type: 'agent:resources',
-      resources: {
-        cpuPercent: this.resources.getCpuPercent(),
-        memUsedMB,
-        memTotalMB,
-        slotsAvailable: Math.max(0, slotsTotal - bootedCount),
-        slotsTotal,
-        reportedAt: Date.now(),
-        memoryPressure: this.resources.getMemoryPressure(),
-      },
-    })
+  /** Samples off the event loop, then reports. One sample at a time per socket, so a slow one (bounded by its
+   *  1 s timeout) is not stacked by the next tick; keyed by socket, so a reconnect is not skipped behind the
+   *  old socket's sample. Slots and the clock are read after the sample, when the report leaves. */
+  private async reportResources(): Promise<void> {
+    const ws = this.ws
+    if (!ws || ws.readyState !== WebSocket.OPEN || this.resourcesInFlight === ws) return
+    this.resourcesInFlight = ws
+    try {
+      const [{ memUsedMB, memTotalMB }, memoryPressure] = await Promise.all([
+        this.resources.getMemoryUsage(),
+        this.resources.getMemoryPressure(),
+      ])
+      // A reconnect while sampling replaced the socket: this report has nowhere to go.
+      if (this.ws !== ws || ws.readyState !== WebSocket.OPEN) return
+      const bootedCount = Array.from(this.deviceStates.values()).filter((s) => s.streamReader !== null).length
+      const slotsTotal = this.deviceStates.size
+      this.sendOn(ws, {
+        type: 'agent:resources',
+        resources: {
+          cpuPercent: this.resources.getCpuPercent(),
+          memUsedMB,
+          memTotalMB,
+          slotsAvailable: Math.max(0, slotsTotal - bootedCount),
+          slotsTotal,
+          reportedAt: Date.now(),
+          memoryPressure,
+        },
+      })
+    } finally {
+      if (this.resourcesInFlight === ws) this.resourcesInFlight = null
+    }
   }
 
   private cleanupDeviceState(state: DeviceState): void {
@@ -2327,18 +2342,27 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
     const seq = state.bootSeq
     const streamer = new AudioCaptureStreamer()
     streamer.listen()
-      .then((port) => {
+      .then(async (port) => {
         // A reboot/shutdown/disconnect may have superseded this boot while listen() was binding —
         // discard so we don't leave an orphan helper/poll/server behind the current lifecycle.
         if (seq !== state.bootSeq || streamWs.readyState !== WebSocket.OPEN) { streamer.stop(); return }
         state.audioStreamer = streamer
         state.audioPort = port
-        state.audioVolume = readSimVolume(udid)
+        // Read before launching, so the first frames carry the sim's volume rather than full.
+        const [pids, volume] = await Promise.all([enumerateSimPids(udid), readSimVolume(udid)])
+        // A stop or reboot while reading retired this capture: `stopAudioCapture` already stopped `streamer`,
+        // and launching the helper now would tap a device nobody is streaming.
+        if (state.audioStreamer !== streamer) return
+        state.audioVolume = volume
         void this.pumpAudio(streamWs, streamer.frames(), state)
-        this.launchWholeSimTap(state, udid)
+        this.launchWholeSimTap(state, pids)
+        // Started after the launch, so the first poll never races the launch's own pid set. One poll at a
+        // time: `ps` is bounded by its timeout, and a slow one is not stacked by the next tick.
+        let polling = false
         state.audioPoll = setInterval(() => {
-          this.refreshAudioPids(state, udid)
-          state.audioVolume = readSimVolume(udid) // track live sim-volume changes
+          if (polling) return
+          polling = true
+          void this.refreshAudio(state, udid, streamer).finally(() => { polling = false })
         }, AUDIO_POLL_MS)
       })
       .catch((e) => logger.warn(`audio capture server failed to start: ${e instanceof Error ? e.message : String(e)}`))
@@ -2346,9 +2370,8 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
 
   // Launch the tap helper for the simulator's whole process tree. Swallows errors — audio must never
   // break the launch/video path (e.g. helper build fails, or the user hasn't granted the audio
-  // permission). The helper holds the socket open; refreshAudioPids() pushes later updates to it.
-  private launchWholeSimTap(state: DeviceState, udid: string): void {
-    const pids = enumerateSimPids(udid)
+  // permission). The helper holds the socket open; refreshAudio() pushes later updates to it.
+  private launchWholeSimTap(state: DeviceState, pids: number[]): void {
     if (!pids.length) { logger.warn('no simulator processes to tap (audio idle until first poll)'); return }
     state.audioPids = new Set(pids)
     try {
@@ -2362,15 +2385,18 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
   // freshly spawned WebKit WebContent), push the updated set so the helper rebuilds its tap. Dead pids
   // need no rebuild — they resolve to no audio object, so the helper just stops mixing them; we still
   // refresh the baseline so a later reappearance is detected. Rebuilding only on additions keeps
-  // short-lived daemon churn from causing constant tap teardown (audio glitches).
-  private refreshAudioPids(state: DeviceState, udid: string): void {
-    if (!state.audioStreamer) return
-    const pids = enumerateSimPids(udid)
+  // short-lived daemon churn from causing constant tap teardown (audio glitches). Also tracks live sim-volume
+  // changes. Both reads are asynchronous, so the capture may have been retired by the time they land; `streamer`
+  // is the capture this poll belongs to.
+  private async refreshAudio(state: DeviceState, udid: string, streamer: AudioCaptureStreamer): Promise<void> {
+    const [pids, volume] = await Promise.all([enumerateSimPids(udid), readSimVolume(udid)])
+    if (state.audioStreamer !== streamer) return
+    state.audioVolume = volume
     if (!pids.length) return
     const prev = state.audioPids
     const hasNew = !prev || pids.some((p) => !prev.has(p))
     state.audioPids = new Set(pids)
-    if (hasNew) state.audioStreamer.updatePids(pids)
+    if (hasNew) streamer.updatePids(pids)
   }
 
   // Forward captured PCM to the relay on the shared stream socket via the yielding sender (audio must
