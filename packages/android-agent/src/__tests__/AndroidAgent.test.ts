@@ -346,6 +346,7 @@ describe('AndroidAgent', () => {
   describe('resource reports (agent:resources)', () => {
     type Internals = {
       resources: { getMemoryUsage: () => Promise<{ memUsedMB: number; memTotalMB: number }>; getMemoryPressure: () => Promise<undefined> }
+      reportResources: () => Promise<void>
       sendOn: (ws: unknown, msg: { type: string }) => void
     }
     function holdSamples(agent: AndroidAgent) {
@@ -354,8 +355,20 @@ describe('AndroidAgent', () => {
       internals.resources.getMemoryUsage = () => new Promise((r) => { releases.push(() => r({ memUsedMB: 1, memTotalMB: 2 })) })
       internals.resources.getMemoryPressure = () => Promise.resolve(undefined)
       const sendOn = vi.spyOn(internals, 'sendOn')
-      return { releases, reports: () => sendOn.mock.calls.filter(([, msg]) => msg.type === 'agent:resources').length }
+      return { internals, releases, reports: () => sendOn.mock.calls.filter(([, msg]) => msg.type === 'agent:resources').length }
     }
+
+    it('takes one sample at a time', async () => {
+      const agent = new AndroidAgent({}, mockAdb())
+      const { internals, releases, reports } = holdSamples(agent)
+      await agent.connect(`ws://localhost:${port}`) // its own report is the one in flight
+      await vi.waitFor(() => expect(releases).toHaveLength(1))
+      await internals.reportResources()
+      expect(releases).toHaveLength(1)
+      releases[0]()
+      await vi.waitFor(() => expect(reports()).toBe(1))
+      agent.disconnect()
+    })
 
     it('sends nothing for a sample that lands after its socket closed, and sends one that lands while open', async () => {
       const stale = new AndroidAgent({}, mockAdb())

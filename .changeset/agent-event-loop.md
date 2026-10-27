@@ -1,5 +1,5 @@
 ---
-"@tapflowio/agent-core": patch
+"@tapflowio/agent-core": minor
 "@tapflowio/ios-agent": patch
 "@tapflowio/android-agent": patch
 ---

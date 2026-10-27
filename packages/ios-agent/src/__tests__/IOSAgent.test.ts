@@ -4025,6 +4025,25 @@ describe('IOSAgent', () => {
       await vi.waitFor(() => expect(reports()).toBe(2))
       agent.disconnect()
     })
+
+    it('reports on a new socket while the old socket\'s sample is still out, and leaves the new one in charge', async () => {
+      const agent = new IOSAgent({ intervalMs: 50 }, mockSimctl())
+      const { internals, releases, reports } = holdSamples(agent)
+      await agent.connect(`ws://localhost:${port}`)
+      await vi.waitFor(() => expect(releases).toHaveLength(1))
+      agent.disconnect()
+      await agent.connect(`ws://localhost:${port}`)
+      // The reconnect's own report starts at once: the old socket's sample is not the new socket's.
+      await vi.waitFor(() => expect(releases).toHaveLength(2))
+      // The old sample landing must not clear the flag the new one holds.
+      releases[0]()
+      await new Promise((r) => setTimeout(r, 10))
+      void internals.reportResources()
+      expect(releases).toHaveLength(2)
+      releases[1]()
+      await vi.waitFor(() => expect(reports()).toBe(1))
+      agent.disconnect()
+    })
   })
 
   describe('clipboard bridge', () => {

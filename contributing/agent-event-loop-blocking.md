@@ -76,7 +76,7 @@ NODE_OPTIONS="--import ./scripts/loop-probe.mjs" pnpm dev
 
 Every relay and agent process prints a line whenever its event loop stalls for 30 ms or more
 (`LOOP_PROBE_MS` changes that), and a line for every synchronous child-process call or `os.cpus()` that
-takes 10 ms or more, naming the command. A `blocked` line right after a `spawnSync` line names the cause.
+takes 10 ms or more, naming the command. A `blocked` line right after one of those names the cause.
 A stall at a fixed interval is a timer: look for the `setInterval` with that period.
 
 ## The rule

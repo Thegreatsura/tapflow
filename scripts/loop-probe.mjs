@@ -6,8 +6,8 @@
 // It prints two kinds of line to stderr:
 //   - `blocked NNms at <clock>`: the event loop did not turn for that long. Every message the process
 //     relays (video frames, touch moves) waited that long too.
-//   - `spawnSync NNms: <command>`: a synchronous child-process call, or `os.cpus()`, that took 10 ms or
-//     more. A `blocked` line right after one names the cause.
+//   - `spawnSync|execFileSync|execSync NNms: <command> at <clock>`, or `os.cpus NNms`: a synchronous call
+//     that took 10 ms or more. A `blocked` line right after one names the cause.
 //
 // Why it exists: contributing/agent-event-loop-blocking.md. LOOP_PROBE_MS changes the block threshold.
 

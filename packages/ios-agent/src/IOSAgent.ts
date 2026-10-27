@@ -2353,6 +2353,9 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability {
         // A stop or reboot while reading retired this capture: `stopAudioCapture` already stopped `streamer`,
         // and launching the helper now would tap a device nobody is streaming.
         if (state.audioStreamer !== streamer) return
+        // Only the control socket's close tears audio down; a stream socket that closed while reading would
+        // leave a helper and a poll running for nothing until the next reboot.
+        if (streamWs.readyState !== WebSocket.OPEN) { this.stopAudioCapture(state); return }
         state.audioVolume = volume
         void this.pumpAudio(streamWs, streamer.frames(), state)
         this.launchWholeSimTap(state, pids)
