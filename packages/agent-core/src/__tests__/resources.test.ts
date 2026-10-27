@@ -21,7 +21,8 @@ const VM_STAT_OUT = [
   'Pages free:             1000.',
 ].join('\\n')
 
-/** The longest the event loop went without turning while `work` ran. */
+/** The longest the event loop went without turning while `work` ran. The gap up to the moment `work` settles
+ *  counts too: a synchronous block that ends with `work` is over before any tick could see it. */
 async function longestLoopStall(work: () => Promise<unknown>): Promise<number> {
   let last = performance.now()
   let longest = 0
@@ -31,7 +32,7 @@ async function longestLoopStall(work: () => Promise<unknown>): Promise<number> {
     last = now
   }, 5)
   try { await work() } finally { clearInterval(tick) }
-  return longest
+  return Math.max(longest, performance.now() - last)
 }
 
 beforeAll(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'resources-test-')) })

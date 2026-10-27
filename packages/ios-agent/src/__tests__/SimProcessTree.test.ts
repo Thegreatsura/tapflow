@@ -61,6 +61,8 @@ describe('enumerateSimPids', () => {
     let longest = 0
     const tick = setInterval(() => { const now = performance.now(); longest = Math.max(longest, now - last); last = now }, 5)
     const pids = await enumerateSimPids(UDID, slow).finally(() => clearInterval(tick))
+    // The gap up to now counts too: a synchronous read would be over before any tick could see it.
+    longest = Math.max(longest, performance.now() - last)
     expect(pids.sort((a, b) => a - b)).toEqual([33854, 34356, 34379, 34386])
     expect(longest).toBeLessThan(100)
   })
