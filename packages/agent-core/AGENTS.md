@@ -27,6 +27,7 @@ The sole contract that platform implementations (ios-agent, android-agent) depen
 - Do not put platform-specific types (xcrun responses, ADB output, etc.) in this package.
 - Do not add platform-specific methods to the `DeviceAgent` interface.
 - Runtime dependencies are allowed only in shared implementation utils (`src/utils/`). Interface and registry code must have zero dependencies.
+- Do not run a child process synchronously (`spawnSync`, `execFileSync`) in anything an agent calls repeatedly. It stops the loop that forwards every frame and touch: [agent-event-loop-blocking.md](../../contributing/agent-event-loop-blocking.md).
 
 ## Directory Structure
 

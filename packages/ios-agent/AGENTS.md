@@ -121,6 +121,7 @@ asymmetry is a decision, and it is why iOS never sends `unsupported` for a butto
 - Do not expose iOS-specific methods as public API if they are not in the `DeviceAgent` interface.
 - Do not reintroduce SCStream/ScreenCaptureKit — geometry coordinate mismatches cause double-frame issues.
 - Do not stream JPEG frames over WebRTC DataChannel — the channel silently closes on large messages (~236KB+; details in "WebSocket Binary streaming — transport choice" below).
+- Do not run a child process synchronously on a timer or a poll (`execFileSync`, `spawnSync`). The audio poll and the resource report each did, and a drag stuttered at their interval: [agent-event-loop-blocking.md](../../contributing/agent-event-loop-blocking.md).
 
 ---
 
