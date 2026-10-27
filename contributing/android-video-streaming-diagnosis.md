@@ -150,7 +150,7 @@ when audio output is off.
 
 You can use the emulator gRPC API's `streamScreenshot` RPC to replace scrcpy entirely. Because frames are produced directly inside the emulator process, it may bypass SurfaceFlinger's vsync path.
 
-**Taken — now the emulator default.** `pickAndroidBackend` sends every `emulator-*` serial through `EmulatorGrpcClient.streamScreenshot` → `EmulatorVideo`, bypassing the guest encoder; scrcpy stays for real devices and as the fallback.
+**Taken — now the emulator default.** `pickAndroidBackend` sends `emulator-*` serials by default (`TAPFLOW_ANDROID_BACKEND=scrcpy` overrides it) through `EmulatorGrpcClient.streamScreenshot` → `EmulatorVideo`, bypassing the guest encoder; scrcpy stays for real devices and as the fallback.
 
 ---
 

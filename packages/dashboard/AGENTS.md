@@ -36,7 +36,7 @@ The audience is the whole team (PO, PM, designers, backend, QA) — not just QA.
 
 - **Stack**: Vite + React 19 + React Router v7 + Shadcn/Tailwind + next-themes
 - **Structure**: `src/` — app entry, router, pages; `components/` — shared components; `hooks/` — custom hooks; `lib/` — utils, types, API client
-- **Routing**: `BrowserRouter`-based. Four routes are public — `/login`, `/setup`, `/invite`, `/reset-password` — because each is reached by somebody with no session yet. Everything else is protected by `DashboardLayout` via `useAuth` (redirects to `/login`).
+- **Routing**: `BrowserRouter`-based. Four routes are public — `/login`, `/setup`, `/invite`, `/reset-password` — because each is reached by somebody with no session yet. Every other declared route is protected by `DashboardLayout` via `useAuth` (redirects to `/login`); the `*` `NotFound` route sits outside it.
 - **Auth**: Session confirmed via `GET /api/v1/auth/me`. HttpOnly cookie (not readable from JS).
 - **Streaming**: set `binaryType = 'arraybuffer'` in `useRelay`, branch on `e.data instanceof ArrayBuffer` for binary frames.
 - **Message shapes live in [`@tapflowio/protocol`](../protocol/AGENTS.md)**, imported with `import type` so nothing lands in the bundle. `send()` takes `BrowserToRelay`, so a new outbound message has to be added to that union first. What the viewer *receives* is **`BrowserInbound`**, re-exported from `lib/types.ts` so view code keeps one import site.
