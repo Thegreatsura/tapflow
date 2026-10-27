@@ -71,8 +71,11 @@ a release, and one you do not see may still be there.** Measure on a built agent
 ## How to look
 
 ```sh
-NODE_OPTIONS="--import ./scripts/loop-probe.mjs" pnpm dev
+NODE_OPTIONS="--import $PWD/scripts/loop-probe.mjs" pnpm dev
 ```
+
+Run it from the repo root. The path has to be absolute: `pnpm dev` starts the relay and the agents in
+`playground/`, so `./scripts/…` resolves to nothing there and the first process dies at start.
 
 Every relay and agent process prints a line whenever its event loop stalls for 30 ms or more
 (`LOOP_PROBE_MS` changes that), and a line for every synchronous child-process call or `os.cpus()` that

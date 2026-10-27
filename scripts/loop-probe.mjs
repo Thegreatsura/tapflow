@@ -1,7 +1,10 @@
 // Event-loop probe for tapflow's own Node processes. Loaded through NODE_OPTIONS, so nothing in the
 // code under test changes:
 //
-//   NODE_OPTIONS="--import ./scripts/loop-probe.mjs" pnpm dev
+//   NODE_OPTIONS="--import $PWD/scripts/loop-probe.mjs" pnpm dev
+//
+// From the repo root, and by absolute path: `pnpm dev` starts the relay and agents in playground/, where a
+// relative path resolves to nothing and the first process to start dies.
 //
 // It prints two kinds of line to stderr:
 //   - `blocked NNms at <clock>`: the event loop did not turn for that long. Every message the process
