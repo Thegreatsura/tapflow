@@ -15,13 +15,19 @@
 // Why it exists: contributing/agent-event-loop-blocking.md. LOOP_PROBE_MS changes the block threshold.
 
 import { createRequire, syncBuiltinESMExports } from 'node:module'
+import { fileURLToPath } from 'node:url'
 
 const TICK_MS = 10
 const BLOCK_MS = Number(process.env.LOOP_PROBE_MS) || 30
 const SLOW_CALL_MS = 10
 
 const script = process.argv.slice(1).find((a) => /\.(ts|js|mjs|cjs)$/.test(a) && !a.includes('node_modules'))
-const name = (script ?? process.argv[1] ?? '?').split('/').slice(-2).join('/')
+const entry = script ?? process.argv[1] ?? '?'
+// Decided on the path from the repo root, shortened only for display: `pnpm pre-release` starts the relay as
+// packages/cli/src/index.ts, which its last two segments alone would not name.
+const root = fileURLToPath(new URL('..', import.meta.url))
+const fromRoot = entry.startsWith(root) ? entry.slice(root.length) : entry
+const name = entry.split('/').slice(-2).join('/')
 
 const clock = () => {
   const d = new Date()
@@ -30,7 +36,7 @@ const clock = () => {
 
 // Every process `pnpm dev` starts inherits NODE_OPTIONS, Vite and pnpm included. Watch only the relay,
 // the agents and the CLI, whose loops carry the stream.
-if (/relay|agent|server|cli|tapflow/i.test(name) && !/vite|esbuild/i.test(name)) {
+if (/relay|agent|server|cli|tapflow/i.test(fromRoot) && !/vite|esbuild/i.test(fromRoot)) {
   const tag = `[loop-probe ${name} pid=${process.pid}]`
 
   let last = performance.now()
