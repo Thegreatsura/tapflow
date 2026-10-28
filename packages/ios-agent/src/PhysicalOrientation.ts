@@ -79,6 +79,8 @@ interface Flight {
 export class PhysicalOrientation {
   private readonly flights = new Map<string, Flight>()
   private readonly known = new Map<string, DeviceOrientation>()
+  // Bumped by `forget`, for the reason `PanelState` gives.
+  private readonly generations = new Map<string, number>()
 
   constructor(private readonly native: PhysicalOrientationNative = defaultPhysicalOrientationNative) {}
 
@@ -102,6 +104,7 @@ export class PhysicalOrientation {
 
   forget(udid: string): void {
     this.known.delete(udid)
+    this.generations.set(udid, (this.generations.get(udid) ?? 0) + 1)
   }
 
   /** Reads until `done` holds, or `timeoutMs` passes (then null). */
@@ -116,8 +119,10 @@ export class PhysicalOrientation {
   }
 
   private startFlight(udid: string): Promise<DeviceOrientation | null> {
+    const generation = this.generations.get(udid) ?? 0
     const current = this.native.readOrientation(udid).then(
       (doc) => {
+        if ((this.generations.get(udid) ?? 0) !== generation) return null
         const reading = parseOrientation(doc)
         if (reading) this.known.set(udid, reading)
         else logger.warn(`devicectl gave ${udid} an orientation this agent does not recognise: ${JSON.stringify(doc).slice(0, 400)}`)

@@ -98,6 +98,8 @@ export class PanelState {
   private readonly known = new Map<string, PanelReading>()
   // A different panel read lit, not yet held for `holdMs`, and when it was first read so.
   private readonly candidates = new Map<string, { reading: PanelReading; since: number }>()
+  // Bumped by `forget`: a reading started before it describes the device as it was, and is dropped.
+  private readonly generations = new Map<string, number>()
 
   constructor(
     private readonly native: PanelStateNative = defaultPanelStateNative,
@@ -143,6 +145,7 @@ export class PanelState {
   forget(udid: string): void {
     this.known.delete(udid)
     this.candidates.delete(udid)
+    this.generations.set(udid, (this.generations.get(udid) ?? 0) + 1)
   }
 
   /** Reads until `done` holds, or `timeoutMs` passes (then null). For a fold: the sweep finishing is not
@@ -162,8 +165,12 @@ export class PanelState {
   }
 
   private startFlight(udid: string): Promise<PanelReading | null> {
+    const generation = this.generations.get(udid) ?? 0
     const current = this.native.readDisplays(udid).then(
       (doc) => {
+        // Forgotten while it ran — the device shut down or was erased under it. Kept, it would put the panel
+        // lit before the shutdown back as the one the next boot starts from.
+        if ((this.generations.get(udid) ?? 0) !== generation) return null
         const reading = parseDisplays(doc)
         // What it said goes in the log: the one time this fired on a real Duo, nobody could see why.
         if (!reading) logger.warn(`devicectl gave ${udid} a displays document this agent does not recognise: ${JSON.stringify(doc).slice(0, 400)}`)

@@ -545,7 +545,16 @@ that dispatches HID events on virtual services it registers. Its stdin protocol 
 
 - **Every private symbol for this device lives in that one file**, opened with `dlopen`. A runtime that
   refuses one makes it print `fatal`, and the boot fails with that reason — the device is shut down only if
-  the boot brought it up. Nothing is half-offered: no helper means no input, so the device is refused.
+  the boot brought it up. So does a helper that is not ready within `HELPER_BOOT_READY_MS` (60 s): one that
+  dies without `fatal` is relaunched for ever, which a session can wait out and a boot cannot. Nothing is
+  half-offered: no helper means no input, so the device is refused.
+- **Before connecting, only two things are checked**: that `bin/duo-helper` exists and that `devicectl` is
+  found. Either missing leaves every multi-panel device out of the list. Whether the runtime accepts the
+  helper is known only at boot.
+- **A boot that brings the device up stops the helper and forgets the readings of the boot before.** A
+  simulator shut down outside tapflow (quitting DeviceHub shuts every one) left them in place, and the next
+  boot waited out the old helper's respawn cooldown and started from the panel lit before the shutdown. A
+  devicectl read still in flight at that moment is dropped too (`forget` bumps a generation).
 - **It is a committed binary**, built by `build-duo-helper.sh` (any Xcode's iphonesimulator SDK, arm64,
   ad-hoc signed) and recorded in `duo-helper-shipped.json`; `scripts/__tests__/duoHelperArtifactFresh.test.mjs`
   fails when the source moved and the binary did not. Same pattern as the network hook's dylib.
@@ -599,8 +608,8 @@ is the app's business.
   `orient` with DeviceHub's labels and confirmed by reading back. Purple and `devicectl … orientation set`
   do nothing on the Duo (measured).
 - **Single-panel devices are not on this model yet.** They still toggle portrait ↔ landscape through
-  `rotation-helper` and send no `streamRotation`. Moving them — and Android — to the physical model is a
-  follow-up that must land before the next npm release.
+  `rotation-helper` and send no `streamRotation`. Moving them — and Android — to the physical model is the
+  planned follow-up.
 - devicectl does not see simulators on an Xcode 26 host, which is one reason the model is Duo-only for now.
 
 ---

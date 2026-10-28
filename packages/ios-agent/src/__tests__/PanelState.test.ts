@@ -150,6 +150,24 @@ describe('PanelState.last', () => {
     state.forget('U')
     expect(state.last('U')).toBeNull()
   })
+
+  // A reading in flight when the device shut down describes the boot before; kept, the next boot started from
+  // the panel lit before the shutdown. Mutation: drop the generation check.
+  it('drops a reading that was in flight when it forgot the device', async () => {
+    const { native, calls } = scriptedNative()
+    const state = new PanelState(native)
+    const stale = state.read('U')
+    state.forget('U')
+    calls[0].resolve(OPEN)
+    await expect(stale).resolves.toBeNull()
+    expect(state.last('U')).toBeNull()
+    // A read asked for afterwards is a new one, and counts.
+    const fresh = state.read('U')
+    await flush()
+    calls[1].resolve(FOLDED)
+    expect((await fresh)?.lit?.displayId).toBe(1)
+    expect(state.last('U')?.lit?.displayId).toBe(1)
+  })
 })
 
 // A Duo coming up from an erase lit its unfolded panel for up to 3.2 s and went back to its cover (measured).

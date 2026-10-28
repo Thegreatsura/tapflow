@@ -762,7 +762,7 @@ describe('IOSAgent', () => {
       }
       return { world, panelState, physical, onCommand }
     }
-    function guestNative(opts: { fatal?: string; unavailable?: string; onCommand?: (line: string) => void; unanswered?: string[] } = {}) {
+    function guestNative(opts: { fatal?: string; unavailable?: string; onCommand?: (line: string) => void; unanswered?: string[]; silent?: boolean } = {}) {
       const procs: GuestProc[] = []
       let readied = 0
       const native = {
@@ -784,6 +784,8 @@ describe('IOSAgent', () => {
           }) as never
           setImmediate(() => {
             if (opts.fatal) { proc.stdout.emit('data', Buffer.from(`fatal ${opts.fatal}\n`)); proc.stdin.writable = false; proc.emit('exit', 3); return }
+            // Silent: running, and never ready — what a helper stalled in its device lookup looks like.
+            if (opts.silent) { proc.stdout.emit('data', Buffer.from(`pid ${proc.pid + 1}\n`)); return }
             proc.stdout.emit('data', Buffer.from(`pid ${proc.pid + 1}\nready\n`)); readied++
           })
           procs.push(proc)
@@ -838,9 +840,9 @@ describe('IOSAgent', () => {
       panels?: number; boot?: boolean; captureHelper?: boolean; chromeLoader?: DeviceChromeLoader
       panelState?: PanelState; physical?: PhysicalOrientation; world?: ReturnType<typeof duoWorld>
       fatal?: string; unavailable?: string; booted?: boolean; pollMs?: number; unanswered?: string[]
-      idlePollMs?: number; quietMs?: number
+      idlePollMs?: number; quietMs?: number; silent?: boolean; helperBootReadyMs?: number
     } = {}) {
-      const guest = guestNative({ fatal: opts.fatal, unavailable: opts.unavailable, onCommand: opts.world?.onCommand, unanswered: opts.unanswered })
+      const guest = guestNative({ fatal: opts.fatal, unavailable: opts.unavailable, onCommand: opts.world?.onCommand, unanswered: opts.unanswered, silent: opts.silent })
       const simctl = duoSimctl(opts.panels, opts.booted)
       const browser = new WebSocket(`ws://localhost:${port}`)
       // Everything the viewer receives, from the start: some messages (a re-sent chrome) can land during the boot.
@@ -856,6 +858,7 @@ describe('IOSAgent', () => {
         ...(opts.captureHelper ? {} : { intervalMs: 50 }), guestHelperNative: guest.native,
         panelState: opts.panelState ?? opts.world?.panelState ?? folded(), foldSettleMs: 500, panelPollMs: opts.pollMs ?? 50,
         ...(opts.idlePollMs ? { panelIdlePollMs: opts.idlePollMs } : {}), ...(opts.quietMs ? { panelQuietMs: opts.quietMs } : {}),
+        ...(opts.helperBootReadyMs ? { helperBootReadyMs: opts.helperBootReadyMs } : {}),
         physicalOrientation: opts.physical ?? opts.world?.physical ?? heldAs(() => 'portrait'),
         ...(opts.chromeLoader ? { chromeLoader: opts.chromeLoader } : {}),
       }, simctl)
@@ -1257,6 +1260,36 @@ describe('IOSAgent', () => {
         agent.disconnect()
         browser.close()
       }
+    })
+
+    // A helper that never says `fatal` is relaunched for ever, which a boot cannot wait out. Mutation: wait on
+    // `whenReady` alone — the boot never answers.
+    it('fails a boot whose helper is never ready, and shuts down only a device it brought up', async () => {
+      const { agent, browser, simctl } = await bootedDuo({ silent: true, booted: false, boot: false, helperBootReadyMs: 300 })
+      const err = waitForType(browser, 'device:boot-error')
+      browser.send(JSON.stringify({ type: 'device:boot', requestId: 'rq-duo-silent', sessionId: agent.sessionId, payload: { deviceId: 'dev-1' } }))
+      expect(String((await err).message)).toContain('not ready within 0.3s')
+      expect(simctl.shutdown).toHaveBeenCalledWith('dev-1')
+      agent.disconnect()
+      browser.close()
+    })
+
+    // Quitting DeviceHub shuts every simulator down under tapflow, and the helper serving the old boot stayed
+    // registered: the next boot found it, waited on it, and started from the panel lit before. Mutation: drop
+    // the stop for a cold boot — the second boot spawns nothing.
+    it('gives a device shut down outside tapflow a new helper when it boots again', async () => {
+      const { agent, browser, guest, simctl } = await bootedDuo()
+      await guest.ready()
+      ;(simctl.listDevices as ReturnType<typeof vi.fn>).mockResolvedValue([
+        { id: 'dev-1', name: 'iPhone 15', platform: 'ios', status: 'shutdown', osVersion: 'iOS 27.1', typeId: 'type-iphone-15' },
+      ])
+      const ready = waitForType(browser, 'device:ready')
+      browser.send(JSON.stringify({ type: 'device:boot', requestId: 'rq-duo-again', sessionId: agent.sessionId, payload: { deviceId: 'dev-1' } }))
+      await ready
+      expect(guest.procs[0].stdin.end).toHaveBeenCalled()
+      expect(guest.native.spawn).toHaveBeenCalledTimes(2)
+      agent.disconnect()
+      browser.close()
     })
 
     it('does not offer a multi-panel device this Mac cannot drive, and still offers the rest', async () => {

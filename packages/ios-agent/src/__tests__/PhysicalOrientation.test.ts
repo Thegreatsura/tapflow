@@ -81,6 +81,18 @@ describe('PhysicalOrientation', () => {
     expect(state.last('U')).toBeNull()
   })
 
+  // Mutation: drop the generation check — the orientation from before a shutdown came back after it.
+  it('drops a reading that was in flight when it forgot the device', async () => {
+    const calls: Array<ReturnType<typeof deferred<unknown>>> = []
+    const native = { readOrientation: vi.fn<PhysicalOrientationNative['readOrientation']>(() => { const d = deferred<unknown>(); calls.push(d); return d.promise }) }
+    const state = new PhysicalOrientation(native)
+    const stale = state.read('U')
+    state.forget('U')
+    calls[0].resolve(doc('landscapeLeft'))
+    await expect(stale).resolves.toBeNull()
+    expect(state.last('U')).toBeNull()
+  })
+
   it('waits until the orientation lands, and gives up at the deadline', async () => {
     vi.useFakeTimers()
     const native = { readOrientation: vi.fn<PhysicalOrientationNative['readOrientation']>() }

@@ -92,7 +92,7 @@ export const defaultGuestHelperNative: GuestHelperNative = {
     try {
       await execFileAsync('xcrun', ['--find', 'devicectl'], { timeout: 10_000 })
     } catch {
-      return 'devicectl was not found — iPhone Duo needs Xcode 27.1 or later'
+      return 'devicectl was not found — install Xcode and select it with xcode-select'
     }
     return null
   },

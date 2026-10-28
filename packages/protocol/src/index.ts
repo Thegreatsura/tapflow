@@ -360,7 +360,8 @@ export interface ChromeData {
    * older agent never sends it; a viewer that read absence as upright would stand a landscape device up
    * every time a chrome was re-sent.
    */
-  streamRotation?: 0 | 90 | 180 | 270  /**
+  streamRotation?: 0 | 90 | 180 | 270
+  /**
    * The length, in 2× px, that a viewer sizes this device by in place of `compositeHeight` — the longest
    * side of the largest panel's expanded composite. Present only for a device with more than one panel (the
    * iPhone Duo), so that every panel is drawn at one scale: the cover is half the unfolded device in the

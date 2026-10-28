@@ -165,6 +165,8 @@ export interface IOSAgentOptions {
   /** The same, once nothing has moved for `panelQuietMs`. Injectable for the same reason. */
   panelIdlePollMs?: number
   panelQuietMs?: number
+  /** How long a boot waits for a multi-panel device's helper to be ready. Injectable for the same reason. */
+  helperBootReadyMs?: number
 }
 
 // The postures of a multi-panel device (iPhone Duo), most closed first as the protocol requires. Two, not
@@ -184,6 +186,10 @@ const POSTURE_DEGREES: Record<string, number> = { closed: 0, open: 180 }
 const PANEL_POLL_MS = 2_000
 const PANEL_IDLE_POLL_MS = 6_000
 const PANEL_QUIET_MS = 30_000
+// How long a boot waits for a multi-panel device's helper. A helper that dies without saying `fatal` is
+// relaunched on a rolling budget for ever, which is right for a session already on the device and wrong for a
+// boot, which would otherwise never answer. Four of the helper's own 15 s start-up deadlines.
+const HELPER_BOOT_READY_MS = 60_000
 // How long a turn sent through the helper has to show up in `devicectl device orientation get`. M1 read each
 // one back 2.5 s after sending and every one had landed; the wait ends as soon as it does.
 const ROTATE_SETTLE_MS = 3_000
@@ -342,6 +348,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability, Posturab
   private readonly panelPollMs: number
   private readonly panelIdlePollMs: number
   private readonly panelQuietMs: number
+  private readonly helperBootReadyMs: number
   private readonly panelPolls = new Map<string, ReturnType<typeof setTimeout>>()
   // When each device's panel or orientation last moved, or tapflow last moved it: the poll is fast after that.
   private readonly panelActivity = new Map<string, number>()
@@ -399,6 +406,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability, Posturab
     this.panelPollMs = options.panelPollMs ?? PANEL_POLL_MS
     this.panelIdlePollMs = options.panelIdlePollMs ?? PANEL_IDLE_POLL_MS
     this.panelQuietMs = options.panelQuietMs ?? PANEL_QUIET_MS
+    this.helperBootReadyMs = options.helperBootReadyMs ?? HELPER_BOOT_READY_MS
     this.leanStore = options.leanStore ?? new LeanStore(process.env.VITEST ? path.join(tmpdir(), 'tapflow-no-lean-store') : undefined, MANAGED_LABELS)
     this.network = options.network ?? new SimulatorNetwork(
       this.simctl,
@@ -1004,6 +1012,10 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability, Posturab
       // Read before anything below changes it: a Full reset shuts the device down itself, and `unknown`
       // (booting, shutting down) is a device paying a boot's cost now.
       const cold = fullErase || retier || target.status !== 'booted'
+      // A device this boot brings up gets a new helper and fresh readings. One left from before was serving a
+      // simulator that is gone — shut down outside tapflow (DeviceHub quitting takes every one), or about to be
+      // — and kept, the boot waited out its respawn cooldown and started from the panel lit before.
+      if (cold) this.stopGuest(deviceId)
 
       if (fullErase) {
         // `simctl erase` only accepts a shut-down device, and a device is often already running —
@@ -1022,8 +1034,6 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability, Posturab
         // A runner still starting for this device would boot it back up mid-erase (`test-without-building` boots its
         // destination), and one already serving would outlive the simulator it reads.
         this.uiTreeReader.stopIfDevice(deviceId)
-        // The device is about to be erased under its guest helper, whose panels change with the boot after.
-        this.stopGuest(deviceId)
         if (target.status !== 'shutdown') await this.simctl.shutdown(deviceId)
         // The shutdown is an await, so a newer boot for this device may have overtaken us while it
         // ran. Without this check the superseded boot goes on to erase a device the tester has
@@ -1123,12 +1133,19 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability, Posturab
       // **A multi-panel device is usable only through its helper**, so the boot is not ready until the helper
       // is, and a runtime that refuses it fails the boot with the reason. The device is shut down only if this
       // boot brought it up: one that was already running (DeviceHub, another session) is left as it was found.
-      if (this.multiPanelDevices.has(deviceId)) {
-        const guest = this.guests.get(deviceId)
-        const ready = (await guest?.whenReady()) ?? false
+      //
+      // No helper at all is a socket that closed before `sendChromeData` built the channel: the boot carries on
+      // as a single-panel one does, and the relay loss that follows retires it — not a refusal to shut down for.
+      const guest = this.multiPanelDevices.has(deviceId) ? this.guests.get(deviceId) : undefined
+      if (guest) {
+        let limit: ReturnType<typeof setTimeout> | undefined
+        const ready = await Promise.race([
+          guest.whenReady(),
+          new Promise<boolean>((resolve) => { limit = setTimeout(() => resolve(false), this.helperBootReadyMs) }),
+        ]).finally(() => clearTimeout(limit))
         if (seq !== state.bootSeq) { this.abandonBoot(state, seq, sessionId, requestId); return }
         if (!ready) {
-          const reason = guest?.unavailableReason() ?? 'no input helper'
+          const reason = guest.unavailableReason() ?? `the input helper was not ready within ${this.helperBootReadyMs / 1000}s`
           this.stopGuest(deviceId)
           if (cold) await this.simctl.shutdown(deviceId).catch(() => { /* reported below either way */ })
           throw new PlatformError(`${bootedDevice.name} cannot be used on this Mac: ${reason}`)
