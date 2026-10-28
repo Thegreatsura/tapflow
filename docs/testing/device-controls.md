@@ -52,7 +52,7 @@ An iOS simulator turns a quarter turn clockwise on each press of **Rotate**, so 
 
 The screen turns with the device, as it does in your hand. An app that supports the new orientation stands its screen back up; one that does not stays on its side.
 
-The device's orientation is shared by everyone looking at it. tapflow does not change it when a session starts or ends, and reloading the page or a teammate joining finds the device where it was left. A flow run is the exception: it starts the device upright, so it replays the same way every time.
+The device's orientation is shared by everyone looking at it. tapflow does not change it when a session starts or ends, and reloading the page or a teammate joining finds the device where it was left. A flow run is the exception: it starts the device upright, so it replays the same way every time. An iPhone Duo is not stood up yet and starts a run where it was left.
 
 A turn made in Xcode's DeviceHub or Simulator.app shows in tapflow when a session starts and on the next press of **Rotate**. An iPhone Duo shows it within about 6 seconds.
 
