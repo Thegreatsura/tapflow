@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { EventEmitter } from 'events'
 import { GuestHelper, type GuestHelperNative } from '../GuestHelper.js'
 
-// A `simctl spawn` child: the agent talks to duo-helper through it. Its own pid is the host process; the
+// A `simctl spawn` child: the agent talks to guest-helper through it. Its own pid is the host process; the
 // guest's pid arrives on stdout as `pid <n>`, and the two die separately (measured: kill -9 on simctl
 // leaves the guest running).
 type FakeProc = EventEmitter & {

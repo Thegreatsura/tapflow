@@ -7,9 +7,9 @@ import { createLogger } from '@tapflowio/agent-core'
 const logger = createLogger('ios-agent:guest-helper')
 const execFileAsync = promisify(execFile)
 
-// `bin/duo-helper` runs INSIDE the simulator (an iphonesimulator executable), so it is started through
-// `simctl spawn`, never directly. See `src/duo-helper.m` for its protocol and why it exists.
-export const GUEST_HELPER_BINARY = join(import.meta.dirname, '..', 'bin', 'duo-helper')
+// `bin/guest-helper` runs INSIDE the simulator (an iphonesimulator executable), so it is started through
+// `simctl spawn`, never directly. See `src/guest-helper.m` for its protocol and why it exists.
+export const GUEST_HELPER_BINARY = join(import.meta.dirname, '..', 'bin', 'guest-helper')
 
 // The same rolling window as TouchHelper, for the same reason it gives.
 const RESPAWN_LIMIT = 3
@@ -71,7 +71,7 @@ export const defaultGuestHelperNative: GuestHelperNative = {
     const marker = `--udid ${udid}`
     let out: string
     try {
-      out = (await execFileAsync('/usr/bin/pgrep', ['-f', `duo-helper ${marker}`], { timeout: 5_000 })).stdout
+      out = (await execFileAsync('/usr/bin/pgrep', ['-f', `guest-helper ${marker}`], { timeout: 5_000 })).stdout
     } catch {
       return [] // pgrep exits 1 when nothing matches
     }
@@ -112,7 +112,7 @@ export interface GuestHelperOptions {
 }
 
 /**
- * The host side of `duo-helper`: one per multi-panel device, resident for the device's life.
+ * The host side of `guest-helper`: one per multi-panel device, resident for the device's life.
  *
  * Its lifecycle follows TouchHelper's rules — readiness gates writes, a gesture belongs to the process
  * that took its opening frame, deaths are replaced eagerly within a rolling budget — with three
@@ -291,7 +291,7 @@ export class GuestHelper {
     let screens: string[]
     try {
       for (const pid of await this.native.findOrphans(this.udid)) {
-        logger.warn(`killing a leftover duo-helper (pid ${pid}) for ${this.udid}`)
+        logger.warn(`killing a leftover guest-helper (pid ${pid}) for ${this.udid}`)
         this.native.killPid(pid, 'SIGKILL')
       }
       screens = await this.touchscreens()
@@ -318,7 +318,7 @@ export class GuestHelper {
     if (proc.pid === undefined) {
       proc.on('error', (e) => logger.error(`spawn error: ${e.message}`))
       this.proc = null
-      this.becomeUnavailable('could not start duo-helper through simctl spawn')
+      this.becomeUnavailable('could not start guest-helper through simctl spawn')
       return
     }
     this.proc = proc
@@ -332,7 +332,7 @@ export class GuestHelper {
     })
     proc.stderr?.on('data', (d: Buffer) => logger.error(d.toString().trim()))
     proc.on('exit', (code) => {
-      logger.warn(`duo-helper for ${this.udid} exited with code ${code ?? 'null'}`)
+      logger.warn(`guest-helper for ${this.udid} exited with code ${code ?? 'null'}`)
       this.handleDeath(proc)
     })
     proc.on('error', (e) => {
@@ -352,7 +352,7 @@ export class GuestHelper {
       this.clearReadyDeadline()
       this.settleReadyWaiters(true)
       if (this.outage) {
-        logger.info(`duo-helper back in service for ${this.udid}`)
+        logger.info(`guest-helper back in service for ${this.udid}`)
         this.outage = null
         this.options.onAvailable?.()
       }
@@ -360,9 +360,9 @@ export class GuestHelper {
       this.pending.shift()?.resolve(rest[0] === '0')
     } else if (word === 'err') {
       // A touch frame the guest refused. Touches are acked on the write, so this only gets logged.
-      logger.warn(`duo-helper refused: ${rest.slice(1).join(' ')} (status ${rest[0]})`)
+      logger.warn(`guest-helper refused: ${rest.slice(1).join(' ')} (status ${rest[0]})`)
     } else if (word === 'fatal') {
-      this.fatalReason = rest.join(' ') || 'duo-helper could not start'
+      this.fatalReason = rest.join(' ') || 'guest-helper could not start'
       this.becomeUnavailable(this.fatalReason)
     }
   }
@@ -378,7 +378,7 @@ export class GuestHelper {
     const now = Date.now()
     this.spawns = this.spawns.filter((t) => now - t < RESPAWN_WINDOW_MS)
     if (this.spawns.length >= RESPAWN_LIMIT) {
-      this.retryLater(`duo-helper died ${RESPAWN_LIMIT} times in ${RESPAWN_WINDOW_MS / 1000}s`)
+      this.retryLater(`guest-helper died ${RESPAWN_LIMIT} times in ${RESPAWN_WINDOW_MS / 1000}s`)
       return
     }
     void this.launch()
@@ -390,7 +390,7 @@ export class GuestHelper {
     const now = Date.now()
     this.spawns = this.spawns.filter((t) => now - t < RESPAWN_WINDOW_MS)
     const wait = this.spawns.length >= RESPAWN_LIMIT ? RESPAWN_WINDOW_MS - (now - this.spawns[0]) + 50 : 0
-    logger.warn(`duo-helper out of service for ${this.udid}: ${reason} — trying again in ${Math.round(wait / 1000)}s`)
+    logger.warn(`guest-helper out of service for ${this.udid}: ${reason} — trying again in ${Math.round(wait / 1000)}s`)
     this.noteOutage(reason)
     const timer = setTimeout(() => {
       if (this.cooldown !== timer) return
@@ -413,7 +413,7 @@ export class GuestHelper {
     this.unavailable = reason
     this.ready = false
     this.settleReadyWaiters(false)
-    logger.error(`duo-helper unavailable for ${this.udid}: ${reason}`)
+    logger.error(`guest-helper unavailable for ${this.udid}: ${reason}`)
     this.outage = null
     this.noteOutage(reason)
   }
@@ -422,7 +422,7 @@ export class GuestHelper {
     this.clearReadyDeadline()
     const timer = setTimeout(() => {
       if (this.proc !== proc || this.ready) return
-      logger.error(`no ready from duo-helper within ${READY_DEADLINE_MS}ms — replacing it`)
+      logger.error(`no ready from guest-helper within ${READY_DEADLINE_MS}ms — replacing it`)
       if (this.guestPid) this.native.killPid(this.guestPid, 'SIGKILL')
       this.signalProcess(proc, 'SIGKILL')
     }, READY_DEADLINE_MS)

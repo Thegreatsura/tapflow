@@ -63,11 +63,13 @@ iOS and on Android's scrcpy backend the CSS turn is the only rotation, and on gR
 not held back while the rotation lands. Following another viewer's rotation needs orientation on the
 wire first.
 
-**The iPhone Duo is the exception, and the wire already carries it.** Its agent reports how far to turn
+**iOS is the exception, and the wire already carries it** — the iPhone Duo first, and every iOS simulator
+from an agent that reports it. The agent reports how far to turn
 the whole device as `ChromeData.streamRotation`, and when that is present `iosTurn` uses it and ignores
 `isLandscape` — the tester's Rotate is carried out on the device and comes back as a new turn, so a
 watching page follows it too. The viewer then asks from the reported turn and does not turn the device
-back on unmount, because the orientation is the device's, shared with DeviceHub.
+back on unmount, because the orientation is the device's, shared with DeviceHub. `isLandscape` is left
+for an older iOS agent that sends no turn, and Android still works as the paragraph above says.
 
 Two orders are DeviceHub's and easy to lose. **The frame turns first and the turn is sent when it has
 finished** (`SPIN_MS`): sent at the press, a quick device turned its screen while the frame was still on

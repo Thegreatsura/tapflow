@@ -347,8 +347,9 @@ export interface ChromeData {
    * Quarter turns **clockwise** to turn the device on screen — frame and video together — which is the
    * device's **physical** orientation, the way DeviceHub draws it: the glass turns with the body, and
    * whether the picture on it stands up is the app's business. An app that does not support the
-   * orientation shows sideways, as it would in a hand. Present only when the agent reads the physical
-   * orientation back (an iPhone Duo on Xcode 27, `devicectl device orientation get`).
+   * orientation shows sideways, as it would in a hand. Sent for every iOS simulator by an agent that knows
+   * where it is held: `devicectl device orientation get` on an Xcode 27 host, and inside the simulator on an
+   * older one, whose devicectl does not see simulators. Where neither answers, what the agent last set.
    *
    * **Not the same meaning as `AndroidChrome.streamRotation`**, which corrects a capture to stand the
    * picture up. The two share a name and a unit only.
@@ -356,8 +357,8 @@ export interface ChromeData {
    * It includes the lit panel's native orientation: the Duo's unfolded panel is drawn turned (its
    * `nativeOrientation` is 270), so holding the device upright turns that panel's frame 90.
    *
-   * **Absent means no information, not 0.** A single-panel iPhone's agent does not read it yet, and an
-   * older agent never sends it; a viewer that read absence as upright would stand a landscape device up
+   * **Absent means no information, not 0.** An older agent never sends it, and a device whose orientation
+   * is not known yet has none; a viewer that read absence as upright would stand a landscape device up
    * every time a chrome was re-sent.
    */
   streamRotation?: 0 | 90 | 180 | 270
@@ -2077,10 +2078,10 @@ export interface InputRotate {
    * agent's resets on every re-register while the device stays put — after which an undo meant
    * "go portrait" turned it landscape and every later press stayed inverted. A target is safe to repeat.
    *
-   * **Or a quarter turn from where the device is** (`direction`), for an agent that reads the device's
-   * physical orientation back — DeviceHub's own rotate button, and the only form whose meaning does not
-   * depend on which landscape or which panel the device is on. The memory #910 was about is not in play:
-   * the agent turns from the orientation it reads, not from one it remembers. Sent only to a device whose
+   * **Or a quarter turn from where the device is** (`direction`), for an agent that knows the device's
+   * physical orientation — DeviceHub's own rotate button, and the only form whose meaning does not depend
+   * on which landscape or which panel the device is on. The agent turns from the orientation it reads just
+   * before — never from a per-session memory, which is what #910 was about. Sent only to a device whose
    * chrome reports `streamRotation`; an agent that predates the member ignores it and toggles.
    *
    * Optional for skew: an agent that predates it ignores the field and toggles, as before. Without it,

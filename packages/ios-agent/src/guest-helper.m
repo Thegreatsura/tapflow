@@ -1,9 +1,12 @@
-// duo-helper — input for a simulator with more than one integrated panel (iPhone Duo, Xcode 27.1).
+// guest-helper — tapflow's one in-simulator process, and the one file its private simulator API lives in.
+// Two jobs: input for a simulator with more than one integrated panel (iPhone Duo, Xcode 27.1), resident;
+// and `--orientation`, a one-shot read of where any simulator is held (below), for hosts whose devicectl
+// cannot answer. It was `duo-helper` while it did only the first.
 //
 // Runs INSIDE the simulator, started by the agent with `xcrun simctl spawn <udid> <this> --udid <udid>`.
 // On a multi-panel device the host's Indigo path has no live receiver for the cover panel's touches and
 // SimulatorHID drops Indigo keys, buttons and the Purple rotation event, so every input goes through
-// here instead. Single-panel devices never start it.
+// here instead. A single-panel device never starts the resident mode.
 //
 // It registers virtual HID services with the private HID.framework (`HIDVirtualEventService`, loaded with
 // dlopen so this builds against any iOS SDK) and dispatches IOKit HID events on them:
@@ -36,6 +39,13 @@
 // touch and pinch, which answer only on failure (`err <status> <cmd>`) — a drag is 60+ lines a second
 // and the host acks input on the write, not on this. Status 0 ok, 1 dispatch refused, 2 bad line.
 // Exits on stdin EOF, so an agent that goes away takes its helper with it.
+//
+// `--orientation` instead reads which way the device is held and exits: one line, `orientation <name>` with
+// UIDeviceOrientation's names (portrait, portraitUpsideDown, landscapeLeft, landscapeRight), or `fatal <why>`.
+// It is how a single-panel simulator's orientation is read on an Xcode 26 host, whose devicectl does not see
+// simulators. The value is backboardd's, over its HID MIG port (`_BKSHIDGetNonFlatDeviceOrientation`): the
+// physical orientation, not the interface's — measured on iOS 26.5, it follows Purple turns on a home screen
+// that never turns, all four ways.
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
@@ -82,7 +92,7 @@ static id makeService(NSDictionary *props) {
     id service = [cls new];
     ((void (*)(id, SEL, id))objc_msgSend)(service, sel_registerName("setDelegate:"), delegate);
     ((void (*)(id, SEL, id))objc_msgSend)(service, sel_registerName("setDispatchQueue:"),
-                                          dispatch_queue_create("dev.tapflow.duo-helper.service", DISPATCH_QUEUE_SERIAL));
+                                          dispatch_queue_create("dev.tapflow.guest-helper.service", DISPATCH_QUEUE_SERIAL));
     ((void (*)(id, SEL))objc_msgSend)(service, sel_registerName("activate"));
     [retained addObject:delegate];
     [retained addObject:service];
@@ -258,9 +268,28 @@ static void fatal(const char *why) {
     exit(3);
 }
 
+// The NonFlat value lands in the low 32 bits; the rest of a 64-bit out-parameter is left as it was found
+// (measured: 0xFFFFFFFF00000001 for portrait), so it is read as 32 bits into a zeroed word.
+static int printOrientation(void) {
+    void *bbs = dlopen("/System/Library/PrivateFrameworks/BackBoardServices.framework/BackBoardServices", RTLD_NOW);
+    if (!bbs) fatal("BackBoardServices did not load");
+    mach_port_t (*port)(void) = dlsym(bbs, "BKSHIDServicesServerPort");
+    kern_return_t (*get)(mach_port_t, int64_t *) = dlsym(bbs, "_BKSHIDGetNonFlatDeviceOrientation");
+    if (!port || !get) fatal("BackBoardServices orientation symbols missing");
+    int64_t out = 0;
+    kern_return_t kr = get(port(), &out);
+    if (kr != KERN_SUCCESS) fatal("orientation read refused");
+    static const char *names[] = { NULL, "portrait", "portraitUpsideDown", "landscapeLeft", "landscapeRight" };
+    int32_t value = (int32_t)(out & 0xFFFFFFFF);
+    if (value < 1 || value > 4) { printf("fatal unknown orientation %d\n", value); return 3; }
+    printf("orientation %s\n", names[value]);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     @autoreleasepool {
         setvbuf(stdout, NULL, _IOLBF, 0);
+        if (argc > 1 && !strcmp(argv[1], "--orientation")) return printOrientation();
         // `--udid <udid>` is not read: it is in argv so the host can find this process with `pgrep -f`
         // after losing track of it (an agent killed with -9, or a `simctl spawn` that died alone — the
         // guest process outlives it).

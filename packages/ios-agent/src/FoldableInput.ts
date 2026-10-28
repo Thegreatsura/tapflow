@@ -38,7 +38,7 @@ export interface FoldableInputDeps {
 }
 
 /**
- * `InputChannel` for a device with more than one integrated panel, through `duo-helper` inside the
+ * `InputChannel` for a device with more than one integrated panel, through `guest-helper` inside the
  * simulator. Coordinates arrive normalized to the lit panel's framebuffer — the same space TouchHelper
  * gets — and go to that panel's virtual touchscreen as they are: measured on the unfolded panel, whose UI
  * is turned inside a portrait buffer, buffer coordinates land where they point.
@@ -171,7 +171,7 @@ export class FoldableInput implements InputChannel {
   private fire(send: (g: GuestHelper) => Promise<boolean>, what: string): boolean {
     const guest = this.deps.guest()
     if (this.stopped || !guest || guest.inputState() !== 'ready') return false
-    void send(guest).then((ok) => { if (!ok) logger.warn(`duo-helper did not take the ${what}`) })
+    void send(guest).then((ok) => { if (!ok) logger.warn(`guest-helper did not take the ${what}`) })
     return true
   }
 

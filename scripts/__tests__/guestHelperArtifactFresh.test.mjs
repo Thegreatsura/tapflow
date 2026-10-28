@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import path from 'node:path'
-import { computeRecord, readRecord, collectSources, collectArtifactFiles } from '../lib/duo-helper-artifact.mjs'
+import { computeRecord, readRecord, collectSources, collectArtifactFiles } from '../lib/guest-helper-artifact.mjs'
 
 /**
- * `bin/duo-helper` is committed as a prebuilt and every test of the Duo input path uses a fake, so nothing
+ * `bin/guest-helper` is committed as a prebuilt and every test of the Duo input path uses a fake, so nothing
  * else in the suite reads the real binary. The same guard as `nethookArtifactFresh.test.mjs`, which explains
  * each assertion's reason. A failure here needs only Xcode's command-line tools:
  *
- *     pnpm --filter @tapflowio/ios-agent build:duo-helper
+ *     pnpm --filter @tapflowio/ios-agent build:guest-helper
  */
 const REPO = path.resolve(import.meta.dirname, '../..')
 
@@ -15,9 +15,9 @@ const REPO = path.resolve(import.meta.dirname, '../..')
 // watch less than they say.
 const SOURCE_FILES = 2
 
-describe('the shipped duo-helper matches what it was recorded against', () => {
+describe('the shipped guest-helper matches what it was recorded against', () => {
   it('has a record at all', () => {
-    expect(readRecord(REPO), 'packages/ios-agent/duo-helper-shipped.json is missing — run build-duo-helper.sh').not.toBeNull()
+    expect(readRecord(REPO), 'packages/ios-agent/guest-helper-shipped.json is missing — run build-guest-helper.sh').not.toBeNull()
   })
 
   it('sees every declared source, and the artifact', () => {
@@ -28,8 +28,8 @@ describe('the shipped duo-helper matches what it was recorded against', () => {
   it('still matches the source it was built from', () => {
     expect(
       computeRecord(REPO).sources,
-      'duo-helper.m changed since the shipped binary was built.\n'
-      + '  Rebuild it: pnpm --filter @tapflowio/ios-agent build:duo-helper (rebuilds and re-records).',
+      'guest-helper.m changed since the shipped binary was built.\n'
+      + '  Rebuild it: pnpm --filter @tapflowio/ios-agent build:guest-helper (rebuilds and re-records).',
     ).toBe(readRecord(REPO).sources)
   })
 
