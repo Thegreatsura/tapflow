@@ -193,6 +193,11 @@ const HELPER_BOOT_READY_MS = 60_000
 // How long a turn sent through the helper has to show up in `devicectl device orientation get`. M1 read each
 // one back 2.5 s after sending and every one had landed; the wait ends as soon as it does.
 const ROTATE_SETTLE_MS = 3_000
+// `rotation-helper` takes UIInterfaceOrientation's names, whose landscapes are the device's the other way round:
+// what it calls `landscapeRight` devicectl reads back as `landscapeLeft` (measured, Xcode 27 host, iOS 26.5).
+const PURPLE_ARGS: Record<DeviceOrientation, 'portrait' | 'landscapeLeft' | 'landscapeRight' | 'portraitUpsideDown'> = {
+  portrait: 'portrait', landscapeRight: 'landscapeLeft', portraitUpsideDown: 'portraitUpsideDown', landscapeLeft: 'landscapeRight',
+}
 // The helper's labels are the physical orientations' own names, on both of the Duo's panels (measured).
 const ORIENT_LABELS: Record<DeviceOrientation, GuestOrientation> = {
   portrait: 'portrait', landscapeRight: 'landscape-right', portraitUpsideDown: 'pud', landscapeLeft: 'landscape-left',
@@ -223,7 +228,6 @@ interface DeviceState {
   // request an on-demand IDR for drop-to-keyframe recovery. null on the MjpegStreamer path.
   captureStreamer: ScreenCaptureStreamer | null
   bootSeq: number
-  orientation: 'portrait' | 'landscapeRight'
   loadedChrome: ChromeData | null
   /** The boot's first frame load has finished, whatever it returned — `resendChrome`'s gate. Not `loadedChrome`:
    *  a model frame that failed to load left it null, and the lit panel's frame was then never sent. */
@@ -403,7 +407,11 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability, Posturab
     this.lean = options.lean ?? false
     // Never the host's real store under vitest, for the reason given for `network` just below.
     this.panelState = options.panelState ?? new PanelState()
-    this.physical = options.physicalOrientation ?? new PhysicalOrientation()
+    // Never the host's devicectl under vitest: every single-panel boot reads the orientation, and on an Xcode 27
+    // host a real call would read whatever simulator the developer has under that udid. A suite gets the
+    // Xcode 26 answer — unreadable, so tapflow remembers — unless it injects one.
+    this.physical = options.physicalOrientation ?? new PhysicalOrientation(process.env.VITEST
+      ? { readOrientation: () => Promise.reject(new Error('no devicectl under vitest')) } : undefined)
     this.guestHelperNative = options.guestHelperNative ?? defaultGuestHelperNative
     this.foldSettleMs = options.foldSettleMs ?? FOLD_SETTLE_MS
     this.panelPollMs = options.panelPollMs ?? PANEL_POLL_MS
@@ -618,7 +626,6 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability, Posturab
         bootSeq: 0,
         bootAbandon: new Map(),
         bootsInFlight: new Set(),
-        orientation: 'portrait',
         loadedChrome: null,
         chromeSettled: false,
         sentRotation: undefined,
@@ -1120,17 +1127,15 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability, Posturab
       await this.network.arm(deviceId).catch((e: unknown) => {
         logger.warn('could not arm the network injection:', (e as Error).message)
       })
-      // **Stand it up (#910).** A fresh viewer always starts portrait, and a simulator left turned —
-      // by a session whose undo never arrived, or one an agent restart reset the memory of — would
-      // otherwise stream sideways under an upright frame, with every later press inverted. Queued with
-      // the rotations, so one still in flight from before a re-register lands first and is overridden.
-      // Best-effort: a failure leaves the simulator where it was, and the boot goes on.
-      // Not a multi-panel device: it ignores the Purple event this sends, and the way it is held is the
-      // device's, shared with DeviceHub and every viewer — read back (`PhysicalOrientation`), never reset.
+      // **Where it is held, before the first frame says so** (#910). The orientation is the device's, shared with
+      // DeviceHub and every viewer, so it is read and reported as it is, and a reload or a second viewer joins it
+      // there rather than turning it under the first. It is stood up only when there is nothing to report — no
+      // reading and nothing remembered — and **for a run**: a flow replays from the same orientation every time,
+      // whatever a person left the device in (`runReset` is a run's boot; review finding). Queued with the
+      // rotations, so one still in flight lands first. A multi-panel device reads its own through its helper.
       if (!this.multiPanelDevices.has(deviceId)) {
         await this.enqueueRotation(deviceId, async () => {
-          await this.simctl.rotate(deviceId, 'portrait')
-          state.orientation = 'portrait'
+          if (runReset || !(await this.heldSingle(deviceId))) await this.standUp(deviceId)
         })
       }
       // Another await — a multi-second one — and `sendChromeData` below starts a helper process. A
@@ -1139,6 +1144,12 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability, Posturab
       // boot that returns just below.
       if (seq !== state.bootSeq) { this.abandonBoot(state, seq, sessionId, requestId); return }
       if (!(await this.sendChromeData(state, bootedDevice, seq))) { this.abandonBoot(state, seq, sessionId, requestId); return }
+      // **A session with no frame cannot be told the turn**: no `session:chrome` goes out, and its viewer draws
+      // the device upright, as one always started. So that device is stood up, the old guarantee for the one
+      // viewer that still relies on it (review finding).
+      if (!this.multiPanelDevices.has(deviceId) && !state.loadedChrome && this.physical.last(deviceId) !== 'portrait') {
+        await this.enqueueRotation(deviceId, async () => { await this.standUp(deviceId) })
+      }
       // **A multi-panel device is usable only through its helper**, so the boot is not ready until the helper
       // is, and a runtime that refuses it fails the boot with the reason. The device is shut down only if this
       // boot brought it up: one that was already running (DeviceHub, another session) is left as it was found.
@@ -1471,7 +1482,10 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability, Posturab
    * device, and until both the orientation and the lit panel have been read.
    */
   private chromeRotation(deviceId: string): ChromeData['streamRotation'] {
-    if (!this.multiPanelDevices.has(deviceId)) return undefined
+    if (!this.multiPanelDevices.has(deviceId)) {
+      const single = this.physical.last(deviceId)
+      return single ? ORIENTATION_DEGREES[single] : undefined
+    }
     const held = this.physical.last(deviceId)
     const panel = this.litPanel(deviceId)
     if (!held || !panel) return undefined
@@ -1670,6 +1684,58 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability, Posturab
     if (!(await guest.orient(ORIENT_LABELS[want]))) { logger.warn(`rotate ${deviceId}: the helper did not take ${want}`); return }
     if (!(await this.physical.await(deviceId, (o) => o === want, ROTATE_SETTLE_MS))) {
       logger.warn(`rotate ${deviceId}: asked for ${want}, still ${this.physical.last(deviceId) ?? 'unread'} after ${ROTATE_SETTLE_MS}ms`)
+    }
+  }
+
+  /**
+   * Where a single-panel device is held: read (devicectl on Xcode 27, the guest helper before — see
+   * `defaultPhysicalOrientationNative`), else the last known — the last reading, or what tapflow last set on a
+   * host where neither source answers. Read every time, never marked unreadable: one failure right after a
+   * boot would otherwise have left the device on memory for the life of the agent (review finding).
+   */
+  private async heldSingle(deviceId: string): Promise<DeviceOrientation | null> {
+    return (await this.physical.read(deviceId)) ?? this.physical.last(deviceId)
+  }
+
+  /** Turn a device nobody can say the orientation of upright, so there is one to turn from. */
+  private async standUp(deviceId: string): Promise<DeviceOrientation> {
+    await this.simctl.rotate(deviceId, PURPLE_ARGS.portrait)
+    this.physical.note(deviceId, 'portrait')
+    return 'portrait'
+  }
+
+  /**
+   * Turn a single-panel device, through Purple: a quarter turn `direction` from where it is held, or an older
+   * viewer's `target`. **That viewer draws landscape as 270**, so `landscape` means exactly `landscapeLeft` —
+   * the other landscape would show it upside down — and is met only there; `portrait` means upright. A device
+   * whose orientation cannot be read or remembered (an agent restarted under it) is stood up first.
+   */
+  private async turnSingle(deviceId: string, direction?: 'clockwise' | 'counterclockwise', target?: 'portrait' | 'landscape'): Promise<void> {
+    const held = (await this.heldSingle(deviceId)) ?? (await this.standUp(deviceId))
+    const want: DeviceOrientation | null = direction ? turned(held, direction)
+      : target === 'portrait' ? (held === 'portrait' ? null : 'portrait')
+      : target === 'landscape' ? (held === 'landscapeLeft' ? null : 'landscapeLeft')
+      : (held === 'portrait' ? 'landscapeLeft' : 'portrait')
+    if (!want) return
+    await this.simctl.rotate(deviceId, PURPLE_ARGS[want])
+    // Read back once; a host that cannot read at all remembers what it set instead of waiting out the settle.
+    const back = await this.physical.read(deviceId)
+    if (!back) { this.physical.note(deviceId, want); return }
+    if (back !== want && !(await this.physical.await(deviceId, (o) => o === want, ROTATE_SETTLE_MS))) {
+      logger.warn(`rotate ${deviceId}: asked for ${want}, still ${this.physical.last(deviceId) ?? 'unread'} after ${ROTATE_SETTLE_MS}ms`)
+    }
+  }
+
+  /** Re-send the frame each session on this device already has, with the turn it is held at now. */
+  private resendTurn(deviceId: string): void {
+    const ws = this.ws
+    if (ws?.readyState !== WebSocket.OPEN) return
+    const rotation = this.chromeRotation(deviceId)
+    for (const state of this.deviceStates.values()) {
+      // Not to a session whose boot is still running: its frame is the last boot's, and that boot sends its own.
+      if (state.deviceId !== deviceId || !state.loadedChrome || state.bootsInFlight.size > 0 || state.sentRotation === rotation) continue
+      state.sentRotation = rotation
+      this.sendOn(ws, { type: 'session:chrome', sessionId: state.sessionId, payload: this.forViewer(state.loadedChrome, rotation, state.sentBasis) })
     }
   }
 
@@ -1976,11 +2042,8 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability, Posturab
             this.applyLitPanel(live.deviceId)
             return
           }
-          const next = target
-            ? (target === 'landscape' ? 'landscapeRight' : 'portrait')
-            : (live.orientation === 'portrait' ? 'landscapeRight' : 'portrait')
-          await this.simctl.rotate(live.deviceId, next)
-          live.orientation = next
+          await this.turnSingle(live.deviceId, payload?.direction, target)
+          this.resendTurn(live.deviceId)
         })
         break
       }

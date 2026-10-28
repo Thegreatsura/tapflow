@@ -1,4 +1,5 @@
 import { execFile } from 'child_process'
+import { join } from 'path'
 import { promisify } from 'util'
 import { createLogger } from '@tapflowio/agent-core'
 import type { Rotation } from './PanelState.js'
@@ -8,6 +9,10 @@ const execFileAsync = promisify(execFile)
 
 // One `devicectl device orientation get` measured ~0.18 s on the Mac mini (Xcode 27.1).
 const DEVICECTL_TIMEOUT_MS = 10_000
+// One `guest-helper --orientation` through `simctl spawn` measured 0.33–0.42 s, 1.6 s right after a boot (Xcode 26.6).
+const GUEST_READ_TIMEOUT_MS = 10_000
+// The same binary `GuestHelper` spawns; not imported from it, which would make this module start the helper's.
+const GUEST_HELPER_BINARY = join(import.meta.dirname, '..', 'bin', 'guest-helper')
 const AWAIT_INTERVAL_MS = 300
 
 /** A device's physical orientation, in devicectl's (UIDeviceOrientation's) names. */
@@ -34,12 +39,36 @@ export interface PhysicalOrientationNative {
   readOrientation(udid: string): Promise<unknown>
 }
 
+/** Whether this host's devicectl sees simulators — Xcode 27 and later. Asked once per process. */
+let devicectlSeesSimulators: Promise<boolean> | null = null
+function hostDevicectlSeesSimulators(): Promise<boolean> {
+  devicectlSeesSimulators ??= execFileAsync('xcodebuild', ['-version'], { timeout: 30_000 }).then(
+    ({ stdout }) => Number(/Xcode (\d+)/.exec(stdout)?.[1] ?? 0) >= 27,
+    () => false,
+  )
+  return devicectlSeesSimulators
+}
+
+/**
+ * Two sources, chosen by the host rather than tried in turn. **Xcode 27**: `devicectl device orientation get`,
+ * public. **Older**: devicectl does not see simulators, so the guest helper asks backboardd (`guest-helper
+ * --orientation`, the one file private API lives in). Not a fallback for a failed devicectl read on Xcode 27: on
+ * iOS 27.1 backboardd's value did not follow a turn made in DeviceHub (measured on the Duo), so it would answer
+ * portrait for a device that is not — a failed read is no answer, and the caller keeps the last one.
+ */
 export const defaultPhysicalOrientationNative: PhysicalOrientationNative = {
   async readOrientation(udid) {
-    // `-j -` puts the JSON on stdout and everything human-readable on stderr.
-    const { stdout } = await execFileAsync('xcrun', ['devicectl', 'device', 'orientation', 'get', '--device', udid, '-j', '-'],
-      { timeout: DEVICECTL_TIMEOUT_MS })
-    return JSON.parse(stdout)
+    if (await hostDevicectlSeesSimulators()) {
+      // `-j -` puts the JSON on stdout and everything human-readable on stderr.
+      const { stdout } = await execFileAsync('xcrun', ['devicectl', 'device', 'orientation', 'get', '--device', udid, '-j', '-'],
+        { timeout: DEVICECTL_TIMEOUT_MS })
+      return JSON.parse(stdout)
+    }
+    const { stdout } = await execFileAsync('xcrun', ['simctl', 'spawn', udid, GUEST_HELPER_BINARY, '--orientation'], { timeout: GUEST_READ_TIMEOUT_MS })
+    const name = /^orientation (\w+)$/m.exec(stdout)?.[1]
+    if (!name) throw new Error(`guest-helper --orientation said: ${stdout.trim().slice(0, 200)}`)
+    // The shape devicectl answers in, so one parser reads both.
+    return { result: { deviceOrientation: name } }
   },
 }
 
@@ -100,6 +129,12 @@ export class PhysicalOrientation {
 
   last(udid: string): DeviceOrientation | null {
     return this.known.get(udid) ?? null
+  }
+
+  /** What tapflow turned the device to, for when it cannot be read back at all — neither source answered (the
+   *  guest helper is arm64-only, so an Intel Mac): the memory a single-panel device turns from there. */
+  note(udid: string, orientation: DeviceOrientation): void {
+    this.known.set(udid, orientation)
   }
 
   forget(udid: string): void {

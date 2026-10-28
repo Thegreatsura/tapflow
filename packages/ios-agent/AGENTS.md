@@ -353,8 +353,8 @@ Acquires the `PurpleWorkspacePort` mach port via `SimDevice.lookup:error:` and s
 Values sent: `portrait=1`, `portraitUpsideDown=2`, `landscapeRight=3`, `landscapeLeft=4`. **The landscape
 names are `UIInterfaceOrientation`'s, not the device's**: the record carries a `UIDeviceOrientation`, and
 `3` there is `landscapeLeft`. Measured on Xcode 27 with `devicectl device orientation get`: what this helper
-calls `landscapeRight` the device reports as `landscapeLeft`. The viewer turns a fixed −90° for "landscape"
-today, so nothing shows it; anything that maps this helper onto a physical orientation must swap the two.
+calls `landscapeRight` the device reports as `landscapeLeft`. `PURPLE_ARGS` in `IOSAgent.ts` swaps the two
+for the physical model; anything else that maps this helper onto a physical orientation must do the same.
 
 Unlike the legacy `osascript` approach (bringing Simulator.app to the foreground and pressing Cmd+Arrow), this sets the absolute orientation directly, so it works regardless of the current state.
 
@@ -536,11 +536,11 @@ before boot (each panel's frame, its native turn, `scaleBasis`); `panels.ts` rea
 `simctl io <udid> enumerate`. **Every other device skips all of it** — no helper, no devicectl polling — and
 an Xcode 26 host, which has no such device type, never reaches it.
 
-#### Input goes through `duo-helper`, inside the simulator
+#### Input goes through `guest-helper`, inside the simulator
 
 On a multi-panel device the host's Indigo path has no live receiver for the cover's touches, and Indigo keys,
 buttons and the Purple rotation event are dropped. So touch, keys, buttons, the hinge and the orientation
-picker all go through `src/duo-helper.m`, an iOS-simulator executable started with `xcrun simctl spawn`
+picker all go through `src/guest-helper.m`, an iOS-simulator executable started with `xcrun simctl spawn`
 that dispatches HID events on virtual services it registers. Its stdin protocol is in the file's header.
 
 - **Every private symbol for this device lives in that one file**, opened with `dlopen`. A runtime that
@@ -548,15 +548,15 @@ that dispatches HID events on virtual services it registers. Its stdin protocol 
   the boot brought it up. So does a helper that is not ready within `HELPER_BOOT_READY_MS` (60 s): one that
   dies without `fatal` is relaunched for ever, which a session can wait out and a boot cannot. Nothing is
   half-offered: no helper means no input, so the device is refused.
-- **Before connecting, only two things are checked**: that `bin/duo-helper` exists and that `devicectl` is
+- **Before connecting, only two things are checked**: that `bin/guest-helper` exists and that `devicectl` is
   found. Either missing leaves every multi-panel device out of the list. Whether the runtime accepts the
   helper is known only at boot.
 - **A boot that brings the device up stops the helper and forgets the readings of the boot before.** A
   simulator shut down outside tapflow (quitting DeviceHub shuts every one) left them in place, and the next
   boot waited out the old helper's respawn cooldown and started from the panel lit before the shutdown. A
   devicectl read still in flight at that moment is dropped too (`forget` bumps a generation).
-- **It is a committed binary**, built by `build-duo-helper.sh` (any Xcode's iphonesimulator SDK, arm64,
-  ad-hoc signed) and recorded in `duo-helper-shipped.json`; `scripts/__tests__/duoHelperArtifactFresh.test.mjs`
+- **It is a committed binary**, built by `build-guest-helper.sh` (any Xcode's iphonesimulator SDK, arm64,
+  ad-hoc signed) and recorded in `guest-helper-shipped.json`; `scripts/__tests__/guestHelperArtifactFresh.test.mjs`
   fails when the source moved and the binary did not. Same pattern as the network hook's dylib.
 - **A service registered is not a service usable.** A tap within 50 ms of registration is dropped, one at
   100 ms lands (measured, Xcode 27.1). Everything is registered at start and `ready` comes 300 ms after.
@@ -607,10 +607,27 @@ is the app's business.
 - **Rotate is a quarter turn from a fresh reading** (`direction: 'clockwise'`), sent as the helper's
   `orient` with DeviceHub's labels and confirmed by reading back. Purple and `devicectl … orientation set`
   do nothing on the Duo (measured).
-- **Single-panel devices are not on this model yet.** They still toggle portrait ↔ landscape through
-  `rotation-helper` and send no `streamRotation`. Moving them — and Android — to the physical model is the
-  planned follow-up.
-- devicectl does not see simulators on an Xcode 26 host, which is one reason the model is Duo-only for now.
+- **Single-panel devices are on the same model, through Purple** (`rotation-helper`, see below for its
+  inverted names; `PURPLE_ARGS` maps them). The orientation is **read on every host**, at a session's boot
+  and before each turn, and reported as read — never reset, so a reload or a second viewer joins the device
+  where it is. **An Xcode 26 host's devicectl does not see simulators**, so there it is read inside the
+  simulator: `guest-helper --orientation`, one backboardd MIG call (`_BKSHIDGetNonFlatDeviceOrientation`),
+  0.33–0.42 s through `simctl spawn` (measured, iOS 26.5, all four Purple turns). The source is chosen by the
+  host's Xcode, not tried in turn: on iOS 27.1 backboardd's value did not follow a DeviceHub turn, so it would
+  answer portrait for a device that is not. **The helper is renamed for this** — it was `duo-helper` while
+  it did only the Duo's input.
+- **What it stands up, and why.** Only a device with nothing to report — no reading and nothing remembered
+  (`PhysicalOrientation.note`, for a host where neither source answers: the helper is arm64-only); **every
+  run's boot** (`runReset`), so a flow replays from the same orientation whatever a person left; and a
+  session with no frame, which cannot be told the turn and whose viewer draws the device upright. A
+  per-device memory, not a per-session one: per session is #910's shape, which the design review found. A
+  device is read every time rather than marked unreadable after a failure — one failure right after a boot
+  otherwise kept it on memory for the agent's life (review finding).
+- **An older viewer's `landscape` target means 270** (`landscapeLeft`) on a single-panel device, because
+  that viewer draws landscape as 270; met only there. Meeting it with either landscape — the Duo's rule —
+  would show the device upside down in that viewer.
+- Under vitest the default `PhysicalOrientation` rejects every read (no source answers), so a suite never
+  reaches the host's devicectl or spawns into a simulator.
 
 ---
 

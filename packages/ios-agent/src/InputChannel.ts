@@ -9,7 +9,7 @@ export const MIN_CONTACT_MS = 50
  * Everything IOSAgent sends to a device as input, behind one seam.
  *
  * Two implementations: `TouchHelper` (Indigo, from the host — every single-panel iPhone and iPad) and
- * `FoldableInput` (the in-simulator `duo-helper` — a device with more than one integrated panel, where the
+ * `FoldableInput` (the in-simulator `guest-helper` — a device with more than one integrated panel, where the
  * Indigo path has no receiver for the cover and drops keys, buttons and rotation). **Which one a device
  * gets is decided in one place** (`IOSAgent.createInputChannel`), so a handler that forgets the
  * distinction still reaches the right path, and a multi-panel device never holds an Indigo channel whose
