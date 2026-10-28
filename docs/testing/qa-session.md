@@ -57,7 +57,7 @@ The breadcrumb at the top reads `app name › build › Mac › device`. Click a
 | [Device buttons](/testing/device-controls#device-buttons) | Press iOS Home and the side buttons on the device frame, or Android **Home**, **Back**, **Recent Apps**, **Volume Up**, **Volume Down** and **Power**. |
 | [Software keyboard](/testing/device-controls#software-keyboard) | Show or hide the iOS on-screen keyboard. |
 | [Rotate](/testing/device-controls#rotate) | Turn the device between portrait and landscape. |
-| [Fold and unfold](/testing/device-controls#fold) | Fold or unfold a foldable Android emulator. |
+| [Fold and unfold](/testing/device-controls#fold) | Fold or unfold a foldable Android emulator or an iPhone Duo. |
 | [Restart the device](/testing/device-controls#restart) | Restart the device. The build under test is reinstalled; other apps keep their data. |
 | [Clipboard](/testing/device-controls#clipboard) | Copy and paste text between the device and your computer. |
 | [Deep links](/testing/deep-links) | Open a specific screen of the app from a URL. |
