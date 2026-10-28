@@ -40,7 +40,7 @@ The keyboard button in the toolbar (**Software keyboard**, <kbd>⌘</kbd> <kbd>�
 
 ## Rotate {#rotate}
 
-Each press of **Rotate** (<kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>O</kbd>) turns the device between portrait and landscape. Holding the shortcut down turns it once. If you leave the session in landscape, the device is turned back to portrait before it shuts down.
+Each press of **Rotate** (<kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>O</kbd>) turns the device between portrait and landscape. Holding the shortcut down turns it once. If you leave the session in landscape, the device is turned back to portrait before it shuts down. The iPhone Duo is the exception: its orientation is left as it is, as described [below](#rotate-iphone-duo).
 
 A session starts in portrait. If the device was left in landscape, for example after you reloaded the page or the agent restarted, it is turned upright when the session starts. The exception is an Android emulator set to auto-rotate that you turned outside tapflow, which is left as it is. The iPhone Duo is the other exception, described below.
 
@@ -111,7 +111,7 @@ If the dashboard is open over plain HTTP, text copied on the device stays on the
 - **Text copied on the device is not on your clipboard.** If the dashboard address starts with `http://`, the copy stays on the device, as described under [Clipboard](#clipboard).
 - **The device is taking too long — try again** appears. The device did not answer in time; try again.
 - **The iPhone Duo is not in the device list.** Check that the operator's Mac has Xcode 27.1 or later. If the agent log has a `not offering` line, the reason is on it.
-- **Picking an iPhone Duo fails with `cannot be used on this Mac`.** The simulator refused tapflow's input helper. Pass the reason after the message on to the operator.
+- **Picking an iPhone Duo fails with `cannot be used on this Mac`.** tapflow's input helper could not be used on this Mac: the simulator refused it, or it was not ready in time. Pass the reason after the message on to the operator.
 - **The stream lags, or inputs arrive late.** See [Stream & sessions](/troubleshooting/streaming#stream-lag).
 
 ## Related {#related}
