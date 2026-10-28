@@ -39,12 +39,14 @@ export interface PhysicalOrientationNative {
   readOrientation(udid: string): Promise<unknown>
 }
 
-/** Whether this host's devicectl sees simulators — Xcode 27 and later. Asked once per process. */
+/** Whether this host's devicectl sees simulators — Xcode 27 and later. Asked once per process; **a failed check
+ *  is not an answer and is asked again** — kept as "no", an Xcode 27 host would read the guest's value, which does
+ *  not follow DeviceHub, until the agent restarted. The read fails instead, and the caller keeps the last one. */
 let devicectlSeesSimulators: Promise<boolean> | null = null
 function hostDevicectlSeesSimulators(): Promise<boolean> {
   devicectlSeesSimulators ??= execFileAsync('xcodebuild', ['-version'], { timeout: 30_000 }).then(
     ({ stdout }) => Number(/Xcode (\d+)/.exec(stdout)?.[1] ?? 0) >= 27,
-    () => false,
+    (e: unknown) => { devicectlSeesSimulators = null; throw e },
   )
   return devicectlSeesSimulators
 }
