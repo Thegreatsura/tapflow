@@ -68,8 +68,8 @@ export function useClientRecording({ sessionId, buildId, onRecordingUploaded }: 
    * the turn into refs it wrote *after* handing the closure to this hook. That is a Rules of React
    * violation the React Compiler will not compile past. It is not an option on this hook either:
    * `composeFrame` needs `recordCanvasRef`, which this hook returns, so the viewer cannot have
-   * built it yet when it calls us. (`IOSViewer`'s composer reads what it needs from refs on every
-   * draw, so it registers once and never mirrored a turn.)
+   * built it yet when it calls us. (`IOSViewer`'s composer is rebuilt on every turn too, and hands
+   * itself over the same way.)
    *
    * **The obligation this moved out of the type system.** A caller that starts recording without
    * ever calling this gets a black video — no error, no warning, a green typecheck, where the old

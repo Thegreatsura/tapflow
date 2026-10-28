@@ -13,6 +13,7 @@ import { skeletonSize } from '@/lib/deviceSkeleton';
 import type { BinaryFrameHandler } from '@/lib/envelope';
 import type { AndroidChrome, ChromeData, ChromePayload } from '@/lib/types';
 import { iosScreenLayout } from '@/lib/iosScreenLayout';
+import { iosTurn } from '@/lib/coordinate-transform';
 import { TapMarks } from '@/components/watch/TapMarks';
 import { placeOnIosFrame, type WatchMarks } from '@/lib/watchActions';
 
@@ -79,7 +80,7 @@ function WatchedIOS({ chrome, formFactor, binaryFrameHandlerRef, onStreamSize, r
     <>
       {/* `joined` is what lets the screen say a live stream stalled; a replay is never waiting on one. */}
       <IOSDeviceScreen
-        screen={screen} chrome={chrome} formFactor={formFactor} isLandscape={false} joined={!replay} fps={fps}
+        screen={screen} chrome={chrome} formFactor={formFactor} turn={iosTurn(chrome.streamRotation, false)} joined={!replay} fps={fps}
         overlay={marks ? <TapMarks marks={marks} place={place} /> : undefined}
       />
       {screen.decoderUnsupported && <UnsupportedDecoder />}
