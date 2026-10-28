@@ -8,6 +8,7 @@ import { ArrowLeft, Home, LayoutGrid, Loader2, Play, Power, Volume1, Volume2 } f
 import { MAX_ANDROID_LONG, useAndroidScreen } from '@/hooks/useAndroidScreen';
 import { AndroidDeviceScreen } from './AndroidDeviceScreen';
 import { useFps } from '@/hooks/useFps';
+import { usePostureControl } from '@/hooks/usePostureControl';
 import { SimulatorToolbar } from './shared/SimulatorToolbar';
 import { useNetworkControl } from '@/hooks/useNetworkControl';
 import type { NetworkMessageHandler } from '@/hooks/useNetworkControl';
@@ -17,7 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { AndroidButton, PosturesPayload } from '@/lib/types'
 import type { BinaryFrameHandler } from '@/lib/envelope'
-import { androidToNorm as toNormPure, toPinchFingers as makePinchFingers, placeTurnedFrame, turnedSize, overlaySpace, remaining } from '@/lib/coordinate-transform';
+import { androidToNorm as toNormPure, toPinchFingers as makePinchFingers, placeTurnedFrame, turnedSize, overlaySpace } from '@/lib/coordinate-transform';
 import type { MutableRefObject } from 'react';
 import type { PerfHook } from '@/components/perf/types';
 import { useClipboardBridge, isBridgedChord, type ClipboardMessageHandler } from '@/hooks/useClipboardBridge';
@@ -243,44 +244,8 @@ export function AndroidViewer({
     }
   }, [recordState, startClientRecording, stopClientRecording, totalTurn, recordCanvasRef, videoSizeRef])
 
-  // A fold takes a moment — the emulator changes panel and the stream renegotiates — and without a
-  // sign of it the button reads as not having registered the press.
-  // The posture we asked for, or null when nothing is in flight. Holding the *target* rather than
-  // a boolean is what lets the release wait for the device to actually arrive there — a plain flag
-  // could only be released on a timer, and a timer that starts at the request expires long before
-  // the fold finishes.
-  const [pendingPosture, setPendingPosture] = useState<string | null>(null)
-  const posturePending = pendingPosture !== null
-  // The stop's deadline, fixed when the press happens. **A report that does not match cannot be
-  // allowed to move it**: `postures` is a fresh object per message, so re-running this effect
-  // re-armed a whole new 8s from whenever the report arrived — and the agent sends one on the
-  // failure path precisely so a change that did not happen ends. That made it end later. Same
-  // shape as the rotate hold two blocks down, which had the same deps and the same comment.
-  const postureDeadline = useRef(0)
-  const handlePosture = useCallback((postureId: string) => {
-    postureDeadline.current = Date.now() + 8_000
-    setPendingPosture(postureId)
-    send({ type: 'input:posture', sessionId, payload: { postureId } })
-  }, [send, sessionId])
-  // **Released a beat after the device answers, not the instant it does.** `device:postures` and
-  // `session:chrome` are separate messages on separate paths, and the posture one usually wins —
-  // so releasing on it alone brings the picture back while the viewer still holds the previous
-  // screen's dimensions, which is the flash again. The beat lets the chrome land.
-  //
-  // The timer also runs when no answer arrives, so a posture change that fails silently ends with
-  // a visible screen rather than a permanent placeholder.
-  useEffect(() => {
-    if (pendingPosture === null) return
-    // Only the toolbar's spinner depends on this now — the picture is gated on the frame and the
-    // screen agreeing, which is a fact rather than a duration. Released as soon as the device
-    // reports the posture that was asked for, with a long stop for a change that never lands.
-    const arrived = postures?.currentId === pendingPosture
-    const t = setTimeout(
-      () => setPendingPosture(null),
-      arrived ? 0 : remaining(postureDeadline.current, Date.now()),
-    )
-    return () => clearTimeout(t)
-  }, [pendingPosture, postures])
+  // The fold control, shared with the iOS viewer. `posturePending` also holds the picture back.
+  const { pending: posturePending, select: handlePosture } = usePostureControl(send, sessionId, postures)
 
   // **A rotation is held the same way a fold is, and for a reason the fold does not have.** Folding
   // changes the frame's dimensions, so the frame/screen comparison in `useAndroidScreen` notices it on its own. A

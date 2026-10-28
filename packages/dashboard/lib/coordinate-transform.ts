@@ -6,10 +6,9 @@ export type { Point as NormPoint }
 /**
  * Convert a raw pointer position to a normalized screen coordinate for iOS.
  *
- * In landscape mode the container div is not CSS-rotated (the inner element is),
- * so `rect` is always the unrotated bounding rect. The rotation mapping is:
- *   portrait_x = 1 - v,  portrait_y = u
- * where u = horizontal fraction, v = vertical fraction of the unrotated rect.
+ * Turned, the device's container is CSS-rotated and the caller passes the unrotated box around it,
+ * so `rect` is always unrotated. With u, v the pointer's fractions of that box, the frame point is:
+ *   0: (u, v)   90: (v, 1 − u)   180: (1 − u, 1 − v)   270: (1 − v, u)
  *
  * `compositeW` / `compositeH` and `screenRect` fields should already be halved
  * (chrome JSON stores 2× values; the caller divides by 2 before passing here).
@@ -20,21 +19,30 @@ export function iosToNormScreen(
   compositeW: number,
   compositeH: number,
   screenRect: { x: number; y: number; width: number; height: number },
-  isLandscape: boolean,
+  turn: Turn,
 ): Point | null {
   const { x: sx, y: sy, width: sw, height: sh } = screenRect
-  let cx: number, cy: number
-  if (isLandscape) {
-    const u = (point.x - rect.left) / rect.width
-    const v = (point.y - rect.top) / rect.height
-    cx = (1 - v) * compositeW
-    cy = u * compositeH
-  } else {
-    cx = (point.x - rect.left) * (compositeW / rect.width)
-    cy = (point.y - rect.top) * (compositeH / rect.height)
-  }
+  const u = (point.x - rect.left) / rect.width
+  const v = (point.y - rect.top) / rect.height
+  const [fx, fy] = turn === 90 ? [v, 1 - u] : turn === 180 ? [1 - u, 1 - v] : turn === 270 ? [1 - v, u] : [u, v]
+  const cx = fx * compositeW
+  const cy = fy * compositeH
   if (cx < sx || cx > sx + sw || cy < sy || cy > sy + sh) return null
   return { x: (cx - sx) / sw, y: (cy - sy) / sh }
+}
+
+/**
+ * How far the iOS viewer turns the device, clockwise.
+ *
+ * **The agent's word wins when it gives one.** A multi-panel device (iPhone Duo) reports the turn its
+ * lit panel needs, because SpringBoard turns that panel by itself and the tester's Rotate is carried
+ * out on the device; adding the viewer's own quarter on top would turn it twice. Every other iPhone
+ * reports nothing, and its framebuffer stays portrait while the UI turns inside it, so the viewer's
+ * own landscape is the one quarter it has always applied (`rotate(-90deg)`).
+ */
+export function iosTurn(streamRotation: Turn | undefined, isLandscape: boolean): Turn {
+  if (streamRotation !== undefined) return streamRotation
+  return isLandscape ? 270 : 0
 }
 
 /**
