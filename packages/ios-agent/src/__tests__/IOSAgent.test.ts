@@ -1292,6 +1292,24 @@ describe('IOSAgent', () => {
       browser.close()
     })
 
+    // A socket closing under a boot builds no channel, so there is no helper to wait on; that is not the helper
+    // refusing, and a cold device it brought up is not shut down for it. Mutation: treat no helper as a refusal.
+    it('does not shut a device down when the relay socket closed before the helper started', async () => {
+      const { agent, browser, simctl } = await bootedDuo({ booted: false, boot: false })
+      const ws = (agent as unknown as { ws: WebSocket }).ws
+      // Closing once the boot is under way — past the entry guard, before the chrome is sent.
+      ;(simctl.boot as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+        Object.defineProperty(ws, 'readyState', { get: () => WebSocket.CLOSING, configurable: true })
+      })
+      browser.send(JSON.stringify({ type: 'device:boot', requestId: 'rq-duo-closing', sessionId: agent.sessionId, payload: { deviceId: 'dev-1' } }))
+      await vi.waitFor(() => expect(simctl.boot).toHaveBeenCalled())
+      await new Promise((r) => setTimeout(r, 300))
+      expect(simctl.shutdown).not.toHaveBeenCalled()
+      delete (ws as unknown as Record<string, unknown>).readyState
+      agent.disconnect()
+      browser.close()
+    })
+
     it('does not offer a multi-panel device this Mac cannot drive, and still offers the rest', async () => {
       const guest = guestNative({ unavailable: 'devicectl was not found' })
       const simctl = duoSimctl()
