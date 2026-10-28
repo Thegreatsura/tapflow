@@ -34,8 +34,8 @@ const DRAG_THRESHOLD = 0.02;
 
 /** How long the device takes to turn on screen — the `duration-300` in `IOSDeviceScreen`, plus a beat. */
 const SPIN_MS = 350;
-/** How long a turn shown ahead of the device waits for the device to report it. Turning the panel
- *  waits up to 10 s for it to settle on the agent's side; this covers a turn that is answered. */
+/** How long a turn shown ahead of the device waits for the device to report it. The agent reads the turn
+ *  back for up to 3 s after sending it (`ROTATE_SETTLE_MS`); this covers that with room for a slow helper. */
 const PENDING_TURN_MS = 8_000;
 
 interface IOSViewerProps {
@@ -263,16 +263,10 @@ export function IOSViewer({
     ctx.restore()
   }, [recordCanvasRef, canvasRef, containerRef, shownTurn])
 
-  // **Registered once, and the difference from Android is worth stating.** `composeFrame` here
-  // depends only on `recordCanvasRef` and `canvasRef`, ref objects whose identity never changes, so this fires on
-  // mount and never again — there is no newest composer on this platform. A rotation still reaches
-  // the frames, because the composer reads `chromeRef`, `canvasRef.current` and the canvas's own
-  // layout live on every draw, exactly as it did before the setter existed.
-  //
-  // So the layout effect is not load-bearing here the way it is in `AndroidViewer`, where the
-  // composer is rebuilt on every turn and `requestAnimationFrame` would otherwise see the old one
-  // for a tick. It matches that file on purpose: the two viewers should register the same way, and
-  // this is the shape that is already correct if iOS ever composes by a turn of its own.
+  // **Re-registered on every turn, as `AndroidViewer`'s is.** `composeFrame` depends on `shownTurn`, so a
+  // rotation builds a new composer, and the layout effect hands it over before `requestAnimationFrame` can
+  // draw a frame with the old turn. Everything else it reads — `chromeRef`, `canvasRef.current`, the
+  // canvas's layout — is read live on every draw.
   useLayoutEffect(() => { setComposeFrame(composeFrame) }, [composeFrame, setComposeFrame])
 
   const handleScreenshot = useCallback(() => {
@@ -357,7 +351,12 @@ export function IOSViewer({
   useEffect(() => {
     if (!pendingTurn) return
     const arrived = chrome.streamRotation === pendingTurn.target
-    const t = setTimeout(() => setPendingTurn(null), arrived ? 0 : remaining(pendingTurn.deadline, Date.now()))
+    // The ref goes with it: a press inside the old deadline would otherwise count from a target already
+    // reached or abandoned, not from where the device now reports it — after a fold had moved it, by a quarter.
+    const t = setTimeout(() => {
+      if (pendingTurnRef.current === pendingTurn) pendingTurnRef.current = null
+      setPendingTurn(null)
+    }, arrived ? 0 : remaining(pendingTurn.deadline, Date.now()))
     return () => clearTimeout(t)
   }, [pendingTurn, chrome.streamRotation])
 

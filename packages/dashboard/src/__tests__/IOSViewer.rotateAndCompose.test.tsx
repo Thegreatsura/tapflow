@@ -294,6 +294,24 @@ describe('IOSViewer — a device that reports its own turn', () => {
     } finally { vi.useRealTimers() }
   })
 
+  // A turn the device has reported is done: the next press counts from the device again, even inside the
+  // first one's deadline. A fold moves the reported turn a quarter. Mutation: keep the ref after the release —
+  // the next press counts from the old target, and the frame goes half round from where the device is.
+  it('counts the next press from the device once the last turn has landed', () => {
+    vi.useFakeTimers()
+    try {
+      const { container, rerender, props } = renderViewer({ chrome: turned(90) })
+      fireEvent.click(rotateButton())
+      rerender(<IOSViewer {...props} chrome={turned(180) as typeof props.chrome} />)
+      act(() => { vi.advanceTimersByTime(0) })
+      // Unfolded meanwhile: the same hold reads a quarter back.
+      rerender(<IOSViewer {...props} chrome={{ ...turned(90), framePng: 'unfolded' } as typeof props.chrome} />)
+      act(() => { vi.advanceTimersByTime(1_000) })
+      fireEvent.click(rotateButton())
+      expect(shownDeg(container)).toBe(180)
+    } finally { vi.useRealTimers() }
+  })
+
   // Mutation: drop the gate. A point taken while the device turns lands somewhere else.
   it('takes no touch while the device is turning, and takes it again after', () => {
     // jsdom lays nothing out and captures no pointers: give the device a box and capture a no-op.

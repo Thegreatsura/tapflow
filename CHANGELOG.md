@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **The iOS agent drives the iPhone Duo simulator.** On a Mac with Xcode 27.1 and Apple silicon, the agent streams the iPhone Duo's lit panel in that panel's frame, delivers taps, gestures, typing and hardware buttons to it, folds and unfolds it through the same posture capability as a foldable Android emulator, and follows a fold or turn made in Xcode's DeviceHub. An install without the helper or `devicectl` leaves the iPhone Duo out of the device list, and a runtime that refuses the helper fails the boot with the reason. Every other iPhone and iPad is unchanged, except that the iPad mini's volume buttons on its top edge sit 5 pt further along it.
-- **The dashboard shows and folds the iPhone Duo.** The fold control appears for it, with **Folding...** or **Unfolding...** on the screen while it folds. Both panels are drawn at one scale, the device is turned the way it is held, and **Rotate** turns it a quarter clockwise. A fold or turn made in Xcode's DeviceHub shows within about 10 seconds. Every other iPhone and iPad still toggles between portrait and landscape.
+- **The dashboard shows and folds the iPhone Duo.** The fold control appears for it, with **Folding...** or **Unfolding...** on the screen while it folds. Both panels are drawn at one scale, the device is turned the way it is held, and **Rotate** turns it a quarter clockwise. A fold or turn made in Xcode's DeviceHub shows within about 10 seconds. Every other iPhone and iPad still toggles between portrait and landscape, now with the same 0.3 s turn on screen, during which a tap on the device is not sent.
 
 ### Fixed
 
