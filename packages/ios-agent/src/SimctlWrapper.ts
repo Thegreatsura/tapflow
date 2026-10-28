@@ -204,14 +204,16 @@ export class SimctlWrapper {
     return counts
   }
 
-  /** The integrated panels of `typeId` — empty when its plist cannot be read, or lists none (Xcode 26). */
+  /** The integrated panels of `typeId` — empty when the type or its plist lists none (Xcode 26). **Rejects when
+   *  the plist cannot be read**, unlike `integratedPanelCounts`: `TypePanels` keeps an answer for the life of the
+   *  process and drops only a rejection, so a slow `plutil` read as "no panels" stood until the agent restarted —
+   *  the unfolded panel drawn a quarter off, and the panels at two scales. */
   async typePanels(typeId: string): Promise<TypePanel[]> {
     const out = await this.runner.execWithOpts({ timeoutMs: DEVICE_TYPES_TIMEOUT_MS }, 'list', 'devicetypes', '-j')
     const parsed = JSON.parse(out) as { devicetypes?: Array<{ identifier?: string; bundlePath?: string }> }
     const type = (parsed.devicetypes ?? []).find((t) => t.identifier === typeId)
     if (!type?.bundlePath) return []
-    const plist = await this.readPlist(join(type.bundlePath, 'Contents', 'Resources', 'capabilities.plist')).catch(() => null)
-    return typePanels(plist)
+    return typePanels(await this.readPlist(join(type.bundlePath, 'Contents', 'Resources', 'capabilities.plist')))
   }
 
   /** The integrated panels of a booted device. Their UUIDs change on every boot, so this is read per boot. */

@@ -1117,6 +1117,16 @@ describe('IOSAgent', () => {
       browser.close()
     })
 
+    // The model's frame and a panel's are loaded separately, and a model frame that failed left the session with
+    // no frame for good: the lit panel's was never sent. Mutation: gate the re-send on a loaded frame again.
+    it('sends the lit panel\'s frame when the model\'s did not load', async () => {
+      const loader = { load: vi.fn(async (_type: string, panel?: { chromeId: string }) => (panel ? chromeOf(panel.chromeId.split('.').pop()!) : null)) } as unknown as DeviceChromeLoader
+      const { agent, browser, received } = await bootedDuo({ world: duoWorld(), chromeLoader: loader })
+      await vi.waitFor(() => expect(received.filter((m) => m.type === 'session:chrome').map((m) => (m.payload as { framePng: string }).framePng)).toContain('phone15'))
+      agent.disconnect()
+      browser.close()
+    })
+
     it('follows a fold made outside tapflow', async () => {
       const world = duoWorld()
       const { agent, browser, received } = await bootedDuo({ world, chromeLoader: panelChromes() })

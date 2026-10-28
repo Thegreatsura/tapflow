@@ -225,6 +225,9 @@ interface DeviceState {
   bootSeq: number
   orientation: 'portrait' | 'landscapeRight'
   loadedChrome: ChromeData | null
+  /** The boot's first frame load has finished, whatever it returned — `resendChrome`'s gate. Not `loadedChrome`:
+   *  a model frame that failed to load left it null, and the lit panel's frame was then never sent. */
+  chromeSettled: boolean
   /** The `streamRotation` the last `session:chrome` carried — a turn within one panel re-sends the same frame. */
   sentRotation: ChromeData['streamRotation']
   /** The `scaleBasis` the last `session:chrome` carried. */
@@ -617,6 +620,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability, Posturab
         bootsInFlight: new Set(),
         orientation: 'portrait',
         loadedChrome: null,
+        chromeSettled: false,
         sentRotation: undefined,
         sentBasis: undefined,
         softKeyboardVisible: false,
@@ -791,7 +795,12 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability, Posturab
     const ws = this.ws
     if (ws?.readyState !== WebSocket.OPEN) return true
     state.loadedChrome = chrome
-    if (!chrome) return true
+    state.chromeSettled = true
+    if (!chrome) {
+      // The model's frame did not load; the lit panel's has its own and may.
+      if (this.multiPanelDevices.has(device.id)) void this.resendChrome(device.id)
+      return true
+    }
     state.sentRotation = this.chromeRotation(device.id)
     state.sentBasis = basis
     this.sendOn(ws, {
@@ -1511,10 +1520,10 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability, Posturab
     const ws = this.ws
     if (!chrome || ws?.readyState !== WebSocket.OPEN) return
     for (const state of this.deviceStates.values()) {
-      // Only a session that already has a frame: one whose boot is still loading gets the lit panel's frame
-      // from the tail of `sendChromeData`, and sending it here first would be overwritten by the model's.
+      // Only a session whose boot has finished loading its first frame: one still loading gets the lit panel's
+      // frame from the tail of `sendChromeData`, and sending it here first would be overwritten by the model's.
       const rotation = this.chromeRotation(deviceId)
-      if (state.deviceId !== deviceId || state.loadedChrome === null) continue
+      if (state.deviceId !== deviceId || !state.chromeSettled) continue
       if (state.loadedChrome === chrome && state.sentRotation === rotation && state.sentBasis === basis) continue
       state.loadedChrome = chrome
       state.sentRotation = rotation
