@@ -40,19 +40,29 @@ The keyboard button in the toolbar (**Software keyboard**, <kbd>⌘</kbd> <kbd>�
 
 ## Rotate {#rotate}
 
-Each press of **Rotate** (<kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>O</kbd>) turns the device between portrait and landscape. Holding the shortcut down turns it once. If you leave the session in landscape, the device is turned back to portrait before it shuts down. The iPhone Duo is the exception: its orientation is left as it is, as described [below](#rotate-iphone-duo).
+**Rotate** (<kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>O</kbd>) turns the device. Holding the shortcut down turns it once. iOS and Android turn differently.
 
-A session starts in portrait. If the device was left in landscape, for example after you reloaded the page or the agent restarted, it is turned upright when the session starts. The exception is an Android emulator set to auto-rotate that you turned outside tapflow, which is left as it is. The iPhone Duo is the other exception, described below.
-
-### Rotate an iPhone Duo {#rotate-iphone-duo}
+### Rotate on iOS {#rotate-ios}
 
 <Badge type="info" text="iOS" />
 
-On an iPhone Duo, each press of **Rotate** turns the device a quarter turn clockwise, so four presses bring it back to where it started. The frame turns first and the screen follows.
+<a id="rotate-iphone-duo"></a>
+
+An iOS simulator turns a quarter turn clockwise on each press of **Rotate**, so four presses bring it back to where it started and you can check both the left and the right landscape. The frame turns first and the screen follows.
 
 The screen turns with the device, as it does in your hand. An app that supports the new orientation stands its screen back up; one that does not stays on its side.
 
-A turn made in Xcode's DeviceHub shows in tapflow too, within about 6 seconds. The device's orientation is shared by everyone looking at it, so tapflow does not change it when a session starts or ends.
+The device's orientation is shared by everyone looking at it. tapflow does not change it when a session starts or ends, and reloading the page or a teammate joining finds the device where it was left. A flow run is the exception: it starts the device upright, so it replays the same way every time. An iPhone Duo is not stood up yet and starts a run where it was left.
+
+A turn made in Xcode's DeviceHub or Simulator.app shows in tapflow when a session starts and on the next press of **Rotate**. An iPhone Duo shows it within about 6 seconds.
+
+### Rotate on Android {#rotate-android}
+
+<Badge type="info" text="Android" />
+
+Each press of **Rotate** turns an Android device between portrait and landscape. If you leave the session in landscape, the device is turned back to portrait before it shuts down.
+
+A session starts in portrait. If the device was left in landscape, for example after you reloaded the page or the agent restarted, it is turned upright when the session starts. The exception is an Android emulator set to auto-rotate that you turned outside tapflow, which is left as it is.
 
 ## Fold and unfold {#fold}
 
@@ -94,7 +104,7 @@ If the dashboard is open over plain HTTP, text copied on the device stays on the
 | Tap, swipe, pinch, typing | Yes | Yes |
 | Device buttons | Home, side buttons on the device frame | Home, Back, Recent Apps, Volume Up, Volume Down, Power |
 | Software keyboard button | Yes | No |
-| Rotate | Yes (an iPhone Duo turns a quarter at a time) | Yes |
+| Rotate | A quarter clockwise, all four ways | Portrait and landscape |
 | Fold and unfold | iPhone Duo (Xcode 27.1 or later) | Foldable emulators with two postures |
 | Restart, clipboard | Yes | Yes |
 
