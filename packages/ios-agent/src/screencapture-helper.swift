@@ -19,16 +19,40 @@ import Accelerate
 
 // MARK: - Args
 
-let args = CommandLine.arguments
-guard args.count == 3 || args.count == 4,
-      let fps = Double(args[1]), fps > 0
+// `--panel <w>x<h>` picks a multi-panel device's panel by its framebuffer size (iPhone Duo: cover 1398x2034,
+// unfolded 2007x2853). Without it the largest surface is captured, which is every single-panel device's only
+// panel — and on the Duo the unfolded one, dark while folded, which is why the flag exists.
+func parsePanel(_ s: String) -> (Int, Int)? {
+    let parts = s.split(separator: "x").compactMap { Int($0) }
+    return parts.count == 2 && parts[0] > 0 && parts[1] > 0 ? (parts[0], parts[1]) : nil
+}
+var positional: [String] = []
+var initialPanel: (Int, Int)? = nil
+do {
+    var rest = Array(CommandLine.arguments.dropFirst())
+    while !rest.isEmpty {
+        let a = rest.removeFirst()
+        if a == "--panel" {
+            guard let v = rest.first, let panel = parsePanel(v) else {
+                fputs("error: --panel needs <width>x<height>\n", stderr)
+                exit(1)
+            }
+            rest.removeFirst()
+            initialPanel = panel
+        } else {
+            positional.append(a)
+        }
+    }
+}
+guard positional.count == 2 || positional.count == 3,
+      let fps = Double(positional[0]), fps > 0
 else {
-    fputs("usage: screencapture-helper <fps> <udid> [jpeg|h264]\n", stderr)
+    fputs("usage: screencapture-helper <fps> <udid> [jpeg|h264] [--panel <w>x<h>]\n", stderr)
     exit(1)
 }
-let targetUDID = args[2]
+let targetUDID = positional[1]
 // Fail closed on an unknown codec rather than silently emitting JPEG framing.
-let codec = args.count == 4 ? args[3] : "jpeg"
+let codec = positional.count == 3 ? positional[2] : "jpeg"
 guard codec == "jpeg" || codec == "h264" else {
     fputs("error: unknown codec '\(codec)' — expected jpeg or h264\n", stderr)
     exit(1)
@@ -551,15 +575,24 @@ var captureWaitSumMs = 0.0
 var captureWaitMax = 0.0
 var captureWaitN = 0
 
+// Read and written on captureQueue only.
+var selectedPanel: (Int, Int)? = initialPanel
+
 func updateLatestSurface() {
     var best: IOSurface?
     var bestArea = 0
+    var selected: IOSurface?
     for desc in descriptors {
         guard let obj = desc.perform(surfSel)?.takeUnretainedValue() else { continue }
         let surf = unsafeBitCast(obj, to: IOSurface.self)
-        let area = IOSurfaceGetWidth(surf) * IOSurfaceGetHeight(surf)
-        if area > bestArea { best = surf; bestArea = area }
+        let w = IOSurfaceGetWidth(surf), h = IOSurfaceGetHeight(surf)
+        if let p = selectedPanel, p.0 == w, p.1 == h { selected = surf }
+        if w * h > bestArea { best = surf; bestArea = w * h }
     }
+    // A selected panel that is not there (yet) falls back to the old rule rather than to nothing: a stream
+    // that shows the wrong panel is recoverable by the next selection, one that shows nothing trips the
+    // 8 s watchdog and restarts the helper.
+    if let selected { best = selected }
     if let best {
         latestSurface = best
         let s = IOSurfaceGetSeed(best)
@@ -673,15 +706,38 @@ timer.setEventHandler {
 }
 timer.resume()
 
-// stdin command channel (H.264 only): a 0x01 byte forces an IDR on the next frame.
-// The relay sends this for drop-to-keyframe recovery so the stream resyncs fast
-// instead of waiting for the periodic IDR. Set the flag on captureQueue so it is
-// only ever touched there (same queue as encodeH264).
-if useH264 {
-    FileHandle.standardInput.readabilityHandler = { handle in
-        let data = handle.availableData
-        if data.isEmpty { handle.readabilityHandler = nil; return } // stdin closed
-        if data.contains(0x01) { captureQueue.async { pendingForceKeyFrame = true } }
+// stdin command channel, read for both codecs:
+//  - a 0x01 byte forces an IDR on the next H.264 frame. The relay sends this for drop-to-keyframe
+//    recovery so the stream resyncs fast instead of waiting for the periodic IDR. JPEG ignores it.
+//  - a text line `panel <w>x<h>\n` switches a multi-panel device's capture to that panel. It used to be
+//    H.264-only; a JPEG session (TAPFLOW_IOS_CODEC=jpeg, or a browser without H.264) then had no way to
+//    follow a fold. Text never contains 0x01, so the two cannot be confused; lines are buffered because
+//    `availableData` chunks are arbitrary.
+// Everything is applied on captureQueue, the only queue that touches the capture state.
+var stdinText = ""
+FileHandle.standardInput.readabilityHandler = { handle in
+    let data = handle.availableData
+    if data.isEmpty { handle.readabilityHandler = nil; return } // stdin closed
+    if data.contains(0x01) { captureQueue.async { pendingForceKeyFrame = true } }
+    stdinText += String(decoding: data.filter { $0 != 0x01 }, as: UTF8.self)
+    while let nl = stdinText.firstIndex(of: "\n") {
+        let line = String(stdinText[..<nl]).trimmingCharacters(in: .whitespaces)
+        stdinText = String(stdinText[stdinText.index(after: nl)...])
+        let parts = line.split(separator: " ")
+        guard parts.count == 2, parts[0] == "panel", let panel = parsePanel(String(parts[1])) else {
+            if !line.isEmpty { fputs("warning: unknown stdin command '\(line)'\n", stderr) }
+            continue
+        }
+        captureQueue.async {
+            selectedPanel = panel
+            updateLatestSurface()
+            // The new panel's seed is unrelated to the old one's, so a match must not read as "static", and
+            // the first frame of a new size has to be a keyframe (encodeH264 also forces one on a size change).
+            lastSeed = 0
+            lastSentNs = 0
+            pendingForceKeyFrame = true
+            fputs("info: capturing panel \(panel.0)x\(panel.1)\n", stderr)
+        }
     }
 }
 

@@ -14,6 +14,10 @@ status: living
 
 `IOSAgent`: controls iOS simulators via `xcrun simctl`, streams frames using SimulatorKit IOSurface callbacks, and injects touch / keyboard / button events directly via SimDeviceLegacyHIDClient. No WebDriverAgent.
 
+A device with more than one panel — the iPhone Duo, Xcode 27.1 — takes a different input, capture and
+rotation path from every other iPhone, through an in-simulator helper. That is its own section below,
+"Multi-panel devices"; a single-panel device never touches it.
+
 It also takes **one** simulator off the network and puts it back (#607), which on a device with no radio takes three mechanisms rather than one — a host system extension, an injected library, and the status bar. That is its own section at the end of this file, and none of the three is safe to touch alone.
 
 ## HOW
@@ -346,7 +350,11 @@ rotation-helper <portrait|landscapeLeft|landscapeRight|portraitUpsideDown> <udid
 Acquires the `PurpleWorkspacePort` mach port via `SimDevice.lookup:error:` and sends a `GSEventTypeDeviceOrientationChanged` event directly.
 **No Simulator.app required. No Accessibility permission required.**
 
-UIDeviceOrientation rawValues: `portrait=1`, `portraitUpsideDown=2`, `landscapeRight=3`, `landscapeLeft=4`
+Values sent: `portrait=1`, `portraitUpsideDown=2`, `landscapeRight=3`, `landscapeLeft=4`. **The landscape
+names are `UIInterfaceOrientation`'s, not the device's**: the record carries a `UIDeviceOrientation`, and
+`3` there is `landscapeLeft`. Measured on Xcode 27 with `devicectl device orientation get`: what this helper
+calls `landscapeRight` the device reports as `landscapeLeft`. The viewer turns a fixed −90° for "landscape"
+today, so nothing shows it; anything that maps this helper onto a physical orientation must swap the two.
 
 Unlike the legacy `osascript` approach (bringing Simulator.app to the foreground and pressing Cmd+Arrow), this sets the absolute orientation directly, so it works regardless of the current state.
 
@@ -517,6 +525,92 @@ issued for a device the list called `booted` too. Nothing short-circuits on the 
 **`device:ready` is not a sync point.** It is sent as soon as the stream is handed off, before the helpers a test is usually about to read are observable — so `waitForType(browser, 'device:ready')` returning does not mean `MockCapture` or `MockTouchHelper` has been constructed. Always `vi.waitFor` on the mock you are about to read, never on the message alone.
 
 There used to be a second reason: the relay replayed `device:ready` on `session:start` for any session whose device was up at registration, so the wait could latch an ack that belonged to no boot at all — that is what made the codec-negotiation test flake at ~2/10 suite runs. The replay now keys off whether the session announced a stream (relay `Session.readySent`), so a freshly registered `mockSimctl(true)` session no longer produces one. The `vi.waitFor` rule stands on the first reason alone.
+
+---
+
+### Multi-panel devices (iPhone Duo)
+
+A device type whose `capabilities.plist` lists more than one integrated display is registered as
+`formFactor: 'foldable'` and runs on a path of its own. `TypePanels` holds what is known per device type
+before boot (each panel's frame, its native turn, `scaleBasis`); `panels.ts` reads the booted panels from
+`simctl io <udid> enumerate`. **Every other device skips all of it** — no helper, no devicectl polling — and
+an Xcode 26 host, which has no such device type, never reaches it.
+
+#### Input goes through `duo-helper`, inside the simulator
+
+On a multi-panel device the host's Indigo path has no live receiver for the cover's touches, and Indigo keys,
+buttons and the Purple rotation event are dropped. So touch, keys, buttons, the hinge and the orientation
+picker all go through `src/duo-helper.m`, an iOS-simulator executable started with `xcrun simctl spawn`
+that dispatches HID events on virtual services it registers. Its stdin protocol is in the file's header.
+
+- **Every private symbol for this device lives in that one file**, opened with `dlopen`. A runtime that
+  refuses one makes it print `fatal`, and the boot fails with that reason — the device is shut down only if
+  the boot brought it up. So does a helper that is not ready within `HELPER_BOOT_READY_MS` (60 s): one that
+  dies without `fatal` is relaunched for ever, which a session can wait out and a boot cannot. Nothing is
+  half-offered: no helper means no input, so the device is refused.
+- **Before connecting, only two things are checked**: that `bin/duo-helper` exists and that `devicectl` is
+  found. Either missing leaves every multi-panel device out of the list. Whether the runtime accepts the
+  helper is known only at boot.
+- **A boot that brings the device up stops the helper and forgets the readings of the boot before.** A
+  simulator shut down outside tapflow (quitting DeviceHub shuts every one) left them in place, and the next
+  boot waited out the old helper's respawn cooldown and started from the panel lit before the shutdown. A
+  devicectl read still in flight at that moment is dropped too (`forget` bumps a generation).
+- **It is a committed binary**, built by `build-duo-helper.sh` (any Xcode's iphonesimulator SDK, arm64,
+  ad-hoc signed) and recorded in `duo-helper-shipped.json`; `scripts/__tests__/duoHelperArtifactFresh.test.mjs`
+  fails when the source moved and the binary did not. Same pattern as the network hook's dylib.
+- **A service registered is not a service usable.** A tap within 50 ms of registration is dropped, one at
+  100 ms lands (measured, Xcode 27.1). Everything is registered at start and `ready` comes 300 ms after.
+- **`GuestHelper` is `TouchHelper`'s lifecycle with three differences**, listed in its header: the process
+  spawned is `simctl spawn`, not the helper, and the two do not die together, so the helper's own pid is
+  killed separately and stale helpers are found with `pgrep` before each spawn; `fatal` is final; running
+  out of the respawn budget is not.
+- **`hinge` gets a 30 s answer deadline, not 10.** On a loaded 8 GB Mac the answer came after 10.8 s, the
+  helper was replaced as wedged, and the next fold was dropped. A fold's success is the panel lighting,
+  watched at the same time, never the helper's answer.
+
+#### Which panel is lit is read, never inferred
+
+Both panels report powered on, and the host cannot tell from the angle it sent which one SpringBoard lit.
+`PanelState` reads `devicectl device info displays` (the `active` panel), and that reading decides where
+touches go, which panel is captured and which frame is drawn.
+
+- **A fold takes 4–6 s to light its panel**, so `setPosture` waits up to `FOLD_SETTLE_MS` (10 s). The
+  sweep ending is not the fold landing.
+- **A panel change nobody asked for is followed only after holding `PANEL_HOLD_MS` (4 s).** A Duo booted
+  after an erase lit its unfolded panel for up to 3.2 s and went back to the cover, once in two boots
+  (measured); followed, the viewer swapped to a dark panel and back. tapflow's own fold is confirmed at once.
+- **Two postures, `closed` 0° and `open` 180°.** DeviceHub's half-open 130° lights the same panel as flat,
+  so a third step would read as a press that did nothing; unfolding to 130 left DeviceHub drawing the device
+  half open. Same reasoning as Android leaving out HALF_OPENED's twin.
+- **Folds made outside tapflow are polled**, every 2 s while anything is moving and every 6 s once nothing
+  has for 30 s. Each devicectl read costs ~0.2 s of CPU; a flat 2 s poll held ~18% of a core for as long as
+  a session was open. A change the poll sees, or a fold or turn sent from tapflow, brings the 2 s poll back.
+
+#### Capture, frame and scale follow the lit panel
+
+The capture helper is pointed at the lit panel by size (`ScreenCaptureStreamer.selectPanel`); before that it
+took the largest surface, which is the unfolded panel, dark while folded. Each panel has its own frame — the
+chrome id `simctl io enumerate` gives it (cover `phone15`, unfolded `phone14`; Duo-only shapes, not iPhone
+14/15). `ChromeData.scaleBasis` sizes both by the largest frame, so the cover is drawn at half the unfolded
+device as DeviceHub draws it. Corner radii come from `capabilities.plist`'s per-corner values
+(`screenCornerRadii`), because the cover is rounded outside and nearly square at the hinge.
+
+#### Rotation is the physical orientation
+
+`ChromeData.streamRotation` is the way the device is **held** — `devicectl device orientation get`
+(`PhysicalOrientation`) — plus the lit panel's native turn (the unfolded panel is drawn turned 270, so
+upright shows it turned 90). The glass turns with the body, as in DeviceHub; whether the picture stands up
+is the app's business.
+
+- **devicectl's `currentOrientation` on a display is the UI's orientation, not the device's**, and does not
+  move on the home screen however the device is turned. Do not build rotation on it.
+- **Rotate is a quarter turn from a fresh reading** (`direction: 'clockwise'`), sent as the helper's
+  `orient` with DeviceHub's labels and confirmed by reading back. Purple and `devicectl … orientation set`
+  do nothing on the Duo (measured).
+- **Single-panel devices are not on this model yet.** They still toggle portrait ↔ landscape through
+  `rotation-helper` and send no `streamRotation`. Moving them — and Android — to the physical model is the
+  planned follow-up.
+- devicectl does not see simulators on an Xcode 26 host, which is one reason the model is Duo-only for now.
 
 ---
 
