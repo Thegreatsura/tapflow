@@ -61,6 +61,7 @@
     "test": "vitest run",
     "lint": "eslint src",
     "build:nethook": "./build-nethook.sh",
+    "build:duo-helper": "./build-duo-helper.sh",
     "test:netfilter": "./ios-netfilter/run-tests.sh"
   },
   "dependencies": {

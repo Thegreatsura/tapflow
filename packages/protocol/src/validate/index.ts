@@ -224,7 +224,10 @@ const BROWSER_INBOUND = {
   }),
   'input:rotate': z.object({
     type: z.literal('input:rotate'), sessionId,
-    payload: z.object({ orientation: z.enum(['portrait', 'landscape']) }).optional(),
+    payload: z.union([
+      z.object({ orientation: z.enum(['portrait', 'landscape']) }),
+      z.object({ direction: z.enum(['clockwise', 'counterclockwise']) }),
+    ]).optional(),
   }),
   'input:posture': z.object({
     type: z.literal('input:posture'), sessionId,

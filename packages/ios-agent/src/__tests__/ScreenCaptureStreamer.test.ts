@@ -37,6 +37,31 @@ async function setupProc() {
 describe('ScreenCaptureStreamer', () => {
   afterEach(() => vi.useRealTimers())
 
+  // A multi-panel device (iPhone Duo) is captured one panel at a time. Mutations: drop `--panel` from the
+  // args (the helper then captures the largest panel, dark while folded); write the switch for a panel it
+  // already has (a second keyframe for nothing); write it without the newline (the helper reads lines).
+  it('passes the panel to the helper and switches it over stdin, once per change', async () => {
+    const proc = await setupProc()
+    const { spawn } = await import('child_process')
+    const { ScreenCaptureStreamer } = await import('../ScreenCaptureStreamer')
+    const s = new ScreenCaptureStreamer('udid-1', 30, 'jpeg', 0, { width: 1398, height: 2034 })
+    s.start()
+    expect(vi.mocked(spawn).mock.calls.at(-1)?.[1]).toEqual(['30', 'udid-1', 'jpeg', '--panel', '1398x2034'])
+    s.selectPanel({ width: 1398, height: 2034 })
+    expect(proc.stdin.write).not.toHaveBeenCalled()
+    s.selectPanel({ width: 2007, height: 2853 })
+    s.selectPanel({ width: 2007, height: 2853 })
+    expect(proc.stdin.write.mock.calls).toEqual([['panel 2007x2853\n']])
+  })
+
+  it('leaves a single-panel device\'s args as they were', async () => {
+    await setupProc()
+    const { spawn } = await import('child_process')
+    const { ScreenCaptureStreamer } = await import('../ScreenCaptureStreamer')
+    new ScreenCaptureStreamer('udid-1', 30, 'h264').start()
+    expect(vi.mocked(spawn).mock.calls.at(-1)?.[1]).toEqual(['30', 'udid-1', 'h264'])
+  })
+
   it('sends SIGTERM on cancel', async () => {
     const proc = await setupProc()
     const { ScreenCaptureStreamer } = await import('../ScreenCaptureStreamer')

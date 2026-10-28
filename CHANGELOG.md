@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The iOS agent drives the iPhone Duo simulator.** On a Mac with Xcode 27.1 and Apple silicon, the agent streams the iPhone Duo's lit panel in that panel's frame, delivers taps, gestures, typing and hardware buttons to it, folds and unfolds it through the same posture capability as a foldable Android emulator, and follows a fold or turn made in Xcode's DeviceHub. A Mac that cannot run its input helper leaves the iPhone Duo out of the device list. Every other iPhone and iPad is unchanged.
+
 ## [0.30.0] - 2026-10-27
 
 ### Added

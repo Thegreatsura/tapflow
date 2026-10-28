@@ -1,0 +1,136 @@
+import { execFile } from 'child_process'
+import { promisify } from 'util'
+import { createLogger } from '@tapflowio/agent-core'
+import type { Rotation } from './PanelState.js'
+
+const logger = createLogger('ios-agent:physical-orientation')
+const execFileAsync = promisify(execFile)
+
+// One `devicectl device orientation get` measured ~0.18 s on the Mac mini (Xcode 27.1).
+const DEVICECTL_TIMEOUT_MS = 10_000
+const AWAIT_INTERVAL_MS = 300
+
+/** A device's physical orientation, in devicectl's (UIDeviceOrientation's) names. */
+export type DeviceOrientation = 'portrait' | 'landscapeRight' | 'portraitUpsideDown' | 'landscapeLeft'
+
+/**
+ * How far each orientation turns the device clockwise as DeviceHub draws it. Measured on the iPhone Duo's
+ * cover with Safari up: one clockwise turn from portrait reads `landscapeRight`, and that is the panel
+ * DeviceHub shows on its right side.
+ */
+export const ORIENTATION_DEGREES: Record<DeviceOrientation, Rotation> = {
+  portrait: 0, landscapeRight: 90, portraitUpsideDown: 180, landscapeLeft: 270,
+}
+
+const ORDER: DeviceOrientation[] = ['portrait', 'landscapeRight', 'portraitUpsideDown', 'landscapeLeft']
+
+/** The orientation a quarter turn away. */
+export function turned(from: DeviceOrientation, direction: 'clockwise' | 'counterclockwise'): DeviceOrientation {
+  return ORDER[(ORDER.indexOf(from) + (direction === 'clockwise' ? 1 : 3)) % 4]
+}
+
+export interface PhysicalOrientationNative {
+  /** The parsed JSON of `devicectl device orientation get` for this device. */
+  readOrientation(udid: string): Promise<unknown>
+}
+
+export const defaultPhysicalOrientationNative: PhysicalOrientationNative = {
+  async readOrientation(udid) {
+    // `-j -` puts the JSON on stdout and everything human-readable on stderr.
+    const { stdout } = await execFileAsync('xcrun', ['devicectl', 'device', 'orientation', 'get', '--device', udid, '-j', '-'],
+      { timeout: DEVICECTL_TIMEOUT_MS })
+    return JSON.parse(stdout)
+  },
+}
+
+const KNOWN = new Set<string>(ORDER)
+
+/**
+ * The device's physical orientation in a devicectl document, or null if it is not one. Lying flat
+ * (`faceUp`/`faceDown`) reads as the last orientation it stood in (`deviceOrientationNonFlat`), which is how
+ * a phone on a table keeps its screen. `unknown` is what a device reports until anything has turned it
+ * (measured on a fresh iPhone 18 Pro); it boots upright and is drawn upright, so it reads as portrait.
+ */
+export function parseOrientation(doc: unknown): DeviceOrientation | null {
+  const result = (doc as { result?: Record<string, unknown> } | null)?.result
+  if (!result) return null
+  for (const key of ['deviceOrientation', 'deviceOrientationNonFlat']) {
+    const value = String(result[key])
+    if (KNOWN.has(value)) return value as DeviceOrientation
+  }
+  return result.deviceOrientationNonFlat === 'unknown' || result.deviceOrientation === 'unknown' ? 'portrait' : null
+}
+
+interface Flight {
+  current: Promise<DeviceOrientation | null>
+  next: Promise<DeviceOrientation | null> | null
+}
+
+/**
+ * Which way the device is held — what DeviceHub turns its whole frame by. **Not the interface orientation**:
+ * `devicectl device info displays` follows what the app on screen shows, so a home screen (which never
+ * turns on an iPhone) left it at portrait while DeviceHub turned the device four times. This is the
+ * orientation the device keeps for whatever app comes up next, and it is what DeviceHub, tapflow's helper,
+ * Purple and `devicectl orientation set` all write — measured for each.
+ *
+ * Same read discipline as `PanelState` (a read during a call gets the next call, never joins it), keyed by
+ * udid outside `DeviceState` so a relay reconnect keeps it.
+ */
+export class PhysicalOrientation {
+  private readonly flights = new Map<string, Flight>()
+  private readonly known = new Map<string, DeviceOrientation>()
+
+  constructor(private readonly native: PhysicalOrientationNative = defaultPhysicalOrientationNative) {}
+
+  /** A fresh reading, or null when the call fails (`last()` keeps the previous answer). */
+  read(udid: string): Promise<DeviceOrientation | null> {
+    const flight = this.flights.get(udid)
+    if (!flight) return this.startFlight(udid)
+    if (!flight.next) {
+      flight.next = flight.current.then(() => {
+        const f = this.flights.get(udid)
+        if (f) f.next = null
+        return this.startFlight(udid)
+      })
+    }
+    return flight.next
+  }
+
+  last(udid: string): DeviceOrientation | null {
+    return this.known.get(udid) ?? null
+  }
+
+  forget(udid: string): void {
+    this.known.delete(udid)
+  }
+
+  /** Reads until `done` holds, or `timeoutMs` passes (then null). */
+  async await(udid: string, done: (o: DeviceOrientation) => boolean, timeoutMs: number): Promise<DeviceOrientation | null> {
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      const reading = await this.read(udid)
+      if (reading && done(reading)) return reading
+      if (Date.now() + AWAIT_INTERVAL_MS > deadline) return null
+      await new Promise((r) => setTimeout(r, AWAIT_INTERVAL_MS))
+    }
+  }
+
+  private startFlight(udid: string): Promise<DeviceOrientation | null> {
+    const current = this.native.readOrientation(udid).then(
+      (doc) => {
+        const reading = parseOrientation(doc)
+        if (reading) this.known.set(udid, reading)
+        else logger.warn(`devicectl gave ${udid} an orientation this agent does not recognise: ${JSON.stringify(doc).slice(0, 400)}`)
+        return reading
+      },
+      (e: unknown) => {
+        logger.warn(`devicectl orientation failed for ${udid}: ${e instanceof Error ? e.message : String(e)}`)
+        return null
+      },
+    )
+    const flight: Flight = { current, next: null }
+    this.flights.set(udid, flight)
+    void current.then(() => { if (this.flights.get(udid) === flight && !flight.next) this.flights.delete(udid) })
+    return current
+  }
+}

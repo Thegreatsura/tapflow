@@ -331,11 +331,42 @@ export interface ChromeData {
   screenRect: ChromeRect
   /** screen corner radius in 2× px (0 if the device has no rounded corners) */
   screenCornerRadius: number
+  /**
+   * Each corner's radius in 2× px, in the same space as `screenRect` — present only when the device type
+   * states them per corner and they differ from what one number can carry. The iPhone Duo's cover is
+   * rounded on its outer side and nearly square at the hinge (59 pt against 8, from its `capabilities.plist`).
+   * A viewer that reads only `screenCornerRadius` gets the largest of the four.
+   */
+  screenCornerRadii?: { topLeft: number; topRight: number; bottomRight: number; bottomLeft: number }
   /** screen width in iOS logical pixels (pt) */
   logicalWidth: number
   /** screen height in iOS logical pixels (pt) */
   logicalHeight: number
   buttons: ChromeButton[]
+  /**
+   * Quarter turns **clockwise** to turn the device on screen — frame and video together — which is the
+   * device's **physical** orientation, the way DeviceHub draws it: the glass turns with the body, and
+   * whether the picture on it stands up is the app's business. An app that does not support the
+   * orientation shows sideways, as it would in a hand. Present only when the agent reads the physical
+   * orientation back (an iPhone Duo on Xcode 27, `devicectl device orientation get`).
+   *
+   * **Not the same meaning as `AndroidChrome.streamRotation`**, which corrects a capture to stand the
+   * picture up. The two share a name and a unit only.
+   *
+   * It includes the lit panel's native orientation: the Duo's unfolded panel is drawn turned (its
+   * `nativeOrientation` is 270), so holding the device upright turns that panel's frame 90.
+   *
+   * **Absent means no information, not 0.** A single-panel iPhone's agent does not read it yet, and an
+   * older agent never sends it; a viewer that read absence as upright would stand a landscape device up
+   * every time a chrome was re-sent.
+   */
+  streamRotation?: 0 | 90 | 180 | 270  /**
+   * The length, in 2× px, that a viewer sizes this device by in place of `compositeHeight` — the longest
+   * side of the largest panel's expanded composite. Present only for a device with more than one panel (the
+   * iPhone Duo), so that every panel is drawn at one scale: the cover is half the unfolded device in the
+   * hand, as DeviceHub draws it. Sized by its own frame, each panel filled the same height.
+   */
+  scaleBasis?: number
 }
 
 /** Android chrome — no bezel artwork; the emulator frame carries it. */
@@ -2045,10 +2076,16 @@ export interface InputRotate {
    * agent's resets on every re-register while the device stays put — after which an undo meant
    * "go portrait" turned it landscape and every later press stayed inverted. A target is safe to repeat.
    *
+   * **Or a quarter turn from where the device is** (`direction`), for an agent that reads the device's
+   * physical orientation back — DeviceHub's own rotate button, and the only form whose meaning does not
+   * depend on which landscape or which panel the device is on. The memory #910 was about is not in play:
+   * the agent turns from the orientation it reads, not from one it remembers. Sent only to a device whose
+   * chrome reports `streamRotation`; an agent that predates the member ignores it and toggles.
+   *
    * Optional for skew: an agent that predates it ignores the field and toggles, as before. Without it,
    * an agent toggles.
    */
-  payload?: { orientation: 'portrait' | 'landscape' }
+  payload?: { orientation: 'portrait' | 'landscape' } | { direction: 'clockwise' | 'counterclockwise' }
 }
 
 /**
