@@ -77,6 +77,17 @@ describe('SimctlWrapper', () => {
     })
   })
 
+  // Mutation: catch the read failure into "no panels" — TypePanels keeps that for the life of the agent.
+  describe('typePanels', () => {
+    it('rejects when the plist cannot be read, so the answer is asked for again', async () => {
+      const types = JSON.stringify({ devicetypes: [{ identifier: 'DUO', bundlePath: '/Types/iPhone Duo.simdevicetype' }] })
+      const read = vi.fn(async () => { throw new Error('plutil timed out') })
+      await expect(new SimctlWrapper(mockRunner({ list: types }), read).typePanels('DUO')).rejects.toThrow('plutil timed out')
+      // A type that is not there is an answer, not a failure.
+      await expect(new SimctlWrapper(mockRunner({ list: types }), read).typePanels('OTHER')).resolves.toEqual([])
+    })
+  })
+
   describe('integratedScreens', () => {
     it('reads the panels from `simctl io <udid> enumerate`, with a timeout', async () => {
       const text = 'Connected Screens:\n    (1) LCD:\n        Screen ID: 1\n        Unique ID: AAA\n        Device Name: primary\n        Screen Type: Integrated\n        Pixel Size: {1398, 2034}\n'
