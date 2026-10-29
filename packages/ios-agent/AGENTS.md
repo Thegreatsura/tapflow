@@ -369,23 +369,19 @@ swiftc packages/ios-agent/src/rotation-helper.swift \
 
 ### IOSurface capture — timer-driven strategy
 
-IOSurface callbacks alone do not deliver frames when the screen is static.
-Use `DispatchSourceTimer` alongside callbacks to maintain a consistent FPS regardless of callback activity.
+IOSurface callbacks alone do not deliver frames when the screen is static, so a `DispatchSourceTimer` on
+`captureQueue` emits at the stream's fps and reads `latestSurface` each tick (`screencapture-helper.swift`).
 
-```swift
-// callback: only updates latestSurface
-let onFrame: @convention(block) () -> Void = {
-    captureQueue.async { updateLatestSurface() }
-}
+**Do not look the surface up in the frame callback.** The frame callback fires for every frame the simulator draws
+(60 a second or more while anything moves), and walking the descriptors there cost ~3 points of a core while a video
+played (callbacks alone 4.0%, callbacks that return at once 0.7%, measured). The answer does not change: the simulator
+draws each panel into one surface in place, and four rotations and an appearance change left the same surface id and
+size, with one surfaces-changed callback at registration (iOS 26). So `updateLatestSurface` runs on the
+surfaces-changed callback, on a `panel` selection, and once a second from the timer as a fallback for a runtime that
+swaps a surface without saying so. The frame callback only feeds capture-wait, and only under
+`TAPFLOW_STREAM_METRICS=1`.
 
-// timer: encodes the latest surface every tick
-let timer = DispatchSource.makeTimerSource(queue: captureQueue)
-timer.schedule(deadline: .now(), repeating: 1.0 / fps)
-timer.setEventHandler {
-    guard let surf = latestSurface, let jpeg = encodeJPEG(surf) else { return }
-    writeFrame(jpeg)
-}
-```
+The helper is compiled with `-O` (`ScreenCaptureStreamer.ts`); unoptimised it cost ~2 points of a core more.
 
 ---
 

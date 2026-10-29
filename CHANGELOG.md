@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Android emulators turn the way they are held too.** On an emulator streaming over gRPC, **Rotate** spins the device and turns its body a quarter clockwise, as on iOS, and a tap right after the turn lands where it is aimed; an app that does not support the orientation shows on its side, a turn made in an emulator window you started yourself shows in tapflow, and tapflow no longer stands the device upright when a session starts or turns it back when you leave — except when it starts the emulator itself and for a flow run. tapflow frees each AVD's rotation lock once, the first time it sees it, to clear the lock earlier versions set; a lock you set after that stays. Dashboard screenshots and recordings keep the body's orientation, while the MCP server's screenshots still follow the screen Android draws. Real devices and emulators without gRPC still toggle portrait/landscape. Upgrade the relay with the agent: an older dashboard draws Android emulators the old way. A flow run also starts an iPhone Duo upright.
 
+- **Streaming an iOS simulator costs the agent Mac less CPU.** The screen-capture helper no longer looks up the simulator's screen on every frame the simulator draws, and is built with optimisation.
+
 ### Fixed
 
 - **A recording of an iOS device in landscape is no longer saved sideways.** It is saved the way the device is shown on screen, as Android recordings already were.

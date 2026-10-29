@@ -558,10 +558,9 @@ guard !descriptors.isEmpty else {
 
 // MARK: - Capture loop
 //
-// Strategy: IOSurface callbacks update `latestSurface` whenever the framebuffer
-// changes. A DispatchSourceTimer emits JPEG frames at the configured FPS,
-// reading `latestSurface` each tick. This guarantees smooth FPS even when
-// the simulator screen is static (no callbacks firing).
+// Strategy: `latestSurface` is the framebuffer surface, looked up when the simulator reports its surfaces changed (and
+// as a fallback once a second — see the registration below). A DispatchSourceTimer emits frames at the configured
+// FPS, reading `latestSurface` each tick. This guarantees smooth FPS even when the simulator screen is static.
 
 let captureQueue = DispatchQueue(label: "com.tapflow.capture", qos: .userInteractive)
 var latestSurface: IOSurface?
@@ -577,8 +576,10 @@ var captureWaitN = 0
 
 // Read and written on captureQueue only.
 var selectedPanel: (Int, Int)? = initialPanel
+var lastSurfaceWalkNs: UInt64 = 0
 
 func updateLatestSurface() {
+    lastSurfaceWalkNs = DispatchTime.now().uptimeNanoseconds
     var best: IOSurface?
     var bestArea = 0
     var selected: IOSurface?
@@ -619,10 +620,23 @@ let regSel = NSSelectorFromString(
     "surfacesChangedCallback:propertiesChangedCallback:"
 )
 
+// The frame callback fires for every frame the simulator draws (60 a second or more while anything moves), and it
+// used to walk every descriptor for its surface each time — ~3 points of a core while a video played, for an answer
+// that does not change: the simulator draws each panel into one surface in place, and four rotations and an appearance
+// change left the same surface (same id and size) with one surfaces-changed callback, at registration (measured,
+// iOS 26). So the surface is looked up when the simulator says the surfaces changed, when a panel is selected, and
+// once a second from the timer in case a runtime changes one without saying so. The frame callback only feeds
+// capture-wait, and only when that is being measured.
+func noteFrameArrival() {
+    guard logTearStats, let surf = latestSurface else { return }
+    let s = IOSurfaceGetSeed(surf)
+    if s != lastObservedSeed { lastObservedSeed = s; latestSeedArrivalNs = DispatchTime.now().uptimeNanoseconds }
+}
+
 for desc in descriptors where desc.responds(to: regSel) {
     guard let imp = class_getMethodImplementation(type(of: desc), regSel) else { continue }
     let uuid = NSUUID()
-    let onFrame:    @convention(block) () -> Void = { captureQueue.async { updateLatestSurface() } }
+    let onFrame:    @convention(block) () -> Void = { if logTearStats { captureQueue.async { noteFrameArrival() } } }
     let onSurfaces: @convention(block) () -> Void = { captureQueue.async { updateLatestSurface() } }
     let onProps:    @convention(block) () -> Void = {}
     callbackBlocks += [onFrame as AnyObject, onSurfaces as AnyObject, onProps as AnyObject]
@@ -669,8 +683,9 @@ var lastSentNs: UInt64 = 0
 let timer = DispatchSource.makeTimerSource(queue: captureQueue)
 timer.schedule(deadline: .now(), repeating: 1.0 / fps)
 timer.setEventHandler {
-    guard let surf = latestSurface else { return }
     let nowNs = DispatchTime.now().uptimeNanoseconds
+    if latestSurface == nil || nowNs - lastSurfaceWalkNs >= 1_000_000_000 { updateLatestSurface() }
+    guard let surf = latestSurface else { return }
     if useH264 {
         // Static-skip an unchanged screen so idle viewers stop decoding (the decoder holds the
         // last, identical frame). With no frames generated during the gap, the next P-frame

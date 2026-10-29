@@ -23,8 +23,11 @@ function ensureCompiled(): void {
     throw new PlatformError('screencapture-helper binary missing and Swift source not found — reinstall @tapflowio/ios-agent')
   }
   logger.info('compiling screencapture-helper...')
+  // -O: the helper runs per frame for the whole session; unoptimised it cost ~2 points of a core more while a video
+  // played (11–12% against ~10%, measured).
   execFileSync('swiftc', [
     SWIFT_SRC,
+    '-O',
     '-o', BINARY,
     '-framework', 'CoreVideo',
     '-framework', 'ImageIO',
