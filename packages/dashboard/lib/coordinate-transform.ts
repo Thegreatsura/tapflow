@@ -64,6 +64,23 @@ export function androidToNorm(
 }
 
 /**
+ * A normalised point in a picture, carried to the same point in that picture turned `turn` clockwise.
+ *
+ * **Android's body mode needs it in both directions.** The viewer draws the frame as the body is held, while the
+ * cursor, the pinch hint and the recording's overlay are drawn in the screen Android draws. The frame turned by
+ * `streamRotation` is that screen (measured on a Pixel 9: body a quarter clockwise over a portrait-locked app,
+ * frame (0,0) is screen (0,1) — 270 here). A touch is not turned here: it goes out as the frame's own point.
+ */
+export function turnPoint(p: Point, turn: Turn): Point {
+  switch (turn) {
+    case 0: return p
+    case 90: return { x: 1 - p.y, y: p.x }
+    case 180: return { x: 1 - p.x, y: 1 - p.y }
+    case 270: return { x: p.y, y: 1 - p.x }
+  }
+}
+
+/**
  * Given the second finger's normalized position, return both finger positions
  * for a pinch gesture. The first finger is the point-symmetric counterpart.
  */
@@ -100,9 +117,9 @@ export function composeTurn(streamRotation: Turn, needsCSSRotation: boolean): Tu
 /**
  * The size of the picture a turned frame produces — the frame's axes swapped by a quarter turn.
  *
- * **The frame is not the picture.** On the emulator's gRPC backend the capture is the panel in its
- * own fixed physical orientation, and the viewer turns it by `streamRotation`; a tester asking for
- * landscape on a portrait-locked app adds another quarter. Anything producing a file — a
+ * **The frame is not the picture.** On the emulator's gRPC backend the capture is the panel as the body is
+ * held; a viewer that draws Android's screen turns it by `streamRotation`, and on the toggle path a tester
+ * asking for landscape on a portrait-locked app adds another quarter. Body mode draws the frame as it comes. Anything producing a file — a
  * screenshot, a recording — has to size itself to the picture, or it saves the frame behind it.
  * An unfolded foldable is portrait on screen and landscape in the frame, and recorded sideways.
  */

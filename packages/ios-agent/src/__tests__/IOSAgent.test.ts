@@ -1127,6 +1127,95 @@ describe('IOSAgent', () => {
       browser.close()
     })
 
+    // A run replays from the same orientation; the single-panel stand-up skips a multi-panel device, so its own
+    // runs it through the helper. Mutation: drop it.
+    it('turns a Duo upright for a run, through its helper', async () => {
+      const world = duoWorld()
+      world.world.held = 'landscapeRight'
+      const { agent, browser, guest, received } = await bootedDuo({ world, chromeLoader: panelChromes(), boot: false })
+      const ok = vi.fn(async () => {})
+      const sim = (agent as unknown as { simctl: Record<string, unknown> }).simctl
+      Object.assign(sim, { uninstallAppForReset: ok, clearAppDataIfInstalled: ok, waitForBootStatus: ok, resetKeychain: ok, resetPrivacy: ok, clearLocation: ok })
+      browser.send(JSON.stringify({ type: 'device:boot', requestId: 'rq-duo-run', sessionId: agent.sessionId, payload: { deviceId: 'dev-1', runReset: { uninstall: [], clear: [] } } }))
+      await waitForType(browser, 'device:ready')
+      await vi.waitFor(() => expect(world.world.held).toBe('portrait'))
+      expect(guest.lines()).toContain('orient portrait')
+      // And re-described as upright. The re-send after the turn makes it immediate; the panel poll `turnHeld` re-arms
+      // would get there within its interval too, so this holds the end state and not the re-send itself.
+      await vi.waitFor(() => expect((received.filter((m) => m.type === 'session:chrome').at(-1)!.payload as { streamRotation?: number }).streamRotation).toBe(0))
+      agent.disconnect()
+      browser.close()
+    })
+
+    // A newer boot can land while a run's stand-up waits in the rotation queue. The superseded run neither turns nor
+    // goes on to open a stream over the newer boot's. Mutation: drop the bootSeq checks around the turn.
+    it('drops a run\'s stand-up when a newer boot supersedes it while the turn waits', async () => {
+      const world = duoWorld()
+      world.world.held = 'landscapeRight'
+      const { agent, browser, guest } = await bootedDuo({ world, chromeLoader: panelChromes(), boot: false })
+      const ok = vi.fn(async () => {})
+      const sim = (agent as unknown as { simctl: Record<string, unknown> }).simctl
+      Object.assign(sim, { uninstallAppForReset: ok, clearAppDataIfInstalled: ok, waitForBootStatus: ok, resetKeychain: ok, resetPrivacy: ok, clearLocation: ok })
+      let release!: () => void
+      const gate = new Promise<void>((r) => { release = r })
+      void (agent as unknown as { enqueueRotation(id: string, step: () => Promise<void>): Promise<void> }).enqueueRotation('dev-1', () => gate)
+      const superseded = waitForType(browser, 'device:boot-error')
+      browser.send(JSON.stringify({ type: 'device:boot', requestId: 'rq-run', sessionId: agent.sessionId, payload: { deviceId: 'dev-1', runReset: { uninstall: [], clear: [] } } }))
+      await guest.ready()
+      await new Promise((r) => setTimeout(r, 50))
+      browser.send(JSON.stringify({ type: 'device:boot', requestId: 'rq-next', sessionId: agent.sessionId, payload: { deviceId: 'dev-1' } }))
+      await waitForType(browser, 'device:ready')
+      const live = [...(agent as unknown as { deviceStates: Map<string, { streamWs: unknown }> }).deviceStates.values()][0]!
+      const newer = live.streamWs
+      release()
+      const e = await superseded
+      expect(e['requestId']).toBe('rq-run')
+      await new Promise((r) => setTimeout(r, 50))
+      // `openStreamWs` assigns the state's socket before it awaits, so a superseded boot reaching it took the newer
+      // boot's stream reference — the later bootSeq check answers the request but cannot give the reference back.
+      expect(live.streamWs).toBe(newer)
+      expect(guest.lines()).not.toContain('orient portrait')
+      expect(world.world.held).toBe('landscapeRight')
+      agent.disconnect()
+      browser.close()
+    })
+
+    // The same, one step later: superseded while the turn reads where the device is held, which takes a moment.
+    // Mutation: do not ask again after the read.
+    it('drops a run\'s stand-up when a newer boot supersedes it during the orientation read', async () => {
+      const world = duoWorld()
+      world.world.held = 'landscapeRight'
+      let hold: Promise<void> | null = null
+      let reading = false
+      let releaseRead!: () => void
+      const physical = new PhysicalOrientation({ readOrientation: async () => {
+        if (hold) { const h = hold; hold = null; reading = true; await h }
+        return { result: { deviceOrientation: world.world.held } }
+      } })
+      const { agent, browser, guest } = await bootedDuo({ world, physical, chromeLoader: panelChromes(), boot: false })
+      const ok = vi.fn(async () => {})
+      const sim = (agent as unknown as { simctl: Record<string, unknown> }).simctl
+      Object.assign(sim, { uninstallAppForReset: ok, clearAppDataIfInstalled: ok, waitForBootStatus: ok, resetKeychain: ok, resetPrivacy: ok, clearLocation: ok })
+      let releaseQueue!: () => void
+      const queued = new Promise<void>((r) => { releaseQueue = r })
+      void (agent as unknown as { enqueueRotation(id: string, step: () => Promise<void>): Promise<void> }).enqueueRotation('dev-1', () => queued)
+      const superseded = waitForType(browser, 'device:boot-error')
+      browser.send(JSON.stringify({ type: 'device:boot', requestId: 'rq-run', sessionId: agent.sessionId, payload: { deviceId: 'dev-1', runReset: { uninstall: [], clear: [] } } }))
+      await guest.ready()
+      await new Promise((r) => setTimeout(r, 50))
+      hold = new Promise<void>((r) => { releaseRead = r })
+      releaseQueue()
+      await vi.waitFor(() => expect(reading).toBe(true))
+      browser.send(JSON.stringify({ type: 'device:boot', requestId: 'rq-next', sessionId: agent.sessionId, payload: { deviceId: 'dev-1' } }))
+      await waitForType(browser, 'device:ready')
+      releaseRead()
+      expect((await superseded)['requestId']).toBe('rq-run')
+      await new Promise((r) => setTimeout(r, 50))
+      expect(guest.lines()).not.toContain('orient portrait')
+      agent.disconnect()
+      browser.close()
+    })
+
     it('follows a fold made outside tapflow', async () => {
       const world = duoWorld()
       const { agent, browser, received } = await bootedDuo({ world, chromeLoader: panelChromes() })
