@@ -1170,6 +1170,19 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability, Posturab
           if (cold) await this.simctl.shutdown(deviceId).catch(() => { /* reported below either way */ })
           throw new PlatformError(`${bootedDevice.name} cannot be used on this Mac: ${reason}`)
         }
+        // A run replays from the same orientation, as a single-panel device's does (the stand-up above); the Duo
+        // turns through its helper, so only once the helper is up.
+        // Re-described afterwards, as `input:rotate` does: the chrome sent while the helper came up carried the old
+        // turn. The panel poll the turn re-arms would correct it too, but up to its interval later.
+        // A newer boot can arrive while the turn waits in the queue: it neither turns for a boot already superseded
+        // nor goes on to open a stream over the newer one's.
+        if (runReset) {
+          await this.enqueueRotation(deviceId, async () => {
+            if (seq === state.bootSeq) await this.turnHeld(deviceId, undefined, 'portrait', () => seq !== state.bootSeq)
+          })
+          if (seq !== state.bootSeq) { this.abandonBoot(state, seq, sessionId, requestId); return }
+          this.applyLitPanel(deviceId)
+        }
       }
 
       const streamWs = await this.openStreamWs(state)
@@ -1670,10 +1683,12 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability, Posturab
    * is what the re-sent chrome reports; a turn that does not land is logged and the chrome says where the
    * device really is.
    */
-  private async turnHeld(deviceId: string, direction?: 'clockwise' | 'counterclockwise', target?: 'portrait' | 'landscape'): Promise<void> {
+  private async turnHeld(deviceId: string, direction?: 'clockwise' | 'counterclockwise', target?: 'portrait' | 'landscape', isStale?: () => boolean): Promise<void> {
     const guest = this.guests.get(deviceId)
     this.panelMoved(deviceId)
     const held = (await this.physical.read(deviceId)) ?? this.physical.last(deviceId)
+    // The read takes a moment, and a caller whose boot was superseded in it must not turn the shared device.
+    if (isStale?.()) return
     if (!guest || !held) { logger.warn(`rotate ${deviceId}: ${guest ? 'its orientation could not be read' : 'no helper'}, not turning`); return }
     const landscape = held === 'landscapeLeft' || held === 'landscapeRight'
     const want: DeviceOrientation | null = direction ? turned(held, direction)

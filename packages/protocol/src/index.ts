@@ -383,17 +383,33 @@ export interface AndroidChrome {
    * Quarter turns **clockwise** to apply to the video before it matches `screenWidth/Height`.
    *
    * The capture does not always arrive in the orientation Android is drawing. The emulator's gRPC
-   * backend captures the panel in the device's fixed physical orientation, so folding — which
-   * rotates Android's screen back to 0 while the skin stays put — leaves the frame a quarter turn
-   * from the picture. Measured on a Pixel 9 Pro Fold: unfolded the two agree, folded the frame is
-   * 2424x1080 against a 1080x2424 screen.
+   * backend captures the panel the way the device's body is held, so the correction is the body's turn
+   * less the display's: folding rotates Android's screen back to 0 while the body stays put, and a
+   * portrait-locked app keeps the screen at 0 while the body is turned. Measured on a Pixel 9 Pro Fold:
+   * unfolded the two agree, folded the frame is 2424x1080 against a 1080x2424 screen.
    *
    * **The agent computes it** rather than the viewer deriving it from the two sizes. Only the agent
    * sees the display's rotation, and a viewer comparing aspect ratios would have to wait for the
    * decoder and this message to agree — which they do not during a fold, so the picture flipped
    * while they disagreed. Absent or 0 means the frame is already upright.
+   *
+   * Still the map from the frame to the screen Android draws when the viewer draws the body (`bodyRotation`) —
+   * the space MCP's screenshot, the UI tree and every touch without a `space` are in. A viewer drawing the body
+   * sends its own touches in the frame's space instead (`PointSpace`), turned by the agent.
    */
   streamRotation?: 0 | 90 | 180 | 270
+  /**
+   * Quarter turns **clockwise** the device's body is turned — the same meaning as `ChromeData.streamRotation`
+   * on iOS, and **not** this type's `streamRotation` (a capture correction), the display's rotation, or a
+   * rotation lock. Derived from the emulator's skin orientation, inverted: `REVERSE_LANDSCAPE` is the body a
+   * quarter clockwise (measured — the frame then arrives as the device is held).
+   *
+   * **Present means the viewer draws the body**: the frame unturned, a portrait-locked app on its side as in
+   * a hand, and `input:rotate { direction }` to turn it. Sent by an emulator streaming over gRPC, from its
+   * first chrome. **Absent means this agent or backend does not report it** — an older agent, or scrcpy (a
+   * real device, or the fallback) — and the viewer toggles portrait/landscape as before. Never "not known yet".
+   */
+  bodyRotation?: 0 | 90 | 180 | 270
 }
 
 /** The `session:chrome` payload. The relay never reads it — it stores and forwards — but the
@@ -2016,16 +2032,30 @@ export interface OpenUrl {
   payload: { url: string }
 }
 
+/** Which picture a touch's fractions are of. **Absent means the screen the device draws** — the space of MCP's
+ *  screenshot, the UI tree and a flow, and what every sender but one uses. `'frame'` means the video frame as it
+ *  arrives, which on an Android emulator turned in the hand is that screen turned by the capture's correction.
+ *  The dashboard's body mode sends it so the agent turns the point by the frame it holds now: turned by the
+ *  chrome's correction instead, a touch had to wait out the 0.6–3.6 s the chrome lags a turn.
+ *
+ *  An agent that does not know the field reads the point as the screen, a quarter off on a turned body — so a
+ *  sender uses it only toward an agent that reported `AndroidChrome.bodyRotation`, which is the marker. */
+export type PointSpace = 'frame'
+
+export interface TouchPoint extends Point {
+  space?: PointSpace
+}
+
 export interface InputTouchStart {
   type: 'input:touch:start'
   sessionId: string
-  payload: Point
+  payload: TouchPoint
 }
 
 export interface InputTouchMove {
   type: 'input:touch:move'
   sessionId: string
-  payload: Point
+  payload: TouchPoint
 }
 
 // `payload` is accepted but ignored: the agents call `touchEnd()` without reading it. The
@@ -2041,13 +2071,15 @@ export interface InputTouchEnd {
 export interface InputPinchStart {
   type: 'input:pinch:start'
   sessionId: string
-  payload: { f0: Point; f1: Point }
+  /** `space` as on a touch — see `PointSpace`. */
+  payload: { f0: Point; f1: Point; space?: PointSpace }
 }
 
 export interface InputPinchMove {
   type: 'input:pinch:move'
   sessionId: string
-  payload: { f0: Point; f1: Point }
+  /** `space` as on a touch — see `PointSpace`. */
+  payload: { f0: Point; f1: Point; space?: PointSpace }
 }
 
 export interface InputPinchEnd {
@@ -2082,7 +2114,8 @@ export interface InputRotate {
    * physical orientation — DeviceHub's own rotate button, and the only form whose meaning does not depend
    * on which landscape or which panel the device is on. The agent turns from the orientation it reads just
    * before — never from a per-session memory, which is what #910 was about. Sent only to a device whose
-   * chrome reports `streamRotation`; an agent that predates the member ignores it and toggles.
+   * chrome reports the body's turn — iOS `ChromeData.streamRotation`, Android `AndroidChrome.bodyRotation`;
+   * an agent that predates the member ignores it and toggles.
    *
    * Optional for skew: an agent that predates it ignores the field and toggles, as before. Without it,
    * an agent toggles.
