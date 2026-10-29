@@ -600,7 +600,8 @@ device as DeviceHub draws it. Corner radii come from `capabilities.plist`'s per-
 `ChromeData.streamRotation` is the way the device is **held** — `devicectl device orientation get`
 (`PhysicalOrientation`) — plus the lit panel's native turn (the unfolded panel is drawn turned 270, so
 upright shows it turned 90). The glass turns with the body, as in DeviceHub; whether the picture stands up
-is the app's business.
+is the app's business. Every read and write source measured, including the ones rejected:
+[`contributing/ios-orientation-sources.md`](../../contributing/ios-orientation-sources.md).
 
 - **devicectl's `currentOrientation` on a display is the UI's orientation, not the device's**, and does not
   move on the home screen however the device is turned. Do not build rotation on it.
