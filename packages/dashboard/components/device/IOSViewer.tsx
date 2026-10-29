@@ -171,8 +171,9 @@ export function IOSViewer({
    *
    * At the stream's resolution, not the page's. The frame and cursor are drawn in the page's CSS pixels and the
    * composer scales them to the canvas, so the canvas is the laid-out device times the screen's stream pixels per CSS
-   * pixel. It used to be the laid-out size itself: a device shown 420 px wide recorded at about 420 px, a third of a
-   * 1206-px stream, where Android records at the stream's size. Held to `RECORDING_MAX_SIDE`.
+   * pixel. It used to be the laid-out size itself — under a third of the stream on a native-tier iPhone — where
+   * Android records at the stream's size. Held to `RECORDING_MAX_SIDE`, so a native-tier phone with its frame comes
+   * out at about 70% of the stream rather than all of it.
    */
   const shownDeviceSize = useCallback(() => {
     const container = containerRef.current

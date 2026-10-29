@@ -170,6 +170,15 @@ describe('IOSViewer — the recorder gets a composer, and the simulator gets put
       screenCanvas.width = 1206; screenCanvas.height = 2622 // 4.37x: 1311x2622, over the 1920 cap
       fireEvent.click(screen.getByRole('button', { name: 'Start recording' }))
       expect([recordCanvas.current!.width, recordCanvas.current!.height]).toEqual([960, 1920])
+
+      // The scale is the screen's, not the device's: the screen sits inside the frame, smaller than the whole. With
+      // the screen laid out at 250x500 and decoded at 500x1000 (2x), the 300x600 device records at 600x1200; dividing
+      // by the device instead (1.67x) would record it at 500x1000. Mutation: the container as the denominator.
+      Object.defineProperty(screenCanvas, 'clientWidth', { configurable: true, value: 250 })
+      Object.defineProperty(screenCanvas, 'clientHeight', { configurable: true, value: 500 })
+      screenCanvas.width = 500; screenCanvas.height = 1000
+      fireEvent.click(screen.getByRole('button', { name: 'Start recording' }))
+      expect([recordCanvas.current!.width, recordCanvas.current!.height]).toEqual([600, 1200])
     })
   })
 
