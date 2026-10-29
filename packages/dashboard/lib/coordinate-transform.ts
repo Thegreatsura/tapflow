@@ -128,6 +128,17 @@ export function turnedSize(frameW: number, frameH: number, turn: Turn): { width:
   return { width: quarter ? frameH : frameW, height: quarter ? frameW : frameH }
 }
 
+/** The longest side a recording is encoded at. The browser encodes it while it also decodes the stream, so a
+ *  full-resolution iPad (2732) or Pro Max with its frame (~3000) is held to a 1080p-class size. */
+export const RECORDING_MAX_SIDE = 1920
+
+/** `size` shrunk to fit `RECORDING_MAX_SIDE`, aspect kept, and made even on both sides — what video encoders take. */
+export function recordingSize(size: { width: number; height: number }): { width: number; height: number } {
+  const k = Math.min(1, RECORDING_MAX_SIDE / Math.max(size.width, size.height))
+  const even = (n: number) => Math.max(2, 2 * Math.round((n * k) / 2))
+  return { width: even(size.width), height: even(size.height) }
+}
+
 /**
  * Where a turned frame lands inside a capture canvas: centred, scaled to fit, never stretched.
  *

@@ -153,6 +153,26 @@ describe('IOSViewer — the recorder gets a composer, and the simulator gets put
     })
   })
 
+  // A recording is sized at the stream's resolution, not the page's: it used to be the laid-out device, so a phone
+  // shown 300 px wide recorded 300 px wide from a 1206-px stream. Mutations: drop the stream scale; drop the cap;
+  // let the scale fall below 1 (the browser's default 300x150 canvas before a frame would halve it — the two tests
+  // above).
+  it('records at the stream\'s resolution, held to the longest side a browser encodes', () => {
+    withLaidOutDevice(() => {
+      renderViewer({ chrome: { ...chrome, streamRotation: 0 } })
+      const screenCanvas = [...document.querySelectorAll('canvas')].find((c) => c !== recordCanvas.current)!
+      screenCanvas.width = 600; screenCanvas.height = 1200 // a decoded frame, twice the laid-out 300x600
+      fireEvent.click(screen.getByRole('button', { name: 'Start recording' }))
+      expect(captured.started).toBe(true)
+      expect([recordCanvas.current!.width, recordCanvas.current!.height]).toEqual([600, 1200])
+
+      captured.started = false
+      screenCanvas.width = 1206; screenCanvas.height = 2622 // 4.37x: 1311x2622, over the 1920 cap
+      fireEvent.click(screen.getByRole('button', { name: 'Start recording' }))
+      expect([recordCanvas.current!.width, recordCanvas.current!.height]).toEqual([960, 1920])
+    })
+  })
+
   it('rotates the simulator back when the viewer goes away in landscape', async () => {
     const { send, unmount } = renderViewer()
 
