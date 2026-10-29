@@ -5672,6 +5672,26 @@ describe('PosturableAgent (the wiring)', () => {
     expect(adb.setRotation).not.toHaveBeenCalled()
   })
 
+  // A boot that swaps scrcpy for gRPC during the settling read has already freed the lock this would write.
+  // Mutation: ask about the backend only before the read.
+  it('carries no lock when the stream turns gRPC while the carry settles', async () => {
+    const adb = posturableAdb()
+    const dm = await import('../displayMetrics')
+    const live = { deviceId: 'avd:Pixel_8_API_34', booted: true, grpcClient: null, scrcpySession: {} as unknown }
+    vi.spyOn(adb, 'getDisplayMetrics')
+      .mockResolvedValueOnce(dm.parseDisplayMetrics('    init=2076x2152 cur=2152x2076\n mRotation=ROTATION_270'))
+      .mockImplementation(async () => {
+        Object.assign(live, { scrcpySession: null, grpcClient: {} })
+        return dm.parseDisplayMetrics('    init=1080x2424 cur=1080x2424\n mRotation=ROTATION_0')
+      })
+    const agent = new AndroidAgent({}, adb)
+    internals(agent).deviceStates.set('s1', live as unknown as TestState)
+
+    await agent.setPosture('avd:Pixel_8_API_34', '1')
+
+    expect(adb.setRotation).not.toHaveBeenCalled()
+  })
+
   it('leaves the rotation alone when the change did not disturb it', async () => {
     // The pair: without it, "puts the rotation back" is satisfied by code that always writes one,
     // which would fight a device that rotated for its own reasons.

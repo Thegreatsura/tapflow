@@ -1017,6 +1017,9 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     if (serial.startsWith('emulator-') && !state?.scrcpySession) return
     const after = await this.stableDisplayMetrics(serial)
     if (!after || after.rotation === before) return
+    // Asked again after the settling read: a boot can replace scrcpy with gRPC in that second, after its
+    // `prepareBody` has freed the lock this would write back.
+    if (serial.startsWith('emulator-') && !state?.scrcpySession) return
     const quarter = (before / 90) as 0 | 1 | 2 | 3
     logger.info(`posture: carrying rotation ${before} across`)
     await this.adb.setRotation(serial, quarter)

@@ -1178,7 +1178,7 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability, Posturab
         // nor goes on to open a stream over the newer one's.
         if (runReset) {
           await this.enqueueRotation(deviceId, async () => {
-            if (seq === state.bootSeq) await this.turnHeld(deviceId, undefined, 'portrait')
+            if (seq === state.bootSeq) await this.turnHeld(deviceId, undefined, 'portrait', () => seq !== state.bootSeq)
           })
           if (seq !== state.bootSeq) { this.abandonBoot(state, seq, sessionId, requestId); return }
           this.applyLitPanel(deviceId)
@@ -1683,10 +1683,12 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability, Posturab
    * is what the re-sent chrome reports; a turn that does not land is logged and the chrome says where the
    * device really is.
    */
-  private async turnHeld(deviceId: string, direction?: 'clockwise' | 'counterclockwise', target?: 'portrait' | 'landscape'): Promise<void> {
+  private async turnHeld(deviceId: string, direction?: 'clockwise' | 'counterclockwise', target?: 'portrait' | 'landscape', isStale?: () => boolean): Promise<void> {
     const guest = this.guests.get(deviceId)
     this.panelMoved(deviceId)
     const held = (await this.physical.read(deviceId)) ?? this.physical.last(deviceId)
+    // The read takes a moment, and a caller whose boot was superseded in it must not turn the shared device.
+    if (isStale?.()) return
     if (!guest || !held) { logger.warn(`rotate ${deviceId}: ${guest ? 'its orientation could not be read' : 'no helper'}, not turning`); return }
     const landscape = held === 'landscapeLeft' || held === 'landscapeRight'
     const want: DeviceOrientation | null = direction ? turned(held, direction)
