@@ -258,7 +258,7 @@ cd packages/ios-agent && swiftc src/touch-helper.swift -o bin/touch-helper
 ### screencapture-helper interface
 
 ```bash
-screencapture-helper <fps> <udid|booted> [jpeg|h264]
+screencapture-helper <fps> <udid|booted> [jpeg|h264] [--panel <w>x<h>]
 ```
 
 Reads the `com.apple.framebuffer.display` port directly via SimulatorKit IOSurface callbacks. The 3rd arg picks the codec (default `jpeg`); `h264` uses VideoToolbox (`VTCompressionSession`, baseline, B-frames off, periodic IDR, BT.709).
@@ -267,7 +267,7 @@ Output framing (length-prefixed):
 - **jpeg**: `[4-byte BE len][JPEG bytes] ...`
 - **h264**: `[4-byte BE len][flags:u8][Annex B NAL] ...` — `len` counts the flags byte; flags bit0 = keyframe (IDR). Keyframes carry SPS+PPS prepended.
 
-**stdin commands** (h264 only): a single `0x01` byte forces an IDR on the next frame. The relay sends this (via `stream:request-idr` → `ScreenCaptureStreamer.requestKeyframe()`) for drop-to-keyframe recovery, so the stream resyncs fast instead of waiting for the periodic IDR. JPEG ignores stdin.
+**stdin commands**: a single `0x01` byte forces an IDR on the next H.264 frame. The relay sends this (via `stream:request-idr` → `ScreenCaptureStreamer.requestKeyframe()`) for drop-to-keyframe recovery, so the stream resyncs fast instead of waiting for the periodic IDR; JPEG ignores it. A line `panel <w>x<h>` switches a multi-panel device's capture, for both codecs.
 
 **Env**:
 - `TAPFLOW_JPEG_QUALITY` (0–1, default `0.8`) — JPEG quality; the LAN bandwidth ↔ design-QA fidelity trade-off. Lower = fewer relay→browser drops on LAN, but more artifacts.
@@ -283,7 +283,7 @@ When the Swift binary interface changes, **always update both locations simultan
 Requires a TypeScript dist rebuild after compilation:
 ```bash
 cd packages/ios-agent
-swiftc src/screencapture-helper.swift -o bin/screencapture-helper \
+swiftc src/screencapture-helper.swift -O -o bin/screencapture-helper \
   -framework CoreVideo -framework ImageIO -framework VideoToolbox -framework CoreMedia
 pnpm build
 ```

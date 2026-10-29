@@ -591,8 +591,8 @@ func updateLatestSurface() {
         if w * h > bestArea { best = surf; bestArea = w * h }
     }
     // A selected panel that is not there (yet) falls back to the old rule rather than to nothing: a stream
-    // that shows the wrong panel is recoverable by the next selection, one that shows nothing trips the
-    // 8 s watchdog and restarts the helper.
+    // that shows the wrong panel recovers on the next walk (surfaces changed, or the timer's once a second),
+    // one that shows nothing trips the 8 s watchdog and restarts the helper.
     if let selected { best = selected }
     if let best {
         latestSurface = best
@@ -604,7 +604,7 @@ func updateLatestSurface() {
 // Accumulate capture-wait for a freshly-changed frame; emit avg/max each 150-sample window.
 // Excludes keep-alive / forced-keyframe re-sends (changed == false) — those aren't new captures.
 func recordCaptureWait(_ changed: Bool, _ nowNs: UInt64) {
-    guard logTearStats, changed, latestSeedArrivalNs != 0 else { return }
+    guard logTearStats, changed, latestSeedArrivalNs != 0, nowNs >= latestSeedArrivalNs else { return }
     captureWaitSumMs += Double(nowNs - latestSeedArrivalNs) / 1_000_000
     captureWaitMax = max(captureWaitMax, Double(nowNs - latestSeedArrivalNs) / 1_000_000)
     captureWaitN += 1
@@ -683,8 +683,12 @@ var lastSentNs: UInt64 = 0
 let timer = DispatchSource.makeTimerSource(queue: captureQueue)
 timer.schedule(deadline: .now(), repeating: 1.0 / fps)
 timer.setEventHandler {
+    if latestSurface == nil || DispatchTime.now().uptimeNanoseconds - lastSurfaceWalkNs >= 1_000_000_000 {
+        updateLatestSurface()
+    }
+    // Taken after the walk: a walk that meets an unseen seed stamps its arrival now, and an earlier `nowNs` would make
+    // capture-wait's unsigned subtraction negative, which traps (review finding).
     let nowNs = DispatchTime.now().uptimeNanoseconds
-    if latestSurface == nil || nowNs - lastSurfaceWalkNs >= 1_000_000_000 { updateLatestSurface() }
     guard let surf = latestSurface else { return }
     if useH264 {
         // Static-skip an unchanged screen so idle viewers stop decoding (the decoder holds the
