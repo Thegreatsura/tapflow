@@ -5105,7 +5105,8 @@ describe('a posture change reports as soon as the guest commits', () => {
       readyState: 1,
       send: (d: string) => { if ((JSON.parse(d) as { type: string }).type === 'device:postures') order.push('device:postures') },
     }
-    const state = { deviceId: 'avd:Pixel_8_API_34', sessionId: 's1', booted: true } as unknown as TestState
+    // On scrcpy: the rotation carry these tests time runs only there.
+    const state = { deviceId: 'avd:Pixel_8_API_34', sessionId: 's1', booted: true, scrcpySession: {} } as unknown as TestState
     internals(agent).deviceStates.set('s1', state)
     internals(agent).handleRelayMessage({ type: 'input:posture', sessionId: 's1', payload: { postureId: '2' } })
     return order
