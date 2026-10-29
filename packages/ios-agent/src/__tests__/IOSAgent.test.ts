@@ -1165,10 +1165,15 @@ describe('IOSAgent', () => {
       await new Promise((r) => setTimeout(r, 50))
       browser.send(JSON.stringify({ type: 'device:boot', requestId: 'rq-next', sessionId: agent.sessionId, payload: { deviceId: 'dev-1' } }))
       await waitForType(browser, 'device:ready')
+      const live = [...(agent as unknown as { deviceStates: Map<string, { streamWs: unknown }> }).deviceStates.values()][0]!
+      const newer = live.streamWs
       release()
       const e = await superseded
       expect(e['requestId']).toBe('rq-run')
       await new Promise((r) => setTimeout(r, 50))
+      // `openStreamWs` assigns the state's socket before it awaits, so a superseded boot reaching it took the newer
+      // boot's stream reference — the later bootSeq check answers the request but cannot give the reference back.
+      expect(live.streamWs).toBe(newer)
       expect(guest.lines()).not.toContain('orient portrait')
       expect(world.world.held).toBe('landscapeRight')
       agent.disconnect()
