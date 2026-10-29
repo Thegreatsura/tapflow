@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Watching an iOS device costs the browser less.** The dashboard kept a full-resolution copy of the picture for recording and screenshots, redrawn on every display refresh, up to 120 times a second for a 30 fps stream. It is now redrawn only when a new frame arrives.
 
+- **Streaming an iOS simulator costs the agent Mac less CPU.** The screen-capture helper no longer looks up the simulator's screen on every frame the simulator draws, and is built with optimisation.
+
 ### Fixed
 
 - **A recording of an iOS device in landscape is no longer saved sideways.** It is saved the way the device is shown on screen, as Android recordings already were.

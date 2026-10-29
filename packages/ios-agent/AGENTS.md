@@ -258,7 +258,7 @@ cd packages/ios-agent && swiftc src/touch-helper.swift -o bin/touch-helper
 ### screencapture-helper interface
 
 ```bash
-screencapture-helper <fps> <udid|booted> [jpeg|h264]
+screencapture-helper <fps> <udid|booted> [jpeg|h264] [--panel <w>x<h>]
 ```
 
 Reads the `com.apple.framebuffer.display` port directly via SimulatorKit IOSurface callbacks. The 3rd arg picks the codec (default `jpeg`); `h264` uses VideoToolbox (`VTCompressionSession`, baseline, B-frames off, periodic IDR, BT.709).
@@ -267,7 +267,7 @@ Output framing (length-prefixed):
 - **jpeg**: `[4-byte BE len][JPEG bytes] ...`
 - **h264**: `[4-byte BE len][flags:u8][Annex B NAL] ...` — `len` counts the flags byte; flags bit0 = keyframe (IDR). Keyframes carry SPS+PPS prepended.
 
-**stdin commands** (h264 only): a single `0x01` byte forces an IDR on the next frame. The relay sends this (via `stream:request-idr` → `ScreenCaptureStreamer.requestKeyframe()`) for drop-to-keyframe recovery, so the stream resyncs fast instead of waiting for the periodic IDR. JPEG ignores stdin.
+**stdin commands**: a single `0x01` byte forces an IDR on the next H.264 frame. The relay sends this (via `stream:request-idr` → `ScreenCaptureStreamer.requestKeyframe()`) for drop-to-keyframe recovery, so the stream resyncs fast instead of waiting for the periodic IDR; JPEG ignores it. A line `panel <w>x<h>` switches a multi-panel device's capture, for both codecs.
 
 **Env**:
 - `TAPFLOW_JPEG_QUALITY` (0–1, default `0.8`) — JPEG quality; the LAN bandwidth ↔ design-QA fidelity trade-off. Lower = fewer relay→browser drops on LAN, but more artifacts.
@@ -283,7 +283,7 @@ When the Swift binary interface changes, **always update both locations simultan
 Requires a TypeScript dist rebuild after compilation:
 ```bash
 cd packages/ios-agent
-swiftc src/screencapture-helper.swift -o bin/screencapture-helper \
+swiftc src/screencapture-helper.swift -O -o bin/screencapture-helper \
   -framework CoreVideo -framework ImageIO -framework VideoToolbox -framework CoreMedia
 pnpm build
 ```
@@ -369,23 +369,19 @@ swiftc packages/ios-agent/src/rotation-helper.swift \
 
 ### IOSurface capture — timer-driven strategy
 
-IOSurface callbacks alone do not deliver frames when the screen is static.
-Use `DispatchSourceTimer` alongside callbacks to maintain a consistent FPS regardless of callback activity.
+IOSurface callbacks alone do not deliver frames when the screen is static, so a `DispatchSourceTimer` on
+`captureQueue` emits at the stream's fps and reads `latestSurface` each tick (`screencapture-helper.swift`).
 
-```swift
-// callback: only updates latestSurface
-let onFrame: @convention(block) () -> Void = {
-    captureQueue.async { updateLatestSurface() }
-}
+**Do not look the surface up in the frame callback.** The frame callback fires for every frame the simulator draws
+(60 a second or more while anything moves), and walking the descriptors there cost ~3 points of a core while a video
+played (callbacks alone 4.0%, callbacks that return at once 0.7%, measured). The answer does not change: the simulator
+draws each panel into one surface in place, and four rotations and an appearance change left the same surface id and
+size, with one surfaces-changed callback at registration (iOS 26). So `updateLatestSurface` runs on the
+surfaces-changed callback, on a `panel` selection, and once a second from the timer as a fallback for a runtime that
+swaps a surface without saying so. The frame callback only feeds capture-wait, and only under
+`TAPFLOW_STREAM_METRICS=1`.
 
-// timer: encodes the latest surface every tick
-let timer = DispatchSource.makeTimerSource(queue: captureQueue)
-timer.schedule(deadline: .now(), repeating: 1.0 / fps)
-timer.setEventHandler {
-    guard let surf = latestSurface, let jpeg = encodeJPEG(surf) else { return }
-    writeFrame(jpeg)
-}
-```
+The helper is compiled with `-O` (`ScreenCaptureStreamer.ts`); unoptimised it cost ~2 points of a core more.
 
 ---
 

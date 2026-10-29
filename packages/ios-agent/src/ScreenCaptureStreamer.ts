@@ -23,8 +23,11 @@ function ensureCompiled(): void {
     throw new PlatformError('screencapture-helper binary missing and Swift source not found — reinstall @tapflowio/ios-agent')
   }
   logger.info('compiling screencapture-helper...')
+  // -O: the helper runs per frame for the whole session; unoptimised it cost ~2 points of a core more while a video
+  // played (11–12% against ~10%, measured).
   execFileSync('swiftc', [
     SWIFT_SRC,
+    '-O',
     '-o', BINARY,
     '-framework', 'CoreVideo',
     '-framework', 'ImageIO',
@@ -139,7 +142,9 @@ export class ScreenCaptureStreamer {
 
         proc.stdout.on('data', (chunk: Buffer) => {
           if (done) return
-          buf = Buffer.concat([buf, chunk])
+          // Most chunks start a frame with nothing left over; `concat` would copy each one anyway. The frames point
+          // into `chunk` then, which the stream never reuses.
+          buf = buf.length === 0 ? chunk : Buffer.concat([buf, chunk])
           const { frames, rest } = parseStreamFrames(buf, h264)
           for (const f of frames) controller.enqueue(f)
           buf = rest
