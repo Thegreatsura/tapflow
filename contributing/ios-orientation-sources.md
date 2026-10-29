@@ -62,11 +62,12 @@ the path; a turn made by hand in Simulator.app was not measured.
 ## No polling on single-panel devices
 
 The Duo's fold poll reads the orientation with the panels, so a DeviceHub turn shows within one poll.
-A single-panel device is read only at a session's boot and before each Rotate. Turning a single-panel
-simulator in Simulator.app or DeviceHub while a tapflow session is open is not a case the product
-serves, and a poll would cost CPU on every open session for it (each devicectl read is about 0.2 s of
-CPU). If it becomes a case, start from the guest HID monitor above: it follows a turn immediately, at
-the price of one more private path that a runtime update can break.
+A single-panel device is read at a session's boot and around each Rotate: before it, to know where to
+turn from, and after it, to confirm the turn landed (waiting up to 3 s). Nothing reads it in the
+background. Turning a single-panel simulator in Simulator.app or DeviceHub while a tapflow session is
+open is not a case the product serves, and a poll would cost CPU on every open session for it (each
+devicectl read is about 0.2 s of CPU). If it becomes a case, start from the guest HID monitor above: it
+follows a turn immediately, at the price of one more private path that a runtime update can break.
 
 ## Other tools (as of October 2026)
 
