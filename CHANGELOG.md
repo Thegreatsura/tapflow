@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A recording of an iOS device in landscape is no longer saved sideways.** It is saved the way the device is shown on screen, as Android recordings already were.
 - **Device audio plays without ticking.** The dashboard played the audio at the speakers' rate, which put a tick between audio chunks several times a second wherever the speakers run at 48 kHz, as most do; it now plays it at its own 44.1 kHz. The iOS audio helper also dropped part of a sample every 10 ms, which ticked too and delivered slightly less audio than the dashboard played, so playback ran dry about once a minute; it now resamples without a break. Because the helper changed, macOS asks the agent Mac once more for permission to record audio, which the Android host-mute needs too: until it is allowed, iOS audio is silent in the browser and an Android emulator's sound plays on the agent Mac. Allow it, or run `tapflow agent start` to show the prompt again.
+- **An iOS recording is no longer small.** It was recorded at the size the device was shown on the page, under a third of the simulator's resolution; it is now recorded at up to the stream's resolution, frame included, held to 1920 pixels on its longest side.
 
 ## [0.30.0] - 2026-10-27
 

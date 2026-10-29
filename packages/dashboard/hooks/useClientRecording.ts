@@ -56,8 +56,8 @@ export function useClientRecording({ sessionId, buildId, onRecordingUploaded }: 
     rafIdRef.current = requestAnimationFrame(loop)
   }, [])
 
-  // Caller must set recordCanvasRef.current.width/height before calling this.
-  // (iOS uses container px, Android multiplies by devicePixelRatio — kept as caller responsibility.)
+  // Caller must set recordCanvasRef.current.width/height before calling this. (iOS: the laid-out device scaled to the
+  // stream's pixels, held to RECORDING_MAX_SIDE; Android: the decoded frame's size — kept as caller responsibility.)
   /**
    * Tell the recorder which function draws a frame. The newest one wins, and the frame loop reads
    * it afresh every tick.

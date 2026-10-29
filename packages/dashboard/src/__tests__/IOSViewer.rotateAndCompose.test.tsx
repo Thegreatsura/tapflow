@@ -153,6 +153,35 @@ describe('IOSViewer — the recorder gets a composer, and the simulator gets put
     })
   })
 
+  // A recording is sized at the stream's resolution, not the page's: it used to be the laid-out device, so a phone
+  // shown 300 px wide recorded 300 px wide from a 1206-px stream. Mutations: drop the stream scale; drop the cap;
+  // let the scale fall below 1 (the browser's default 300x150 canvas before a frame would halve it — the two tests
+  // above).
+  it('records at the stream\'s resolution, held to the longest side a browser encodes', () => {
+    withLaidOutDevice(() => {
+      renderViewer({ chrome: { ...chrome, streamRotation: 0 } })
+      const screenCanvas = [...document.querySelectorAll('canvas')].find((c) => c !== recordCanvas.current)!
+      screenCanvas.width = 600; screenCanvas.height = 1200 // a decoded frame, twice the laid-out 300x600
+      fireEvent.click(screen.getByRole('button', { name: 'Start recording' }))
+      expect(captured.started).toBe(true)
+      expect([recordCanvas.current!.width, recordCanvas.current!.height]).toEqual([600, 1200])
+
+      captured.started = false
+      screenCanvas.width = 1206; screenCanvas.height = 2622 // 4.37x: 1311x2622, over the 1920 cap
+      fireEvent.click(screen.getByRole('button', { name: 'Start recording' }))
+      expect([recordCanvas.current!.width, recordCanvas.current!.height]).toEqual([960, 1920])
+
+      // The scale is the screen's, not the device's: the screen sits inside the frame, smaller than the whole. With
+      // the screen laid out at 250x500 and decoded at 500x1000 (2x), the 300x600 device records at 600x1200; dividing
+      // by the device instead (1.67x) would record it at 500x1000. Mutation: the container as the denominator.
+      Object.defineProperty(screenCanvas, 'clientWidth', { configurable: true, value: 250 })
+      Object.defineProperty(screenCanvas, 'clientHeight', { configurable: true, value: 500 })
+      screenCanvas.width = 500; screenCanvas.height = 1000
+      fireEvent.click(screen.getByRole('button', { name: 'Start recording' }))
+      expect([recordCanvas.current!.width, recordCanvas.current!.height]).toEqual([600, 1200])
+    })
+  })
+
   it('rotates the simulator back when the viewer goes away in landscape', async () => {
     const { send, unmount } = renderViewer()
 

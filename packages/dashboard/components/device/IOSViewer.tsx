@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Kbd, KbdGroup } from '@/components/ui/kbd';
 import type { ChromeData, PosturesPayload } from '@/lib/types'
-import { iosToNormScreen, iosTurn, placeTurnedFrame, remaining, toPinchFingers as makePinchFingers, turnedSize, type Turn } from '@/lib/coordinate-transform';
+import { iosToNormScreen, iosTurn, placeTurnedFrame, recordingSize, remaining, toPinchFingers as makePinchFingers, turnedSize, type Turn } from '@/lib/coordinate-transform';
 import { usePostureControl } from '@/hooks/usePostureControl';
 import { useIOSScreen } from '@/hooks/useIOSScreen';
 import { IOSDeviceScreen } from './IOSDeviceScreen';
@@ -166,12 +166,25 @@ export function IOSViewer({
 
   const shownTurn: Turn = pendingTurn?.target ?? iosTurn(chrome.streamRotation, isLandscape)
 
-  /** The device as it is shown — turned — which is what a recording is sized to. Null before it is laid out. */
+  /**
+   * The device as it is shown — turned — which is what a recording is sized to. Null before it is laid out.
+   *
+   * At the stream's resolution, not the page's. The frame and cursor are drawn in the page's CSS pixels and the
+   * composer scales them to the canvas, so the canvas is the laid-out device times the screen's stream pixels per CSS
+   * pixel. It used to be the laid-out size itself — under a third of the stream on a native-tier iPhone — where
+   * Android records at the stream's size. Held to `RECORDING_MAX_SIDE`, so a native-tier phone with its frame comes
+   * out at about 70% of the stream rather than all of it.
+   */
   const shownDeviceSize = useCallback(() => {
     const container = containerRef.current
     if (!container || container.clientWidth === 0) return null
-    return turnedSize(container.clientWidth, container.clientHeight, shownTurn)
-  }, [containerRef, shownTurn])
+    // Never below 1: before the first frame the canvas is the browser's default 300×150, which would shrink it.
+    const fc = canvasRef.current
+    const k = fc && fc.clientWidth > 0
+      ? Math.max(1, Math.max(fc.width, fc.height) / Math.max(fc.clientWidth, fc.clientHeight))
+      : 1
+    return recordingSize(turnedSize(container.clientWidth * k, container.clientHeight * k, shownTurn))
+  }, [containerRef, canvasRef, shownTurn])
 
   // Sync record canvas size when chrome arrives, or the device turns — never mid-take: `MediaRecorder` fixed
   // the size when it started, and the composer fits whatever the device has become into it.
