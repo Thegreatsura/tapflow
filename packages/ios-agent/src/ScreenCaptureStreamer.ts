@@ -33,6 +33,7 @@ function ensureCompiled(): void {
     '-framework', 'ImageIO',
     '-framework', 'VideoToolbox',
     '-framework', 'CoreMedia',
+    '-framework', 'Metal',
   ], { stdio: ['ignore', 'ignore', 'inherit'] })
   logger.info('compiled OK')
 }

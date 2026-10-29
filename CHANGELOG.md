@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Watching an iOS device costs the browser less.** The dashboard kept a full-resolution copy of the picture for recording and screenshots, redrawn on every display refresh, up to 120 times a second for a 30 fps stream. It is now redrawn only when a new frame arrives.
 
-- **Streaming an iOS simulator costs the agent Mac less CPU.** The screen-capture helper no longer looks up the simulator's screen on every frame the simulator draws, and is built with optimisation.
+- **Streaming an iOS simulator costs the agent Mac less CPU.** The screen-capture helper no longer looks up the simulator's screen on every frame the simulator draws, copies each frame on the GPU instead of the CPU, and is built with optimisation: about a third of the CPU it used while the screen moves.
 
 ### Fixed
 

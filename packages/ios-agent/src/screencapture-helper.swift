@@ -16,6 +16,7 @@ import ObjectiveC
 import VideoToolbox
 import CoreMedia
 import Accelerate
+import Metal
 
 // MARK: - Args
 
@@ -281,7 +282,7 @@ var h264Height = 0
 var h264SrcWidth = 0        // source IOSurface dimensions — drives session recreation on rotation
 var h264SrcHeight = 0
 var scaledBuffer: CVPixelBuffer?  // reused downscale target; nil when encoding at native size
-var srcCopyBuffer: CVPixelBuffer? // reused tear-free CPU snapshot of the live framebuffer surface
+var srcCopyBuffer: CVPixelBuffer? // reused tear-free snapshot of the live framebuffer surface (GPU blit, or memcpy)
 var srcCopyW = 0, srcCopyH = 0
 var tearRetries = 0               // copies that raced a sim write (seed changed) and were retried
 var tearExhausted = 0             // copies still racing after the retry budget (best-effort frame)
@@ -417,16 +418,96 @@ func scaleToTarget(_ src: CVPixelBuffer) -> CVPixelBuffer? {
     return dst
 }
 
-// Tear-free CPU snapshot of the live framebuffer surface. The simulator draws into a single
+// Tear-free snapshot of the live framebuffer surface. The simulator draws into a single
 // IOSurface in place (the static-skip seed relies on that), asynchronously to our 30fps timer.
 // Reading the surface mid-draw (native: VTEncode reads it directly; downscale: vImage reads it)
 // bakes a horizontal tear (top = old frame, bottom = new) into the H.264 frame — visible on every
 // tier and decoder, recovering on the next frame. IOSurfaceLock(.readOnly) is cooperative and does
 // not block the sim's GPU writes, so it alone does not prevent the tear.
 //
-// Fix: memcpy the surface into a private buffer and bracket the copy with IOSurfaceGetSeed; if the
-// seed moved, the sim drew during the copy → it may be sheared → retry. memcpy ≈ 1ms vs ≈ 16ms write
-// interval, so 1–2 tries land a coherent snapshot even during continuous scroll.
+// Fix: copy the surface into a private buffer and bracket the copy with IOSurfaceGetSeed; if the
+// seed moved, the sim drew during the copy → it may be sheared → retry. A copy (memcpy ≈ 1ms, GPU blit
+// ≈ 0.3ms) against a ≈ 16ms write interval lands a coherent snapshot in 1–2 tries even during scroll.
+//
+// The copy runs on the GPU when it can (`GPUSurfaceCopier`): the same snapshot, the same seed bracket, without the CPU
+// reading 12–15 MB a frame. Measured while a video played: the helper at ~4% of a core against ~7% for the memcpy,
+// with the simulator's own processes and WindowServer unchanged and the same tear retries. Waiting for the blit before
+// reading the seed again is what keeps the bracket meaningful. A surface the GPU path refuses (not 32-bit BGRA, a row
+// stride Metal cannot wrap, or Metal unavailable or failing) takes the memcpy, frame by frame.
+
+// BEGIN gpu-copy — compiled on its own by src/__tests__/gpuCopy.test.ts, so keep it self-contained.
+final class GPUSurfaceCopier {
+    private let device: MTLDevice
+    private let queue: MTLCommandQueue
+    private var source: (id: IOSurfaceID, width: Int, height: Int, texture: MTLTexture)?
+    private var target: (buffer: CVPixelBuffer, texture: MTLTexture)?
+    /// Why the last `copy` returned false, for the log.
+    private(set) var lastFailure = ""
+
+    init?() {
+        guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { return nil }
+        self.device = device
+        self.queue = queue
+    }
+
+    /// Copies `surface` into `buffer` on the GPU and waits for it. False when either is not 32-bit BGRA of the same
+    /// size, a row stride is not what Metal can wrap, or Metal will not do it; the caller then copies on the CPU.
+    func copy(_ surface: IOSurface, into buffer: CVPixelBuffer) -> Bool {
+        let width = IOSurfaceGetWidth(surface), height = IOSurfaceGetHeight(surface)
+        // Metal does not refuse a misaligned stride, it aborts the process (measured: a 468-byte row). A 1398-pixel
+        // panel is 5592 bytes a row unpadded, so this is asked of every surface rather than assumed.
+        let align = device.minimumLinearTextureAlignment(for: .bgra8Unorm)
+        guard IOSurfaceGetPixelFormat(surface) == kCVPixelFormatType_32BGRA,
+              CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_32BGRA
+        else { lastFailure = "pixel format \(IOSurfaceGetPixelFormat(surface))"; return false }
+        guard CVPixelBufferGetWidth(buffer) == width, CVPixelBufferGetHeight(buffer) == height
+        else { lastFailure = "size \(width)x\(height)"; return false }
+        guard IOSurfaceGetBytesPerRow(surface) % align == 0, CVPixelBufferGetBytesPerRow(buffer) % align == 0
+        else { lastFailure = "row stride \(IOSurfaceGetBytesPerRow(surface))/\(CVPixelBufferGetBytesPerRow(buffer)) bytes"; return false }
+        guard let src = sourceTexture(surface, width, height), let dst = targetTexture(buffer, width, height),
+              let commands = queue.makeCommandBuffer(), let blit = commands.makeBlitCommandEncoder()
+        else { lastFailure = "texture or command buffer not created"; return false }
+        blit.copy(from: src, to: dst)
+        blit.endEncoding()
+        commands.commit()
+        // No timeout of our own: Metal ends a hung command buffer itself with a GPU-timeout error, and a semaphore
+        // here could not unblock captureQueue anyway.
+        commands.waitUntilCompleted()
+        guard commands.status == .completed
+        else { lastFailure = "GPU error \(commands.error.map { String(describing: $0) } ?? "status \(commands.status.rawValue)")"; return false }
+        return true
+    }
+
+    // Keyed by the surface's id and size: the simulator keeps drawing into one surface, and a fold or a new runtime
+    // that hands over another one, even of the same size, must not be read through the old texture.
+    private func sourceTexture(_ surface: IOSurface, _ width: Int, _ height: Int) -> MTLTexture? {
+        let id = IOSurfaceGetID(surface)
+        if let s = source, s.id == id, s.width == width, s.height == height { return s.texture }
+        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: width, height: height, mipmapped: false)
+        d.usage = .shaderRead
+        d.storageMode = .shared
+        guard let texture = device.makeTexture(descriptor: d, iosurface: surface, plane: 0) else { return nil }
+        source = (id, width, height, texture)
+        return texture
+    }
+
+    private func targetTexture(_ buffer: CVPixelBuffer, _ width: Int, _ height: Int) -> MTLTexture? {
+        if let t = target, t.buffer === buffer { return t.texture }
+        guard let surface = CVPixelBufferGetIOSurface(buffer)?.takeUnretainedValue() else { return nil }
+        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: width, height: height, mipmapped: false)
+        d.usage = .shaderWrite
+        d.storageMode = .shared
+        guard let texture = device.makeTexture(descriptor: d, iosurface: surface, plane: 0) else { return nil }
+        target = (buffer, texture)
+        return texture
+    }
+}
+// END gpu-copy
+
+let gpuCopier = GPUSurfaceCopier()
+var gpuFailuresLogged = Set<String>()  // each reason once, so a later, different one is still heard
+if gpuCopier == nil { fputs("info: no Metal device — copying frames on the CPU\n", stderr) }
+
 func copySurfaceStable(_ surface: IOSurface) -> CVPixelBuffer? {
     let w = IOSurfaceGetWidth(surface)
     let h = IOSurfaceGetHeight(surface)
@@ -437,6 +518,19 @@ func copySurfaceStable(_ surface: IOSurface) -> CVPixelBuffer? {
         srcCopyBuffer = pb; srcCopyW = w; srcCopyH = h
     }
     guard let dst = srcCopyBuffer else { return nil }
+    if let gpu = gpuCopier {
+        var copied = true
+        for attempt in 0...3 {
+            let seed0 = IOSurfaceGetSeed(surface)
+            guard gpu.copy(surface, into: dst) else { copied = false; break }
+            if IOSurfaceGetSeed(surface) == seed0 { return dst }  // no write during the copy → coherent
+            if attempt < 3 { tearRetries += 1 } else { tearExhausted += 1 }
+        }
+        if copied { return dst }  // best-effort, as below
+        if gpuFailuresLogged.insert(gpu.lastFailure).inserted {
+            fputs("info: GPU copy not used (\(gpu.lastFailure)) — copying on the CPU\n", stderr)
+        }
+    }
     CVPixelBufferLockBaseAddress(dst, [])
     defer { CVPixelBufferUnlockBaseAddress(dst, []) }
     guard let dstBase = CVPixelBufferGetBaseAddress(dst) else { return nil }
