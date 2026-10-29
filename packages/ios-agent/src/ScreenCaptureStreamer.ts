@@ -142,7 +142,9 @@ export class ScreenCaptureStreamer {
 
         proc.stdout.on('data', (chunk: Buffer) => {
           if (done) return
-          buf = Buffer.concat([buf, chunk])
+          // Most chunks start a frame with nothing left over; `concat` would copy each one anyway. The frames point
+          // into `chunk` then, which the stream never reuses.
+          buf = buf.length === 0 ? chunk : Buffer.concat([buf, chunk])
           const { frames, rest } = parseStreamFrames(buf, h264)
           for (const f of frames) controller.enqueue(f)
           buf = rest
