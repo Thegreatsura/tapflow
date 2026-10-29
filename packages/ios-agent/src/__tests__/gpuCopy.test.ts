@@ -76,24 +76,24 @@ describe.skipIf(!canCompile)('GPUSurfaceCopier (the capture helper\'s GPU frame 
     }
   })()
 
-  it('copies every byte of each row, past the source surface\'s row padding', () => {
-    if (lines().has('no-metal')) return
+  it('copies every byte of each row, past the source surface\'s row padding', (ctx) => {
+    if (lines().has('no-metal')) ctx.skip() // no device: say so rather than pass
     expect(lines().get('first')).toBe('true true')
   }, 60_000)
 
-  it('reads a new surface of the same size, not the texture it made for the last one', () => {
-    if (lines().has('no-metal')) return
+  it('reads a new surface of the same size, not the texture it made for the last one', (ctx) => {
+    if (lines().has('no-metal')) ctx.skip() // no device: say so rather than pass
     expect(lines().get('second')).toBe('true true')
   }, 60_000)
 
-  it('refuses a surface that is not 32-bit BGRA or not the buffer\'s size, so the caller copies on the CPU', () => {
-    if (lines().has('no-metal')) return
+  it('refuses a surface that is not 32-bit BGRA or not the buffer\'s size, so the caller copies on the CPU', (ctx) => {
+    if (lines().has('no-metal')) ctx.skip() // no device: say so rather than pass
     expect(lines().get('rgba')).toBe('false')
     expect(lines().get('size')).toBe('false')
   }, 60_000)
 
-  it('refuses a row stride Metal cannot wrap, instead of letting Metal abort the helper', () => {
-    if (lines().has('no-metal')) return
+  it('refuses a row stride Metal cannot wrap, instead of letting Metal abort the helper', (ctx) => {
+    if (lines().has('no-metal')) ctx.skip() // no device: say so rather than pass
     // IOSurface may pad the row itself; then there is nothing to refuse and the case is moot on this machine.
     expect(['false', 'aligned-anyway']).toContain(lines().get('stride'))
   }, 60_000)

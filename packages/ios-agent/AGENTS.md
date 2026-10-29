@@ -389,10 +389,13 @@ The helper is compiled with `-O` (`ScreenCaptureStreamer.ts`); unoptimised it co
 
 **When**: reading the framebuffer IOSurface to encode (both the H.264 and JPEG paths go through it).
 
-**How**: don't encode the live surface. `copySurfaceStable` memcpys it into a private, reused
+**How**: don't encode the live surface. `copySurfaceStable` copies it into a private, reused
 buffer and brackets the copy with `IOSurfaceGetSeed`; if the seed moved, the simulator drew
 during the copy (possibly sheared) → retry (budget 4). `encodeH264`/`encodeJPEG` then read that
-snapshot.
+snapshot. The copy is a Metal blit (`GPUSurfaceCopier`, ~4% of a core while a video plays against ~7% for the memcpy),
+**waited for before the seed is read again** — that wait is what keeps the bracket meaningful. A surface the blit
+cannot take (not 32-bit BGRA, a row stride Metal cannot wrap — Metal aborts the process on one rather than refusing —
+or no Metal) is memcpy'd, frame by frame; the helper logs each reason once.
 
 **Why** (not obvious from the code):
 - The simulator draws into a **single IOSurface in place** (the static-skip seed relies on that),
@@ -408,9 +411,9 @@ snapshot.
 - This is distinct from the relay/agent **keyframe-aware backpressure** fix (orphan P-frames under
   drop): that is a transport-drop artifact; this is a source-pixel tear. Both can look like scroll
   tearing; they need separate fixes.
-- Reuse safety: downscale reads the snapshot synchronously (vImage) before the next tick; native
-  hands it to VTEncode but full-res encode is far slower than the frame interval, so the in-flight
-  encode never overlaps the next copy. `TAPFLOW_STREAM_METRICS=1` logs the retry/exhausted counts
+- Reuse safety: downscale reads the snapshot synchronously (vImage) before the next tick; native hands it to VTEncode, and a hardware encode of one frame is expected to be far shorter than the 33 ms
+  frame interval, so the in-flight encode does not overlap the next copy (an expectation, not a measurement of the
+  encode on its own). `TAPFLOW_STREAM_METRICS=1` logs the retry/exhausted counts
   (and the per-frame `capture-wait` poll gap) — formats and the full instrumentation surface are in
   [`contributing/measurement.md`](../../contributing/measurement.md).
 
