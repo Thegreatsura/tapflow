@@ -18,11 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Android emulators turn the way they are held too.** On an emulator streaming over gRPC, **Rotate** spins the device and turns its body a quarter clockwise, as on iOS, and a tap right after the turn lands where it is aimed; an app that does not support the orientation shows on its side, a turn made in an emulator window you started yourself shows in tapflow, and tapflow no longer stands the device upright when a session starts or turns it back when you leave — except when it starts the emulator itself and for a flow run. tapflow frees each AVD's rotation lock once, the first time it sees it, to clear the lock earlier versions set; a lock you set after that stays. Dashboard screenshots and recordings keep the body's orientation, while the MCP server's screenshots still follow the screen Android draws. Real devices and emulators without gRPC still toggle portrait/landscape. Upgrade the relay with the agent: an older dashboard draws Android emulators the old way. A flow run also starts an iPhone Duo upright.
 
+- **Watching an iOS device costs the browser less.** The dashboard kept a full-resolution copy of the picture for recording and screenshots, redrawn on every display refresh, up to 120 times a second for a 30 fps stream. It is now redrawn only when a new frame arrives.
+
 - **Streaming an iOS simulator costs the agent Mac less CPU.** The screen-capture helper no longer looks up the simulator's screen on every frame the simulator draws, and is built with optimisation.
 
 ### Fixed
 
 - **A recording of an iOS device in landscape is no longer saved sideways.** It is saved the way the device is shown on screen, as Android recordings already were.
+- **Device audio plays without ticking.** The dashboard played the audio at the speakers' rate, which put a tick between audio chunks several times a second wherever the speakers run at 48 kHz, as most do; it now plays it at its own 44.1 kHz. The iOS audio helper also dropped part of a sample every 10 ms, which ticked too and delivered slightly less audio than the dashboard played, so playback ran dry about once a minute; it now resamples without a break. Because the helper changed, macOS asks the agent Mac once more for permission to record audio, which the Android host-mute needs too: until it is allowed, iOS audio is silent in the browser and an Android emulator's sound plays on the agent Mac. Allow it, or run `tapflow agent start` to show the prompt again.
 
 ## [0.30.0] - 2026-10-27
 
