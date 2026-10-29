@@ -1009,10 +1009,12 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
   private async finishPosture(state: DeviceState | null, serial: string, before: 0 | 90 | 180 | 270 | null): Promise<void> {
     // Not on gRPC: its viewer draws the body, which a fold does not move, and Android picks the new panel's
     // rotation from the sensor; carrying a lock across is what made apps stop following the body.
-    if (before === null || state?.grpcClient) return
-    // An emulator with no session to say otherwise streams over gRPC when it next streams, and its body is drawn:
-    // carrying a lock there is what made apps stop following the body.
-    if (!state && serial.startsWith('emulator-')) return
+    // **On an emulator, only a scrcpy session carries a lock** — the one backend whose viewer toggles. Asked as "is it
+    // scrcpy", not "is it gRPC": a gRPC stream that is restarting has no client for a moment, and an emulator with
+    // no session streams over gRPC when it next streams; both draw the body, and a lock there is what made apps stop
+    // following it. A real device has no body and keeps the carry.
+    if (before === null) return
+    if (serial.startsWith('emulator-') && !state?.scrcpySession) return
     const after = await this.stableDisplayMetrics(serial)
     if (!after || after.rotation === before) return
     const quarter = (before / 90) as 0 | 1 | 2 | 3

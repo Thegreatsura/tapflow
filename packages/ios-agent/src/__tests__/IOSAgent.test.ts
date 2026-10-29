@@ -1147,6 +1147,34 @@ describe('IOSAgent', () => {
       browser.close()
     })
 
+    // A newer boot can land while a run's stand-up waits in the rotation queue. The superseded run neither turns nor
+    // goes on to open a stream over the newer boot's. Mutation: drop the bootSeq checks around the turn.
+    it('drops a run\'s stand-up when a newer boot supersedes it while the turn waits', async () => {
+      const world = duoWorld()
+      world.world.held = 'landscapeRight'
+      const { agent, browser, guest } = await bootedDuo({ world, chromeLoader: panelChromes(), boot: false })
+      const ok = vi.fn(async () => {})
+      const sim = (agent as unknown as { simctl: Record<string, unknown> }).simctl
+      Object.assign(sim, { uninstallAppForReset: ok, clearAppDataIfInstalled: ok, waitForBootStatus: ok, resetKeychain: ok, resetPrivacy: ok, clearLocation: ok })
+      let release!: () => void
+      const gate = new Promise<void>((r) => { release = r })
+      void (agent as unknown as { enqueueRotation(id: string, step: () => Promise<void>): Promise<void> }).enqueueRotation('dev-1', () => gate)
+      const superseded = waitForType(browser, 'device:boot-error')
+      browser.send(JSON.stringify({ type: 'device:boot', requestId: 'rq-run', sessionId: agent.sessionId, payload: { deviceId: 'dev-1', runReset: { uninstall: [], clear: [] } } }))
+      await guest.ready()
+      await new Promise((r) => setTimeout(r, 50))
+      browser.send(JSON.stringify({ type: 'device:boot', requestId: 'rq-next', sessionId: agent.sessionId, payload: { deviceId: 'dev-1' } }))
+      await waitForType(browser, 'device:ready')
+      release()
+      const e = await superseded
+      expect(e['requestId']).toBe('rq-run')
+      await new Promise((r) => setTimeout(r, 50))
+      expect(guest.lines()).not.toContain('orient portrait')
+      expect(world.world.held).toBe('landscapeRight')
+      agent.disconnect()
+      browser.close()
+    })
+
     it('follows a fold made outside tapflow', async () => {
       const world = duoWorld()
       const { agent, browser, received } = await bootedDuo({ world, chromeLoader: panelChromes() })

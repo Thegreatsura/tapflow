@@ -5651,9 +5651,11 @@ describe('PosturableAgent (the wiring)', () => {
 
   // A body-drawn emulator must never get a lock: it is what kept apps from following the body. `setPosture` takes a
   // device, not a session, so it has to find the device's state to see gRPC — and an emulator with no session is
-  // drawn by its body when it next streams. Mutations: pass no state; carry when no session says otherwise.
+  // drawn by its body when it next streams; a restarting gRPC stream has no client for a moment. Mutations: pass no
+  // state; carry when no session says otherwise; ask "is it gRPC" instead of "is it scrcpy".
   it.each([
     ['a gRPC session', { deviceId: 'avd:Pixel_8_API_34', booted: true, grpcClient: {} }],
+    ['a gRPC stream restarting', { deviceId: 'avd:Pixel_8_API_34', booted: true, grpcClient: null, scrcpySession: null }],
     ['no session', null],
   ])('carries no lock across a fold on an emulator with %s', async (_name, live) => {
     const adb = posturableAdb()

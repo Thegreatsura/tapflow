@@ -1174,8 +1174,13 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability, Posturab
         // turns through its helper, so only once the helper is up.
         // Re-described afterwards, as `input:rotate` does: the chrome sent while the helper came up carried the old
         // turn. The panel poll the turn re-arms would correct it too, but up to its interval later.
+        // A newer boot can arrive while the turn waits in the queue: it neither turns for a boot already superseded
+        // nor goes on to open a stream over the newer one's.
         if (runReset) {
-          await this.enqueueRotation(deviceId, () => this.turnHeld(deviceId, undefined, 'portrait'))
+          await this.enqueueRotation(deviceId, async () => {
+            if (seq === state.bootSeq) await this.turnHeld(deviceId, undefined, 'portrait')
+          })
+          if (seq !== state.bootSeq) { this.abandonBoot(state, seq, sessionId, requestId); return }
           this.applyLitPanel(deviceId)
         }
       }
