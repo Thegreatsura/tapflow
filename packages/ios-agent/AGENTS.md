@@ -284,7 +284,7 @@ Requires a TypeScript dist rebuild after compilation:
 ```bash
 cd packages/ios-agent
 swiftc src/screencapture-helper.swift -O -o bin/screencapture-helper \
-  -framework CoreVideo -framework ImageIO -framework VideoToolbox -framework CoreMedia
+  -framework CoreVideo -framework ImageIO -framework VideoToolbox -framework CoreMedia -framework Metal
 pnpm build
 ```
 
