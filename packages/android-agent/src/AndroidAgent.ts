@@ -940,9 +940,11 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
    */
   async setPosture(deviceId: string, postureId: string): Promise<void> {
     const { serial, before } = await this.beginPosture(deviceId, postureId)
-    // No state: `deviceStates` is keyed by session and this entry point takes a device. The
-    // capability's callers do not hold a viewer, so there is nothing to re-describe to.
-    await this.finishPosture(null, serial, before)
+    // `deviceStates` is keyed by session and this entry point takes a device, so the device's live state is looked
+    // up: `finishPosture` needs it to tell a body-drawn (gRPC) emulator, which must never get a lock, from one on
+    // scrcpy. The capability's callers hold no viewer, so nothing is re-described to them here.
+    const live = [...this.deviceStates.values()].find((s) => s.deviceId === deviceId && s.booted) ?? null
+    await this.finishPosture(live, serial, before)
   }
 
   /**
@@ -1008,6 +1010,9 @@ export class AndroidAgent implements DeviceAgent, NetworkControlCapability {
     // Not on gRPC: its viewer draws the body, which a fold does not move, and Android picks the new panel's
     // rotation from the sensor; carrying a lock across is what made apps stop following the body.
     if (before === null || state?.grpcClient) return
+    // An emulator with no session to say otherwise streams over gRPC when it next streams, and its body is drawn:
+    // carrying a lock there is what made apps stop following the body.
+    if (!state && serial.startsWith('emulator-')) return
     const after = await this.stableDisplayMetrics(serial)
     if (!after || after.rotation === before) return
     const quarter = (before / 90) as 0 | 1 | 2 | 3

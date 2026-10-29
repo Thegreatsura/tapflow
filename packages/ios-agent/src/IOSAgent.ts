@@ -1172,7 +1172,12 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability, Posturab
         }
         // A run replays from the same orientation, as a single-panel device's does (the stand-up above); the Duo
         // turns through its helper, so only once the helper is up.
-        if (runReset) await this.enqueueRotation(deviceId, () => this.turnHeld(deviceId, undefined, 'portrait'))
+        // Re-described afterwards, as `input:rotate` does: the chrome sent while the helper came up carried the old
+        // turn. The panel poll the turn re-arms would correct it too, but up to its interval later.
+        if (runReset) {
+          await this.enqueueRotation(deviceId, () => this.turnHeld(deviceId, undefined, 'portrait'))
+          this.applyLitPanel(deviceId)
+        }
       }
 
       const streamWs = await this.openStreamWs(state)

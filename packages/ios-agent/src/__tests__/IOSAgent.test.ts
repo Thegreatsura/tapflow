@@ -1132,7 +1132,7 @@ describe('IOSAgent', () => {
     it('turns a Duo upright for a run, through its helper', async () => {
       const world = duoWorld()
       world.world.held = 'landscapeRight'
-      const { agent, browser, guest } = await bootedDuo({ world, chromeLoader: panelChromes(), boot: false })
+      const { agent, browser, guest, received } = await bootedDuo({ world, chromeLoader: panelChromes(), boot: false })
       const ok = vi.fn(async () => {})
       const sim = (agent as unknown as { simctl: Record<string, unknown> }).simctl
       Object.assign(sim, { uninstallAppForReset: ok, clearAppDataIfInstalled: ok, waitForBootStatus: ok, resetKeychain: ok, resetPrivacy: ok, clearLocation: ok })
@@ -1140,6 +1140,9 @@ describe('IOSAgent', () => {
       await waitForType(browser, 'device:ready')
       await vi.waitFor(() => expect(world.world.held).toBe('portrait'))
       expect(guest.lines()).toContain('orient portrait')
+      // And re-described as upright. The re-send after the turn makes it immediate; the panel poll `turnHeld` re-arms
+      // would get there within its interval too, so this holds the end state and not the re-send itself.
+      await vi.waitFor(() => expect((received.filter((m) => m.type === 'session:chrome').at(-1)!.payload as { streamRotation?: number }).streamRotation).toBe(0))
       agent.disconnect()
       browser.close()
     })

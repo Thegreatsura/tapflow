@@ -5640,11 +5640,33 @@ describe('PosturableAgent (the wiring)', () => {
       '    init=1080x2424 cur=1080x2424\n mRotation=ROTATION_0')
     vi.spyOn(adb, 'getDisplayMetrics').mockResolvedValueOnce(before).mockResolvedValue(after)
     const agent = new AndroidAgent({}, adb)
+    // On scrcpy, where the viewer's toggle is the rotation — the only backend this carry is for.
+    internals(agent).deviceStates.set('s1', { deviceId: 'avd:Pixel_8_API_34', booted: true, grpcClient: null, scrcpySession: {} } as unknown as TestState)
 
     await agent.setPosture('avd:Pixel_8_API_34', '1')
 
     // 270° before, 0° after — so the rotation is put back, as quarter turns (3 = 270).
     expect(adb.setRotation).toHaveBeenCalledWith('emulator-5554', 3)
+  })
+
+  // A body-drawn emulator must never get a lock: it is what kept apps from following the body. `setPosture` takes a
+  // device, not a session, so it has to find the device's state to see gRPC — and an emulator with no session is
+  // drawn by its body when it next streams. Mutations: pass no state; carry when no session says otherwise.
+  it.each([
+    ['a gRPC session', { deviceId: 'avd:Pixel_8_API_34', booted: true, grpcClient: {} }],
+    ['no session', null],
+  ])('carries no lock across a fold on an emulator with %s', async (_name, live) => {
+    const adb = posturableAdb()
+    const dm = await import('../displayMetrics')
+    vi.spyOn(adb, 'getDisplayMetrics')
+      .mockResolvedValueOnce(dm.parseDisplayMetrics('    init=2076x2152 cur=2152x2076\n mRotation=ROTATION_270'))
+      .mockResolvedValue(dm.parseDisplayMetrics('    init=1080x2424 cur=1080x2424\n mRotation=ROTATION_0'))
+    const agent = new AndroidAgent({}, adb)
+    if (live) internals(agent).deviceStates.set('s1', live as unknown as TestState)
+
+    await agent.setPosture('avd:Pixel_8_API_34', '1')
+
+    expect(adb.setRotation).not.toHaveBeenCalled()
   })
 
   it('leaves the rotation alone when the change did not disturb it', async () => {
