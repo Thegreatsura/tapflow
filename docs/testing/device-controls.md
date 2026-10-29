@@ -40,7 +40,7 @@ The keyboard button in the toolbar (**Software keyboard**, <kbd>⌘</kbd> <kbd>�
 
 ## Rotate {#rotate}
 
-**Rotate** (<kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>O</kbd>) turns the device. Holding the shortcut down turns it once. iOS and Android turn differently.
+**Rotate** (<kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>O</kbd>) turns the device. Holding the shortcut down turns it once. iOS simulators and Android emulators turn the device's body clockwise; a real Android device, or an emulator started without gRPC, switches between portrait and landscape.
 
 ### Rotate on iOS {#rotate-ios}
 
@@ -60,9 +60,15 @@ A turn made in Xcode's DeviceHub or Simulator.app shows in tapflow when a sessio
 
 <Badge type="info" text="Android" />
 
-Each press of **Rotate** turns an Android device between portrait and landscape. If you leave the session in landscape, the device is turned back to portrait before it shuts down.
+An Android emulator turns like an iOS simulator: each press of **Rotate** turns the device's body a quarter turn clockwise. The device turns first and the screen follows. An app that supports the new orientation stands its screen back up; one that does not stays on its side. A turn made with the rotate buttons of an emulator window you started yourself shows in tapflow too. An emulator started by tapflow runs without a window, so it has none.
 
-A session starts in portrait. If the device was left in landscape, for example after you reloaded the page or the agent restarted, it is turned upright when the session starts. The exception is an Android emulator set to auto-rotate that you turned outside tapflow, which is left as it is.
+tapflow does not change the orientation when a session starts or ends. The exceptions are a boot where tapflow starts the emulator itself and a flow run: those stand the body upright first.
+
+tapflow frees an emulator's rotation lock (auto-rotate off) once per AVD, the first time it sees it, to clear the lock earlier versions of tapflow set. A lock you set after that is left alone.
+
+The dashboard's screenshots and recordings keep the orientation the body is shown in. The MCP server's screenshots follow the screen Android draws, so they can be turned differently.
+
+A real device, and an emulator started without gRPC, still turn between portrait and landscape on each press of **Rotate**. If you leave the session with one of them in landscape, it is turned back to portrait before it shuts down.
 
 ## Fold and unfold {#fold}
 
@@ -104,7 +110,7 @@ If the dashboard is open over plain HTTP, text copied on the device stays on the
 | Tap, swipe, pinch, typing | Yes | Yes |
 | Device buttons | Home, side buttons on the device frame | Home, Back, Recent Apps, Volume Up, Volume Down, Power |
 | Software keyboard button | Yes | No |
-| Rotate | A quarter clockwise, all four ways | Portrait and landscape |
+| Rotate | A quarter clockwise, all four ways | gRPC emulators a quarter clockwise; real devices and emulators without gRPC portrait and landscape |
 | Fold and unfold | iPhone Duo (Xcode 27.1 or later) | Foldable emulators with two postures |
 | Restart, clipboard | Yes | Yes |
 
