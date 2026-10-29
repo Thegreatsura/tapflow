@@ -1170,6 +1170,9 @@ export class IOSAgent implements DeviceAgent, NetworkControlCapability, Posturab
           if (cold) await this.simctl.shutdown(deviceId).catch(() => { /* reported below either way */ })
           throw new PlatformError(`${bootedDevice.name} cannot be used on this Mac: ${reason}`)
         }
+        // A run replays from the same orientation, as a single-panel device's does (the stand-up above); the Duo
+        // turns through its helper, so only once the helper is up.
+        if (runReset) await this.enqueueRotation(deviceId, () => this.turnHeld(deviceId, undefined, 'portrait'))
       }
 
       const streamWs = await this.openStreamWs(state)

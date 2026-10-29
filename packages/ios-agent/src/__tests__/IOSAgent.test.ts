@@ -1127,6 +1127,23 @@ describe('IOSAgent', () => {
       browser.close()
     })
 
+    // A run replays from the same orientation; the single-panel stand-up skips a multi-panel device, so its own
+    // runs it through the helper. Mutation: drop it.
+    it('turns a Duo upright for a run, through its helper', async () => {
+      const world = duoWorld()
+      world.world.held = 'landscapeRight'
+      const { agent, browser, guest } = await bootedDuo({ world, chromeLoader: panelChromes(), boot: false })
+      const ok = vi.fn(async () => {})
+      const sim = (agent as unknown as { simctl: Record<string, unknown> }).simctl
+      Object.assign(sim, { uninstallAppForReset: ok, clearAppDataIfInstalled: ok, waitForBootStatus: ok, resetKeychain: ok, resetPrivacy: ok, clearLocation: ok })
+      browser.send(JSON.stringify({ type: 'device:boot', requestId: 'rq-duo-run', sessionId: agent.sessionId, payload: { deviceId: 'dev-1', runReset: { uninstall: [], clear: [] } } }))
+      await waitForType(browser, 'device:ready')
+      await vi.waitFor(() => expect(world.world.held).toBe('portrait'))
+      expect(guest.lines()).toContain('orient portrait')
+      agent.disconnect()
+      browser.close()
+    })
+
     it('follows a fold made outside tapflow', async () => {
       const world = duoWorld()
       const { agent, browser, received } = await bootedDuo({ world, chromeLoader: panelChromes() })
