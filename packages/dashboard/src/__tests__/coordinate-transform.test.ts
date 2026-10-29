@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { iosToNormScreen, iosTurn,
+import { iosToNormScreen, iosTurn, turnPoint,
   androidToNorm,
   toPinchFingers,
   iosDisplayScale, placeTurnedFrame, turnedSize, surfaceBox, composeTurn, overlaySpace, showsPicture, framesAgree, remaining } from '@/lib/coordinate-transform'
@@ -366,5 +366,24 @@ describe('remaining — a stop the answer cannot move', () => {
     // in the past and then never resolve.
     expect(remaining(8_000, 9_000)).toBe(0)
     expect(remaining(8_000, 8_000)).toBe(0)
+  })
+})
+
+// Android body mode: the frame (as the body is held) turned by `streamRotation` is the screen Android draws.
+// Mutation: turn the other way.
+describe('turnPoint', () => {
+  it('carries a point a quarter clockwise at a time, and back', () => {
+    const p = { x: 0.2, y: 0.1 }
+    const near = (a: { x: number; y: number }, b: { x: number; y: number }) => { expect(a.x).toBeCloseTo(b.x); expect(a.y).toBeCloseTo(b.y) }
+    near(turnPoint(p, 0), p)
+    near(turnPoint(p, 90), { x: 0.9, y: 0.2 })
+    near(turnPoint(p, 180), { x: 0.8, y: 0.9 })
+    near(turnPoint(p, 270), { x: 0.1, y: 0.8 })
+    near(turnPoint(turnPoint(p, 90), 270), p)
+  })
+  // Measured on a Pixel 9, body a quarter clockwise over a portrait-locked screen (correction 270): the frame's
+  // top-left corner is the screen's bottom-left.
+  it('lands the measured corner', () => {
+    expect(turnPoint({ x: 0, y: 0 }, 270)).toEqual({ x: 0, y: 1 })
   })
 })
