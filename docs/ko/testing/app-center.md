@@ -11,7 +11,7 @@ App Center는 tapflow 대시보드 안의 빌드 목록 화면입니다. Microso
 
 ## 사용 방법 {#how-to-use}
 
-1. 왼쪽 **Apps** 목록에서 앱을 고릅니다. 앱은 bundle ID(iOS 번들 ID 또는 Android 패키지 이름)로 구분되고, 플랫폼마다 다른 bundle ID를 가질 수 있습니다.
+1. 왼쪽 **Apps** 목록에서 앱을 고릅니다. 앱은 bundle ID(iOS 번들 ID 또는 Android 패키지 이름)로 구분됩니다. 한 앱이 플랫폼마다 다른 bundle ID를 가질 수 있습니다.
 2. 빌드는 버전 이름별로 접고 펼 수 있는 묶음(릴리스)에 모입니다. 버전 이름을 읽을 수 없는 빌드는 **Unversioned** 묶음에 들어갑니다.
 3. 테스트할 빌드 행에서 **Start QA**를 누릅니다. 그 빌드의 [QA 세션](/ko/testing/qa-session)이 열립니다.
 
@@ -39,7 +39,7 @@ App Center는 tapflow 대시보드 안의 빌드 목록 화면입니다. Microso
 `.ipa`는 실제 기기용 포맷입니다. tapflow는 시뮬레이터용 `.app.zip`과 `.tar.gz`/`.tgz`를 받습니다. 업로드 오류가 나면 [빌드와 업로드 문제 해결](/ko/troubleshooting/builds#ios-빌드-업로드-오류)을 참고하세요.
 :::
 
-업로드한 빌드는 bundle ID를 기준으로 앱에 연결됩니다. 같은 bundle ID의 앱이 없으면 새 앱이 만들어집니다. 앱을 고른 상태에서 올리면 그 앱에 연결됩니다. 그 앱에 해당 플랫폼의 bundle ID가 아직 없으면 빌드의 bundle ID가 앱에 추가되므로, iOS와 Android의 bundle ID가 다른 앱도 하나로 모을 수 있습니다. 빌드의 bundle ID를 다른 앱이 이미 쓰고 있거나 고른 앱에 그 플랫폼의 bundle ID가 따로 있으면, 빌드는 자기 bundle ID의 앱으로 갑니다.
+업로드한 빌드는 bundle ID를 기준으로 앱에 연결됩니다. 같은 bundle ID의 앱이 없으면 새 앱이 만들어집니다. 앱을 고른 상태에서 올리면 그 앱에 연결됩니다. 그 앱에 해당 플랫폼의 bundle ID가 아직 없으면 빌드의 bundle ID가 앱에 추가됩니다. 그래서 iOS와 Android의 bundle ID가 다른 앱도 하나로 모을 수 있습니다. 빌드의 bundle ID를 다른 앱이 이미 쓰고 있거나 고른 앱에 그 플랫폼의 bundle ID가 따로 있으면, 빌드는 자기 bundle ID의 앱으로 갑니다.
 
 **Apps** 목록 아래의 **Add App**으로 앱을 먼저 만들어 둘 수도 있습니다. **Name**, **Bundle ID**, **Platform**(iOS, Android, Both)을 입력합니다.
 

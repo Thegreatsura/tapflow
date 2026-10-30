@@ -266,7 +266,7 @@ Body (JSON):
 }
 ```
 
-`bundle_ids`는 플랫폼별 bundle ID이고, 그 플랫폼에 ID가 없으면 `null`입니다. `bundle_id_key`는 예전 클라이언트를 위해 남겨 둔 값입니다. 두 ID가 다르면 iOS 쪽을 담습니다. `build_platforms`는 빌드가 있는 플랫폼입니다.
+`bundle_ids`는 플랫폼별 bundle ID입니다. 그 플랫폼에 ID가 없으면 `null`입니다. `bundle_id_key`는 예전 클라이언트를 위해 남겨 둔 값입니다. 두 ID가 다르면 iOS 쪽을 담습니다. `build_platforms`는 빌드가 있는 플랫폼입니다.
 
 
 ### `POST /api/v1/apps`
@@ -316,7 +316,7 @@ Body (JSON):
 
 ### `POST /api/v1/apps/:id/merge`
 
-다른 앱의 한 플랫폼을 이 앱으로 옮깁니다. 그 플랫폼의 bundle ID와 빌드가 함께 옮겨지고, 빌드에 딸린 댓글·녹화·실행 기록도 따라옵니다. 옮긴 뒤 원래 앱에 남은 것이 없으면 원래 앱은 삭제됩니다. 앱 이름은 이 앱의 이름을 그대로 씁니다. 되돌릴 수 없습니다. **Admin, Developer, QA** 권한이 필요합니다.
+다른 앱의 한 플랫폼을 이 앱으로 옮깁니다. 그 플랫폼의 bundle ID와 빌드가 함께 옮겨집니다. 빌드에 딸린 댓글·녹화·실행 기록도 따라옵니다. 옮긴 뒤 원래 앱에 남은 것이 없으면 원래 앱은 삭제됩니다. 앱 이름은 이 앱의 이름을 그대로 씁니다. 되돌릴 수 없습니다. **Admin, Developer, QA** 권한이 필요합니다.
 
 ```
 Body (JSON):

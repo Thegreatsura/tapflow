@@ -352,7 +352,7 @@ Only `file` is required; every other field is optional.
 | `status` | No | Initial review status — one of `Backlog`, `In Progress`, `Done`, `Rejected`. Omit to leave it unset. |
 | `label` | No | Free-text label to identify the build in App Center (e.g. a branch name or `rc-1`). |
 | `platform` | No | Ignored. The platform comes from the file type. |
-| `app_id` | No | Attach to an existing app. If that app has no bundle ID on the build's platform and no other app holds the build's ID, the ID is added to the app. Otherwise the build goes to the app for its bundle ID. An `app_id` removed by a merge is routed by the bundle ID instead. When omitted, the bundle ID decides the app. |
+| `app_id` | No | Attach to an existing app. If that app has no bundle ID on the build's platform and no other app holds the build's ID, the ID is added to the app. Otherwise the build goes to the app for its bundle ID. An upload naming an app a merge removed is routed by its bundle ID instead. When omitted, the bundle ID decides the app. |
 
 ::: warning iOS builds
 `.ipa` files are not supported. Upload `.app.zip`, or the `.tar.gz` / `.tgz` a cloud simulator build produces. Build `.app.zip` with `xcodebuild -sdk iphonesimulator` and zip the `.app` folder.
