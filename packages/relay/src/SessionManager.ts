@@ -465,13 +465,13 @@ export class SessionManager {
     session.waitingOwner = undefined
   }
 
-  /** The agent could not shut the device down. Only while nothing has happened since: nobody joined, no boot went out,
-   *  and the countdown the wait is tied to is still running. */
+  /** The agent could not shut the device down. Only while nothing has happened since: no boot went out, and the
+   *  countdown the wait is tied to still runs (a join stops it, and a person leaving again leaves a wait of their own). */
   undoShutdown(sessionId: string): void {
     const session = this.sessions.get(sessionId)
     if (!session) return
     const undo = session.shutdownUndo
-    const untouched = session.bootAfterShutdown === false && session.owner === null && session.idleTimer !== null
+    const untouched = session.bootAfterShutdown === false && session.idleTimer !== null
     session.shutdownUndo = undefined
     session.bootAfterShutdown = undefined
     if (!undo || !untouched || session.waitingOwner) return
@@ -497,7 +497,6 @@ export class SessionManager {
     if (!session) return
     const stale = session.bootAfterShutdown === true
     session.bootAfterShutdown = undefined
-    session.shutdownUndo = undefined
     if (stale) return
     if (session.idleTimer) { clearTimeout(session.idleTimer); session.idleTimer = null }
     session.waitingOwner = undefined
