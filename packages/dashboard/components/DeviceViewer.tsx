@@ -61,6 +61,14 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
   // there. It cannot be read from `installed` at ready-time either — `device:booting` clears that
   // flag and the agent sends it on every boot, so it is always false by then.
   const rebindRef = useRef<{ pending: number; appInstalled: boolean }>({ pending: 0, appInstalled: false });
+  // Whether this mount has seen its own install land. From then on every install asks the relay to keep a build
+  // already there (#1087): an install clears the app's data first, and a reconnect sends one per `device:ready` it
+  // gets, which is two. The relay decides, because only it saw what happened to the device in between.
+  //
+  // Set on the first done, not on the first send. A device someone left running answers the first join with a
+  // replayed ready and then the real one, and the second install must not be folded into the first, which is still
+  // running while the device boots.
+  const keepInstalledRef = useRef(false);
   const { perfMode, visible: perfVisible } = usePerfMode();
 
   // statsRef is set by StatsOverlay; perfMetricsPushRef is set by MetricsPanel
@@ -461,7 +469,7 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
         setInstalling(true);
         const requestId = newRequestId();
         appInstallIdsRef.current.add(requestId);
-        sendRef.current({ type: 'app:install', sessionId, requestId, buildId });
+        sendRef.current({ type: 'app:install', sessionId, requestId, buildId, ...(keepInstalledRef.current ? { keepIfInstalled: true } : {}) });
       }
     }
     // Correlated, for the reason `open-url` is: the relay delivers a reply to whichever socket holds the
@@ -470,8 +478,10 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
     if (msg.type === 'app:install-done' || msg.type === 'app:install-error') {
       if (!appInstallIdsRef.current.delete(msg.requestId)) return;
       setInstalling(false);
-      if (msg.type === 'app:install-done') setInstalled(true);
-      else setInstallError(msg.message);
+      if (msg.type === 'app:install-done') {
+        setInstalled(true);
+        keepInstalledRef.current = true;
+      } else setInstallError(msg.message);
     }
     if (msg.type === 'app:launch-done' || msg.type === 'app:launch-error') {
       if (!appLaunchIdsRef.current.delete(msg.requestId)) return;

@@ -183,7 +183,9 @@ const BROWSER_INBOUND = {
   // worked, and left this message as the single special case in a class the door now handles uniformly.
   // It was also the wrong diagnosis: nothing was looked up, so "not found" describes a query that never
   // ran.
-  'app:install': z.object({ type: z.literal('app:install'), sessionId, requestId, buildId: z.number().int() }),
+  'app:install': z.object({
+    type: z.literal('app:install'), sessionId, requestId, buildId: z.number().int(), keepIfInstalled: z.boolean().optional(),
+  }),
   // Shape only. The rules (key form, reserved names, size) are `launchOptionsProblem`'s, which the relay applies in its
   // handler so the caller is told which key and why, rather than this door's `malformed app:launch payload`.
   'app:launch': z.object({
