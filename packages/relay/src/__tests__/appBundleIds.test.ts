@@ -107,6 +107,15 @@ describe('upload routing', () => {
   })
 })
 
+describe('the app for unreadable builds', () => {
+  it('never takes a real ID, even when an upload names it', () => {
+    const unknown = Number(route(null, null, 'android'))
+    const real = route(unknown, 'com.named.unknown', 'ios')
+    expect(real).not.toBe(unknown)
+    expect(ids(unknown)).toEqual({ android: '__unknown__' })
+  })
+})
+
 describe('the apps API', () => {
   let server: RelayServer
   let port: number

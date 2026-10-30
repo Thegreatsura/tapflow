@@ -16,6 +16,10 @@ export type Platform = 'ios' | 'android'
 /** Builds whose bundle ID could not be read, uploaded without `app_id`. Never an ID people can set or merge. */
 export const UNKNOWN_BUNDLE_ID = '__unknown__'
 
+export function holdsUnknown(db: Db, appId: number): boolean {
+  return db.prepare('SELECT 1 FROM app_bundle_ids WHERE app_id = ? AND bundle_id = ?').get(appId, UNKNOWN_BUNDLE_ID) !== undefined
+}
+
 export function ownerOf(db: Db, bundleId: string): number | null {
   const row = db.prepare('SELECT app_id FROM app_bundle_ids WHERE bundle_id = ? LIMIT 1').get(bundleId) as { app_id: number } | undefined
   return row?.app_id ?? null

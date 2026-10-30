@@ -12,7 +12,7 @@ import { json, readJson } from '../router.js'
 import { pipeUpload, unlinkSafe } from '../lib/uploads.js'
 import { deliverWebhooks } from '../lib/webhooks.js'
 import { deleteBuildsWithDependents, type BuildFileDirs } from '../lib/buildDeletion.js'
-import { attachIfFree, idOn, ownerOf, promote, UNKNOWN_BUNDLE_ID, type Platform } from '../lib/appBundleIds.js'
+import { attachIfFree, holdsUnknown, idOn, ownerOf, promote, UNKNOWN_BUNDLE_ID, type Platform } from '../lib/appBundleIds.js'
 
 // ── archive kind ───────────────────────────────────────────────────────────
 
@@ -241,6 +241,8 @@ export function routeUploadToApp(
     }
     if (bundleId === null && isAndroidArtifact) return { kind: 'reject-null-bundle' }
     if (bundleId !== null) {
+      // The app that collects unreadable builds never takes a real ID, which would also leave that ID unmergeable.
+      if (holdsUnknown(db, appId)) return { kind: 'ok', appId: upsertApp(appName, bundleId, platform) }
       const owner = ownerOf(db, bundleId)
       const taken = owner !== null && owner !== appId
       const otherIdHere = owner === null && idOn(db, appId, platform) !== null

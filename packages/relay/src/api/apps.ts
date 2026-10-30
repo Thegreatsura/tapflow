@@ -3,7 +3,7 @@ import { getDb } from '../db.js'
 import { requireRole, requireViewAuth } from '../middleware/auth.js'
 import { json, readJson } from '../router.js'
 import { deleteBuildsWithDependents, type BuildFileDirs } from '../lib/buildDeletion.js'
-import { attachIfFree, idOn, ownerOf, platformsOf, recomputePlatform, UNKNOWN_BUNDLE_ID, type Platform } from '../lib/appBundleIds.js'
+import { attachIfFree, holdsUnknown, idOn, ownerOf, platformsOf, recomputePlatform, UNKNOWN_BUNDLE_ID, type Platform } from '../lib/appBundleIds.js'
 
 // Viewer is the one read-only role; QA manages apps like Developer does.
 const APP_MANAGERS = ['Admin', 'Developer', 'QA']
@@ -138,9 +138,8 @@ export async function handleMergeApp(
     return json(res, 400, { error: `That app has nothing on ${platform}` })
   }
   const movingId = idOn(db, source, platform)
-  const unknown = db.prepare('SELECT 1 FROM app_bundle_ids WHERE app_id IN (?, ?) AND bundle_id = ?').get(source, target, UNKNOWN_BUNDLE_ID)
   // The app holding builds no ID could be read for stays apart, or every such upload from then on joins a real app.
-  if (unknown) return json(res, 400, { error: 'Builds without a readable bundle ID cannot be merged' })
+  if (holdsUnknown(db, source) || holdsUnknown(db, target)) return json(res, 400, { error: 'Builds without a readable bundle ID cannot be merged' })
   if (movingId !== null && idOn(db, target, platform) !== null) {
     return json(res, 409, { error: `The target app already has a ${platform} bundle ID` })
   }
