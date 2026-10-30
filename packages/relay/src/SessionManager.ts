@@ -37,6 +37,8 @@ export interface Session {
    *  `owner`: a session nobody holds is nobody's kind. Only an AI kind makes the session watchable. */
   holderKind: ClientKind | null
   holderLabel: string | null
+  /** What to call a person holder (#1087): display name, else the email's local part. */
+  holderName?: string | null
   /** False when the holder said on `session:start` it does not read the stream (`stream: false`): the relay sends
    *  it no frames. Kept with the holder rather than on its socket, so it resets with every change of holder. */
   holderStream: boolean
@@ -105,10 +107,10 @@ export interface Session {
    * reads as anyone. Tied to the countdown the relay already keeps — set where a person's countdown starts, kept (not
    * cleared) while an AI client borrows the device, restored in full when it hands the countdown back.
    */
-  waitingOwner?: { user: string; label: string; since: number; deadline: number }
+  waitingOwner?: { user: string; label: string; name: string; since: number; deadline: number }
   /** Someone else took or shut down the device while it waited for `ownerUser`. Expires with the idle window; a read
    *  does not clear it, because every open tab of that person polls the listing. */
-  endedBy?: { ownerUser: string; byLabel: string; at: number }
+  endedBy?: { ownerUser: string; byLabel: string; byName: string; at: number }
   /** A boot went to the agent after the last shutdown did. Then that shutdown's done describes a device someone has
    *  since picked up again, and the wait and countdown it would clear are newer than it. Undefined: no shutdown out. */
   bootAfterShutdown?: boolean
@@ -322,7 +324,7 @@ export class SessionManager {
     owner: { key: string; user: string; minted: boolean },
     isAlive: (ws: WebSocket) => boolean,
     /** What the joining client declared itself to be, and who to show behind it. */
-    holder: { kind?: ClientKind; label: string; stream?: boolean } = { label: owner.user },
+    holder: { kind?: ClientKind; label: string; name?: string; stream?: boolean } = { label: owner.user },
   ): JoinResult {
     const session = this.sessions.get(sessionId)
     if (!session) return { ok: false, failure: 'not-found' }
@@ -366,6 +368,7 @@ export class SessionManager {
     session.ownerUser = owner.user
     session.holderKind = holder.kind ?? null
     session.holderLabel = holder.label
+    session.holderName = holder.name ?? holder.label
     session.holderStream = holder.stream !== false
     // A touch the previous holder began is not this one's to end.
     session.gesture = null
@@ -373,7 +376,9 @@ export class SessionManager {
     // only borrows it: the wait is kept and comes back when the client leaves.
     if (!isAiClientKind(holder.kind)) {
       const waited = session.waitingOwner
-      if (waited && waited.user !== owner.user) session.endedBy = { ownerUser: waited.user, byLabel: holder.label, at: Date.now() }
+      if (waited && waited.user !== owner.user) {
+        session.endedBy = { ownerUser: waited.user, byLabel: holder.label, byName: holder.name ?? holder.label, at: Date.now() }
+      }
       if (session.endedBy?.ownerUser === owner.user) session.endedBy = undefined
       session.waitingOwner = undefined
     }
@@ -412,13 +417,14 @@ export class SessionManager {
       session.lastHolderWasAi = isAiClientKind(session.holderKind) && (!session.idleResumeOnLeave || session.lastHolderWasAi === true)
     }
     const leavingPerson = session.owner !== null && session.ownerUser !== null && !isAiClientKind(session.holderKind)
-      ? { user: session.ownerUser, label: session.holderLabel ?? session.ownerUser }
+      ? { user: session.ownerUser, label: session.holderLabel ?? session.ownerUser, name: session.holderName ?? session.holderLabel ?? session.ownerUser }
       : null
     session.owner = null
     session.ownerMinted = false
     session.ownerUser = null
     session.holderKind = null
     session.holderLabel = null
+    session.holderName = null
     session.holderStream = true
     session.gesture = null
     if (session.idleTimer) { clearTimeout(session.idleTimer); session.idleTimer = null }
@@ -445,12 +451,12 @@ export class SessionManager {
    * ended it if it was not them. Called when the shutdown is forwarded, not when it is asked for: a refused one ends
    * nothing. The countdown is left running until `settleShutdown`, so a shutdown that fails still has it behind it.
    */
-  noteShutdown(sessionId: string, by: { user: string; label: string }): void {
+  noteShutdown(sessionId: string, by: { user: string; label: string; name: string }): void {
     const session = this.sessions.get(sessionId)
     if (session) session.bootAfterShutdown = false
     const waited = session?.waitingOwner
     if (!session || !waited) return
-    if (waited.user !== by.user) session.endedBy = { ownerUser: waited.user, byLabel: by.label, at: Date.now() }
+    if (waited.user !== by.user) session.endedBy = { ownerUser: waited.user, byLabel: by.label, byName: by.name, at: Date.now() }
     session.waitingOwner = undefined
   }
 
@@ -688,6 +694,7 @@ export class SessionManager {
       const yours = mine && waited.user === askerUser
       out.waiting = {
         user: waited.label,
+        name: waited.name,
         ...(live ? { aiHolding: true as const } : { remainingMs: Math.max(0, waited.deadline - now) }),
         ...(yours ? { yours: true as const, ...(s.installed ? { buildId: s.installed.buildId } : {}) } : {}),
       }
@@ -698,7 +705,7 @@ export class SessionManager {
     }
     if (live && mine && !isAiClientKind(s.holderKind) && s.owner !== asker && s.ownerUser === askerUser) out.heldBySelf = true
     const ended = s.endedBy
-    if (ended && mine && ended.ownerUser === askerUser && now - ended.at < this.idleTimeoutMs) out.endedBy = { by: ended.byLabel, at: ended.at }
+    if (ended && mine && ended.ownerUser === askerUser && now - ended.at < this.idleTimeoutMs) out.endedBy = { by: ended.byLabel, name: ended.byName, at: ended.at }
     return out
   }
 

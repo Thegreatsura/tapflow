@@ -1958,7 +1958,7 @@ export class RelayServer {
         }
         this.rememberShutdownRequester(ws, target.session.id, msg.requestId)
         // Here and not at the top: a refused shutdown ends nobody's wait (#1087).
-        this.sessions.noteShutdown(target.session.id, { user: this.userOf(ws), label: this.holderLabel(ws) })
+        this.sessions.noteShutdown(target.session.id, { user: this.userOf(ws), label: this.holderLabel(ws), name: this.personName(ws) })
         target.session.agentSocket.send(JSON.stringify(msg))
         break
       }
@@ -2837,7 +2837,7 @@ export class RelayServer {
       const joined = this.sessions.join(
         msg.sessionId, ws, this.ownerRecord(ws), (h) => this.isAlive(h),
         // Recorded by the join itself, so it holds before the agent-away return below and across a rebind.
-        { kind: msg.clientKind, label: this.holderLabel(ws), ...(msg.stream === false ? { stream: false } : {}) },
+        { kind: msg.clientKind, label: this.holderLabel(ws), name: this.personName(ws), ...(msg.stream === false ? { stream: false } : {}) },
       )
       if (!joined.ok) {
         // Both of these are answered above, so arriving here means the state moved between that check and
@@ -3036,6 +3036,20 @@ export class RelayServer {
   /** The relay-originated half of what watchers hear: holder left, agent away, agent rebound. */
   private tellWatchers(sessionId: string, msg: RelayOutbound): void {
     for (const w of this.sessions.watchersOf(sessionId)) this.sendTo(w, msg)
+  }
+
+  /** What to call a person to their teammates (#1087): their display name, else the part of the email before `@` —
+   *  the rule `/auth/me` uses. `local` for a loopback client with no credential, as `holderLabel`. */
+  private personName(ws: WebSocket): string {
+    const id = Number(this.userOf(ws))
+    if (!Number.isInteger(id)) return 'local'
+    try {
+      const row = getDb().prepare('SELECT email, display_name FROM users WHERE id = ?').get(id) as { email: string; display_name: string | null } | undefined
+      if (!row) return 'unknown'
+      return row.display_name ?? row.email.split('@')[0]!
+    } catch {
+      return 'unknown'
+    }
   }
 
   /** Who to show behind a holder: the signed-in user's email, or `local` for a loopback client with no

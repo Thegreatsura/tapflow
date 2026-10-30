@@ -18,7 +18,7 @@ const IDLE_MAC = () => ({ booting: false, overloaded: false, memoryRefuses: [] }
 
 /** `<user>:<client>` like the relay's owner key; the user half is what a person is across browsers. */
 const client = (user: string, tab: string) => ({ key: `${user}:${tab}`, user, minted: false })
-const person = (label: string) => ({ kind: 'dashboard' as const, label })
+const person = (label: string) => ({ kind: 'dashboard' as const, label, name: label.split('@')[0]! })
 const mcp = (label: string) => ({ kind: 'mcp' as const, label })
 
 function setup() {
@@ -47,7 +47,7 @@ describe('the device remembers who it is waiting for', () => {
 
     const mine = device(aliceElsewhere)
     expect(mine.resumable).toBe(true)
-    expect(mine.waiting).toEqual({ user: 'alice@example.com', remainingMs: IDLE - 3_000, yours: true })
+    expect(mine.waiting).toEqual({ user: 'alice@example.com', name: 'alice', remainingMs: IDLE - 3_000, yours: true })
     expect(mine.releasedAgoMs).toBe(3_000)
   })
 
@@ -57,7 +57,7 @@ describe('the device remembers who it is waiting for', () => {
     drop()
 
     const theirs = device(bob)
-    expect(theirs.waiting).toEqual({ user: 'alice@example.com', remainingMs: IDLE })
+    expect(theirs.waiting).toEqual({ user: 'alice@example.com', name: 'alice', remainingMs: IDLE })
     expect(theirs.resumable).toBeUndefined()
     expect(theirs.releasedAgoMs).toBeUndefined()
   })
@@ -117,7 +117,7 @@ describe('the device remembers who it is waiting for', () => {
       drop()
       sm.join(id, sock(), bob, () => true, person('bob@example.com'))
 
-      expect(device(aliceElsewhere).endedBy).toEqual({ by: 'bob@example.com', at: expect.any(Number) })
+      expect(device(aliceElsewhere).endedBy).toEqual({ by: 'bob@example.com', name: 'bob', at: expect.any(Number) })
       expect(device(bob).endedBy).toBeUndefined()
       expect(device(bob).waiting).toBeUndefined()
     })
@@ -162,7 +162,7 @@ describe('the device remembers who it is waiting for', () => {
       const { device } = borrowed()
 
       const mine = device(alice)
-      expect(mine.waiting).toEqual({ user: 'alice@example.com', aiHolding: true, yours: true })
+      expect(mine.waiting).toEqual({ user: 'alice@example.com', name: 'alice', aiHolding: true, yours: true })
       expect(mine.resumable).toBeUndefined()
       expect(mine.endedBy).toBeUndefined()
     })
@@ -175,7 +175,7 @@ describe('the device remembers who it is waiting for', () => {
 
       const mine = device(alice)
       expect(mine.resumable).toBe(true)
-      expect(mine.waiting).toEqual({ user: 'alice@example.com', remainingMs: IDLE, yours: true })
+      expect(mine.waiting).toEqual({ user: 'alice@example.com', name: 'alice', remainingMs: IDLE, yours: true })
     })
 
     // The owner's own MCP is the same user. Telling them their old connection is still clearing would be false, and
@@ -216,17 +216,17 @@ describe('the device remembers who it is waiting for', () => {
       const { sm, id, device, drop } = setup()
       sm.join(id, sock(), alice, () => true, person('alice@example.com'))
       drop()
-      sm.noteShutdown(id, { user: '2', label: 'bob@example.com' })
+      sm.noteShutdown(id, { user: '2', label: 'bob@example.com', name: 'bob' })
 
       expect(device(bob).waiting).toBeUndefined()
-      expect(device(alice).endedBy).toEqual({ by: 'bob@example.com', at: expect.any(Number) })
+      expect(device(alice).endedBy).toEqual({ by: 'bob@example.com', name: 'bob', at: expect.any(Number) })
     })
 
     it('by the owner ends the wait and tells nobody anything', () => {
       const { sm, id, device, drop } = setup()
       sm.join(id, sock(), alice, () => true, person('alice@example.com'))
       drop()
-      sm.noteShutdown(id, { user: '1', label: 'alice@example.com' })
+      sm.noteShutdown(id, { user: '1', label: 'alice@example.com', name: 'alice' })
 
       expect(device(alice).waiting).toBeUndefined()
       expect(device(alice).endedBy).toBeUndefined()
@@ -239,7 +239,7 @@ describe('the device remembers who it is waiting for', () => {
       const { sm, id } = setup()
       sm.join(id, sock(), alice, () => true, person('alice@example.com'))
       sm.clearBrowser(id, () => {})
-      sm.noteShutdown(id, { user: '1', label: 'alice@example.com' })
+      sm.noteShutdown(id, { user: '1', label: 'alice@example.com', name: 'alice' })
       sm.join(id, sock(), aliceElsewhere, () => true, person('alice@example.com'))
       sm.noteBootSent(id)
       sm.clearBrowser(id, onTimeout)
@@ -256,7 +256,7 @@ describe('the device remembers who it is waiting for', () => {
       const { sm, id } = setup()
       sm.join(id, sock(), alice, () => true, person('alice@example.com'))
       sm.clearBrowser(id, onTimeout)
-      sm.noteShutdown(id, { user: '1', label: 'alice@example.com' })
+      sm.noteShutdown(id, { user: '1', label: 'alice@example.com', name: 'alice' })
       vi.advanceTimersByTime(IDLE)
       expect(onTimeout).toHaveBeenCalledTimes(1)
 

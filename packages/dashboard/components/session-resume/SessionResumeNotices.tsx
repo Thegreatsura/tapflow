@@ -87,8 +87,7 @@ export function TakeOverDialog({ device, onCancel, onConfirm, returnFocusTo }: {
   onConfirm: (d: DeviceSummary) => void;
   returnFocusTo: RefObject<HTMLElement | null>;
 }) {
-  const owner = device?.waiting?.user ?? 'Someone';
-  const minutes = device?.waiting?.remainingMs !== undefined ? minutesLeft(device.waiting.remainingMs) : null;
+  const owner = device?.waiting?.name ?? 'Someone';
   return (
     <AlertDialog open={device !== null} onOpenChange={(open) => { if (!open) onCancel(); }}>
       <AlertDialogContent
@@ -96,17 +95,16 @@ export function TakeOverDialog({ device, onCancel, onConfirm, returnFocusTo }: {
         onCloseAutoFocus={(e) => { e.preventDefault(); returnFocusTo.current?.focus(); }}
       >
         <AlertDialogHeader>
-          <AlertDialogTitle>Use the device {owner} is coming back to?</AlertDialogTitle>
+          <AlertDialogTitle>Take over {owner}&apos;s device?</AlertDialogTitle>
           <AlertDialogDescription>
-            {owner}&apos;s connection dropped{minutes !== null ? `, and the device shuts down in about ${minutes} min if they do not return` : ''}.
-            Using it ends their session, and the app state they were testing is lost. If they come back within a few
-            minutes, they are told who took it.
+            {owner}&apos;s connection dropped. Taking over ends their session, and the app state they were testing is
+            lost.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction className={buttonVariants({ variant: 'destructive' })} onClick={() => { if (device) onConfirm(device); }}>
-            End their session and use it
+            Take over
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

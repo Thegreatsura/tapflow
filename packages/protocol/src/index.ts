@@ -159,8 +159,10 @@ export interface DeviceSummary extends DeviceReport {
 }
 
 export interface DeviceWaiting {
-  /** A label for people (an email, or `local`), as `SessionHolder.user`. */
+  /** A label for people (an email, or `local`), as `SessionHolder.user`. Shown on hover, under `name`. */
   user: string
+  /** What to call them: their display name, or the part of the email before `@` (the rule `/auth/me` uses). */
+  name: string
   /** Until the device shuts down. Absent while an AI client holds it: its countdown is stopped and starts again in
    *  full when the client leaves. */
   remainingMs?: number
@@ -174,7 +176,10 @@ export interface DeviceWaiting {
 }
 
 export interface DeviceEndedBy {
+  /** The email of whoever took it, or `local`. */
   by: string
+  /** What to call them, as `DeviceWaiting.name`. */
+  name: string
   /** The relay's clock. Only for telling one notice from the next; never compared with the viewer's clock. */
   at: number
 }

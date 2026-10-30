@@ -82,8 +82,9 @@ describe('a device waiting for its owner, through the relay', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tapflow-session-resume-'))
     initDb(path.join(tmpDir, 'test.db'))
     const db = getDb()
-    for (const id of [1, 2]) {
-      db.prepare("INSERT INTO users (id, email, display_name, role, password_hash) VALUES (?, ?, 'U', 'Admin', 'x')").run(id, `u${id}@test.local`)
+    // One with a display name and one without, so both halves of the naming rule are on the wire.
+    for (const [id, name] of [[1, 'Alice'], [2, null]] as const) {
+      db.prepare("INSERT INTO users (id, email, display_name, role, password_hash) VALUES (?, ?, ?, 'Admin', 'x')").run(id, `u${id}@test.local`, name)
     }
   })
 
@@ -113,6 +114,7 @@ describe('a device waiting for its owner, through the relay', () => {
 
     const mine = await device(laptop)
     expect(mine.waiting?.user).toBe('u1@test.local')
+    expect(mine.waiting?.name).toBe('Alice')
     expect(mine.resumable).toBe(true)
     const theirs = await device(bob)
     expect(theirs.waiting?.user).toBe('u1@test.local')
@@ -125,7 +127,8 @@ describe('a device waiting for its owner, through the relay', () => {
     bob.send(JSON.stringify({ type: 'session:start', sessionId, clientKind: 'dashboard' }))
     await waitForType(bob, 'session:joined')
 
-    expect((await device(laptop)).endedBy?.by).toBe('u2@test.local')
+    // No display name, so the part of the email before `@`, as `/auth/me` names them.
+    expect((await device(laptop)).endedBy).toMatchObject({ by: 'u2@test.local', name: 'u2' })
     expect((await device(bob)).endedBy).toBeUndefined()
   })
 

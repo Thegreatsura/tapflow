@@ -87,7 +87,7 @@ export function announceEndedSessions(sessions: SessionInfo[], say: (by: string,
       const key = `${d.sessionId}:${d.endedBy.at}`
       if (announced.has(key)) continue
       announced.add(key)
-      say(d.endedBy.by, d.name)
+      say(d.endedBy.name, d.name)
     }
   }
 }

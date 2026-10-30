@@ -452,14 +452,14 @@ function QASessionPage() {
                     const statusLabel = isBusy
                       ? (d.holder ? `${holderKindLabel(d.holder.kind)} is driving it` : 'In use')
                       : yours ? 'Your session is waiting for you'
-                      : othersWait ? `Waiting for ${othersWait.user} to return${othersWait.remainingMs !== undefined ? ` · about ${minutesLeft(othersWait.remainingMs)} min` : ''}`
+                      : othersWait ? `Waiting for ${othersWait.name} to return${othersWait.remainingMs !== undefined ? ` · about ${minutesLeft(othersWait.remainingMs)} min` : ''}`
                       : needsMemory ? 'Not enough memory to start' : isBooted ? 'Booted' : 'Available'
                     const statusDot = isBusy || d.waiting
                       ? 'bg-amber-400'
                       : isBooted
                         ? 'bg-emerald-400'
                         : 'bg-muted-foreground/40'
-                    return (
+                    const card = (
                       <button
                         key={d.id}
                         disabled={isBusy || needsMemory || booting || !connected}
@@ -490,6 +490,16 @@ function QASessionPage() {
                           <span className="text-[10px] text-muted-foreground">Most services off</span>
                         )}
                       </button>
+                    )
+                    // The card names the person; who exactly, by email, is on hover and focus.
+                    if (!othersWait) return card
+                    return (
+                      <TooltipProvider key={d.id}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>{card}</TooltipTrigger>
+                          <TooltipContent>{othersWait.user}</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     )
                   })}
                 </div>

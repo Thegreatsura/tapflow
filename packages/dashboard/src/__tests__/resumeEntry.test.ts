@@ -37,23 +37,23 @@ describe('classifyResume', () => {
   })
 
   it('waits while an AI client borrows their session, rather than joining or calling it someone else\'s', () => {
-    const borrowed = device({ busy: true, waiting: { user: 'me@x', aiHolding: true, yours: true } })
+    const borrowed = device({ busy: true, waiting: { user: 'me@x', name: 'Me', aiHolding: true, yours: true } })
     expect(classifyResume(mac(borrowed), target, 0)).toMatchObject({ kind: 'wait', why: 'ai-holding' })
   })
 
   it('says who took it', () => {
-    expect(classifyResume(mac(device({ endedBy: { by: 'bob@x', at: 1 } })), target, 0)).toMatchObject({ kind: 'taken', by: 'bob@x' })
+    expect(classifyResume(mac(device({ endedBy: { by: 'bob@x', name: 'Bob', at: 1 } })), target, 0)).toMatchObject({ kind: 'taken', by: 'bob@x' })
   })
 
   // An old notice must not hide a session this person can resume now.
   it('resumes over an old notice', () => {
-    const both = device({ resumable: true, releasedAgoMs: 500, endedBy: { by: 'bob@x', at: 1 } })
+    const both = device({ resumable: true, releasedAgoMs: 500, endedBy: { by: 'bob@x', name: 'Bob', at: 1 } })
     expect(classifyResume(mac(both), target, 0).kind).toBe('join')
   })
 
   it('leaves someone else\'s session alone, held or waiting', () => {
     expect(classifyResume(mac(device({ busy: true })), target, 0).kind).toBe('in-use')
-    expect(classifyResume(mac(device({ waiting: { user: 'bob@x', remainingMs: 60_000 } })), target, 0).kind).toBe('others')
+    expect(classifyResume(mac(device({ waiting: { user: 'bob@x', name: 'Bob', remainingMs: 60_000 } })), target, 0).kind).toBe('others')
   })
 
   describe('a session not in the listing', () => {

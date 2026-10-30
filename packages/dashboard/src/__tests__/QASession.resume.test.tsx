@@ -75,7 +75,7 @@ describe('QASession — coming back through a session URL', () => {
   it('joins a session waiting for this tester, keeping the app, and powers nothing off on the way', async () => {
     await open(URL)
     expect(sent('device:shutdown')).toHaveLength(0)
-    await listed(device({ resumable: true, releasedAgoMs: 500, waiting: { user: 'me@x', remainingMs: 200_000, yours: true } }))
+    await listed(device({ resumable: true, releasedAgoMs: 500, waiting: { user: 'me@x', name: 'Me', remainingMs: 200_000, yours: true } }))
 
     expect(viewer?.sessionId).toBe('sess-a')
     expect(viewer?.resume).toBe(true)
@@ -99,21 +99,21 @@ describe('QASession — coming back through a session URL', () => {
     expect(screen.getByRole('status').textContent).toMatch(/Returning to your session on iPhone 17 Pro/)
     expect(viewer).toBeNull()
 
-    await listed(device({ resumable: true, releasedAgoMs: 2_000, waiting: { user: 'me@x', remainingMs: 200_000, yours: true } }))
+    await listed(device({ resumable: true, releasedAgoMs: 2_000, waiting: { user: 'me@x', name: 'Me', remainingMs: 200_000, yours: true } }))
     expect(viewer).toBeNull()
 
-    await listed(device({ resumable: true, releasedAgoMs: 11_000, waiting: { user: 'me@x', remainingMs: 200_000, yours: true } }))
+    await listed(device({ resumable: true, releasedAgoMs: 11_000, waiting: { user: 'me@x', name: 'Me', remainingMs: 200_000, yours: true } }))
     expect(viewer?.resume).toBe(true)
   })
 
   it('says who took it, once, and shows the list', async () => {
     await open(URL)
-    const taken = device({ endedBy: { by: 'bob@x', at: 42 } })
+    const taken = device({ endedBy: { by: 'bob@x', name: 'Bob', at: 42 } })
     await listed(taken)
     await listed(taken)
 
     expect(toast.info).toHaveBeenCalledTimes(1)
-    expect(toast.info.mock.calls[0]![0]).toMatch(/bob@x/)
+    expect(toast.info.mock.calls[0]![0]).toMatch(/^Bob is using/)
     expect(viewer).toBeNull()
     expect(params().get('session')).toBeNull()
     expect(screen.getByRole('button', { name: /iPhone 17 Pro/ })).toBeTruthy()
@@ -134,7 +134,7 @@ describe('QASession — coming back through a session URL', () => {
     await listed(device({ busy: true, heldBySelf: true }))
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(document.activeElement).toBe(screen.getByLabelText('Search devices'))
-    await listed(device({ resumable: true, releasedAgoMs: 60_000, waiting: { user: 'me@x', remainingMs: 200_000, yours: true } }))
+    await listed(device({ resumable: true, releasedAgoMs: 60_000, waiting: { user: 'me@x', name: 'Me', remainingMs: 200_000, yours: true } }))
 
     expect(viewer).toBeNull()
     expect(params().get('session')).toBeNull()
@@ -148,7 +148,7 @@ describe('QASession — coming back through a session URL', () => {
     await user.click(screen.getByRole('button', { name: /iPhone SE/ }))
     expect(viewer?.sessionId).toBe('sess-b')
 
-    await listed(device({ resumable: true, releasedAgoMs: 60_000, waiting: { user: 'me@x', remainingMs: 200_000, yours: true } }), other)
+    await listed(device({ resumable: true, releasedAgoMs: 60_000, waiting: { user: 'me@x', name: 'Me', remainingMs: 200_000, yours: true } }), other)
     expect(viewer?.sessionId).toBe('sess-b')
   })
 
@@ -177,14 +177,14 @@ describe('QASession — coming back through a session URL', () => {
     await act(async () => { viewer!.onSessionEnded!('agent-disconnected') })
     viewer = null
 
-    await listed(device({ resumable: true, releasedAgoMs: 60_000, waiting: { user: 'me@x', remainingMs: 200_000, yours: true } }), other)
+    await listed(device({ resumable: true, releasedAgoMs: 60_000, waiting: { user: 'me@x', name: 'Me', remainingMs: 200_000, yours: true } }), other)
     expect(viewer).toBeNull()
   })
 
   // The relay can still refuse the join it just listed as free. That is the own-tab wait, not an ended session.
   it('goes back to waiting when its join meets the session still held', async () => {
     await open(URL)
-    await listed(device({ resumable: true, releasedAgoMs: 500, waiting: { user: 'me@x', remainingMs: 200_000, yours: true } }))
+    await listed(device({ resumable: true, releasedAgoMs: 500, waiting: { user: 'me@x', name: 'Me', remainingMs: 200_000, yours: true } }))
     await act(async () => { viewer!.onSessionEnded!('busy-elsewhere') })
     await listed(device({ busy: true, heldBySelf: true }))
 
@@ -217,24 +217,27 @@ describe('QASession — the device list', () => {
   })
 
   it('names whose dropped session a device is waiting for, and asks before taking it', async () => {
-    const user = await onList(device({ waiting: { user: 'bob@x', remainingMs: 150_000 } }))
+    const user = await onList(device({ waiting: { user: 'bob@x', name: 'Bob', remainingMs: 150_000 } }))
     const card = screen.getByRole('button', { name: /iPhone 17 Pro/ })
-    expect(card.textContent).toContain('Waiting for bob@x to return · about 3 min')
+    expect(card.textContent).toContain('Waiting for Bob to return · about 3 min')
+    // Who exactly, by email, on hover.
+    await user.hover(card)
+    expect((await screen.findByRole('tooltip')).textContent).toBe('bob@x')
 
     await user.click(card)
-    const dialog = await screen.findByRole('alertdialog', { name: 'Use the device bob@x is coming back to?' })
+    const dialog = await screen.findByRole('alertdialog', { name: "Take over Bob's device?" })
     expect(dialog.textContent).toMatch(/app state they were testing is lost/)
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(viewer).toBeNull()
     expect(document.activeElement).toBe(screen.getByRole('button', { name: /iPhone 17 Pro/ }))
 
     await user.click(screen.getByRole('button', { name: /iPhone 17 Pro/ }))
-    await user.click(await screen.findByRole('button', { name: 'End their session and use it' }))
+    await user.click(await screen.findByRole('button', { name: 'Take over' }))
     expect(viewer?.resume).toBe(false)
   })
 
   it('resumes the tester\'s own waiting session without asking', async () => {
-    const user = await onList(device({ resumable: true, releasedAgoMs: 500, waiting: { user: 'me@x', remainingMs: 200_000, yours: true } }))
+    const user = await onList(device({ resumable: true, releasedAgoMs: 500, waiting: { user: 'me@x', name: 'Me', remainingMs: 200_000, yours: true } }))
     const card = screen.getByRole('button', { name: /iPhone 17 Pro.*Your session is waiting/ })
     await user.click(card)
 
@@ -247,7 +250,7 @@ describe('QASession — the device list', () => {
   it('never erases a device the tester is coming back to, whatever reset was used last', async () => {
     const user = await onList(
       device(),
-      device({ id: 'dev-b', name: 'iPhone SE', sessionId: 'sess-b', resumable: true, releasedAgoMs: 500, waiting: { user: 'me@x', remainingMs: 200_000, yours: true } }),
+      device({ id: 'dev-b', name: 'iPhone SE', sessionId: 'sess-b', resumable: true, releasedAgoMs: 500, waiting: { user: 'me@x', name: 'Me', remainingMs: 200_000, yours: true } }),
     )
     await user.click(screen.getByRole('switch', { name: 'Full reset' }))
     await user.click(screen.getByRole('button', { name: /iPhone 17 Pro/ }))
@@ -262,7 +265,7 @@ describe('QASession — the device list', () => {
   it('offers the tester\'s interrupted session above the list, and ends it on request without losing focus', async () => {
     const user = userEvent.setup()
     await open('?id=7')
-    await listed(device({ resumable: true, releasedAgoMs: 500, waiting: { user: 'me@x', remainingMs: 200_000, yours: true, buildId: 7 } }))
+    await listed(device({ resumable: true, releasedAgoMs: 500, waiting: { user: 'me@x', name: 'Me', remainingMs: 200_000, yours: true, buildId: 7 } }))
 
     expect(screen.getByText(/Your session on iPhone 17 Pro was interrupted/)).toBeTruthy()
     await user.click(screen.getByRole('button', { name: 'End your session on iPhone 17 Pro' }))
@@ -275,7 +278,7 @@ describe('QASession — the device list', () => {
   it('resumes the interrupted session of this build here, keeping the app', async () => {
     const user = userEvent.setup()
     await open('?id=7')
-    await listed(device({ resumable: true, releasedAgoMs: 500, waiting: { user: 'me@x', remainingMs: 200_000, yours: true, buildId: 7 } }))
+    await listed(device({ resumable: true, releasedAgoMs: 500, waiting: { user: 'me@x', name: 'Me', remainingMs: 200_000, yours: true, buildId: 7 } }))
     await user.click(screen.getByRole('button', { name: 'Resume your session on iPhone 17 Pro' }))
 
     expect(viewer?.sessionId).toBe('sess-a')
@@ -286,7 +289,7 @@ describe('QASession — the device list', () => {
   it('takes another build\'s interrupted session to that build\'s page', async () => {
     const user = userEvent.setup()
     await open('?id=7')
-    await listed(device({ resumable: true, releasedAgoMs: 500, waiting: { user: 'me@x', remainingMs: 200_000, yours: true, buildId: 9 } }))
+    await listed(device({ resumable: true, releasedAgoMs: 500, waiting: { user: 'me@x', name: 'Me', remainingMs: 200_000, yours: true, buildId: 9 } }))
     await user.click(screen.getByRole('button', { name: 'Resume your session on iPhone 17 Pro' }))
 
     expect(viewer).toBeNull()
@@ -294,13 +297,13 @@ describe('QASession — the device list', () => {
     expect(params().get('session')).toBe('sess-a')
     // The page mounts again for that build and reads the link as an entry.
     await vi.waitFor(() => expect(deliver).not.toBeNull())
-    await listed(device({ resumable: true, releasedAgoMs: 500, waiting: { user: 'me@x', remainingMs: 200_000, yours: true, buildId: 9 } }))
+    await listed(device({ resumable: true, releasedAgoMs: 500, waiting: { user: 'me@x', name: 'Me', remainingMs: 200_000, yours: true, buildId: 9 } }))
     expect(viewer?.resume).toBe(true)
   })
 
   it('does not offer a session on another platform', async () => {
     await open('?id=7')
-    await listed(device({ platform: 'android', resumable: true, releasedAgoMs: 500, waiting: { user: 'me@x', remainingMs: 200_000, yours: true, buildId: 3 } }))
+    await listed(device({ platform: 'android', resumable: true, releasedAgoMs: 500, waiting: { user: 'me@x', name: 'Me', remainingMs: 200_000, yours: true, buildId: 3 } }))
 
     expect(screen.queryByText(/was interrupted/)).toBeNull()
   })
