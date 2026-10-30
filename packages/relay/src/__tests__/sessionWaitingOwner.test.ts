@@ -250,6 +250,58 @@ describe('the device remembers who it is waiting for', () => {
       expect(onTimeout).toHaveBeenCalledTimes(1)
     })
 
+    describe('that the agent could not carry out', () => {
+      const robot = client('3', 'mcp-1')
+      const bobShutsDown = () => {
+        const t = setup()
+        t.sm.join(t.id, sock(), alice, () => true, person('alice@example.com'))
+        t.drop()
+        t.sm.noteShutdown(t.id, { user: '2', label: 'bob@example.com', name: 'bob' })
+        return t
+      }
+
+      it('puts the wait back, and takes back who ended it', () => {
+        const { sm, id, device } = bobShutsDown()
+        sm.undoShutdown(id)
+        expect(device(aliceElsewhere).resumable).toBe(true)
+        expect(device(aliceElsewhere).endedBy).toBeUndefined()
+      })
+
+      it('leaves it ended once someone holds the device', () => {
+        const { sm, id, device } = bobShutsDown()
+        sm.join(id, sock(), bob, () => true, person('bob@example.com'))
+        sm.undoShutdown(id)
+        expect(device(aliceElsewhere).waiting).toBeUndefined()
+      })
+
+      // An AI client leaves no wait of its own, so only the boot says the device was picked up since.
+      it('leaves it ended once a boot went out after it', () => {
+        const { sm, id, device } = bobShutsDown()
+        sm.join(id, sock(), robot, () => true, mcp('agent'))
+        sm.noteBootSent(id)
+        sm.clearBrowser(id, () => {})
+        sm.undoShutdown(id)
+        expect(device(aliceElsewhere).waiting).toBeUndefined()
+      })
+
+      it('leaves it ended once the countdown has run out', () => {
+        const { sm, id, device } = bobShutsDown()
+        vi.advanceTimersByTime(IDLE)
+        sm.undoShutdown(id)
+        expect(device(aliceElsewhere).waiting).toBeUndefined()
+      })
+
+      // Only the latest shutdown's failure can put anything back, and a later one that found no wait has nothing to.
+      it('does not put back a wait an earlier, unanswered shutdown ended', () => {
+        const { sm, id, device } = bobShutsDown()
+        sm.join(id, sock(), robot, () => true, mcp('agent'))
+        sm.noteShutdown(id, { user: '3', label: 'agent', name: 'agent' })
+        sm.clearBrowser(id, () => {})
+        sm.undoShutdown(id)
+        expect(device(aliceElsewhere).waiting).toBeUndefined()
+      })
+    })
+
     // Cancelled when the device is off, not when the shutdown was sent: one that fails keeps the timer as its backstop.
     it('cancels the countdown only once the device is down', () => {
       const onTimeout = vi.fn()
