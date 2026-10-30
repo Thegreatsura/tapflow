@@ -133,6 +133,19 @@ iOS build format: `.app.zip` **or** `.tar.gz`/`.tgz` (EAS `eas build` simulator 
   reconnect answers "installed" and Launch fails, where it used to reinstall. Picking the device again
   installs it. Fixing it needs the agent to report a shutdown it did not perform; no one has hit it.
   `appInstallKeepIfInstalled.test.ts` walks each way the record is dropped.
+- **A device remembers the person it is waiting for** (#1087, `Session.waitingOwner`). The owner fields are
+  cleared on release, so without it the same person coming back from another browser read as anyone. It is
+  tied to the idle countdown the relay already keeps, not a second timer: set where a person's countdown starts
+  in `clearBrowser`, kept while an AI client borrows the device (the existing `lastHolderWasAi` /
+  `idleResumeOnLeave` rule decides whose countdown it is) and restored in full when it leaves, ended by a
+  person's join, the timer, or a shutdown. A person taking it, or shutting it down, leaves `endedBy` for the one
+  waited for. **A shutdown counts when it is forwarded to the agent** (`noteShutdown`), so a refused one ends
+  nothing, and **the countdown is cancelled when the agent reports the device down** (`settleShutdown`), so a
+  shutdown that fails keeps its backstop. Nothing here refuses a join: a teammate may take a waiting device, and
+  the dashboard asks first. The listing reads all of it per asker *user* (`list(…, askerUser)`), because a person
+  is a different client in each browser. `endedBy` is not cleared by being read: every open tab polls. Held by
+  `sessionWaitingOwner.test.ts` (rules) and `sessionResumeRelay.test.ts` (wiring, two signed-in users through the
+  tunnel port, since loopback sockets are all one anonymous user).
 - **A session an AI client holds can be watched, read-only** (`watch:*`). The rules live with the code, and
   the ones that are easy to undo are these:
   - **Watchers are an index in `SessionManager`, never `owner` or `browserSocket`,** each bound to the owner

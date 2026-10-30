@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Come back to a QA session after a dropped connection or a closed tab.** The QA page's URL now names the session, so reloading or reopening it takes you back to the same device with the app as you left it, as long as the device is still waiting for you (5 minutes by default, `IDLE_TIMEOUT_MS`). App Center and the device list show **Your session on … was interrupted** with **Resume** and **End**, from any browser signed in to your account. A teammate who picks a device someone is coming back to is told whose it is and asked first, and the owner is told who took it. A link to a device that has since shut down asks before starting it again.
+
 ### Fixed
 
 - **Reconnecting to a device no longer wipes the app under test.** When the dashboard lost its connection to the relay, even for a second, it reinstalled the build on reconnect, and an install clears the app's data first, so the tester came back to a logged-out, reset app. The relay now remembers the build it installed on each device, and the dashboard asks it to keep that build when it reconnects. Picking a device from the list still installs the build cleanly, and a restart still reinstalls it. A device that was shut down outside tapflow, for example by quitting Simulator.app, is reinstalled when the session comes back. Upgrade the relay: an older relay ignores the request and reinstalls as before.

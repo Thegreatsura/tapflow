@@ -1609,7 +1609,7 @@ export class RelayServer {
       case 'agents:list': {
         this.sendTo(ws, {
           type: 'agents:listed',
-          sessions: this.sessions.list(this.ownerOf(ws), (holder) => this.isAlive(holder), (group) => this.macAdmission(group)),
+          sessions: this.sessions.list(this.ownerOf(ws), (holder) => this.isAlive(holder), (group) => this.macAdmission(group), this.userOf(ws)),
           features: ['device-lease', 'launch-options'],
         })
         break
@@ -1774,6 +1774,7 @@ export class RelayServer {
         this.sessions.setReadySent(session.id, false)
         this.sessions.setDeviceServiceTier(session.id, undefined)
         this.forgetInstall(session, 'The device shut down')
+        this.sessions.settleShutdown(session.id)
         // Unless a boot went out after the shutdown this answers: the shutdown carries no correlator, and a device
         // the relay shut down to make room can be picked up and started again before the agent reports back.
         if (session.lastBootPending === undefined) session.lastBoot = undefined
@@ -1956,6 +1957,8 @@ export class RelayServer {
           break
         }
         this.rememberShutdownRequester(ws, target.session.id, msg.requestId)
+        // Here and not at the top: a refused shutdown ends nobody's wait (#1087).
+        this.sessions.noteShutdown(target.session.id, { user: this.userOf(ws), label: this.holderLabel(ws) })
         target.session.agentSocket.send(JSON.stringify(msg))
         break
       }

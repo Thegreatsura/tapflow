@@ -3,7 +3,7 @@ import { WebSocket } from 'ws'
 import type { DeviceStatus } from '@tapflowio/agent-core'
 import type { AgentResources, SessionInfo } from './types.js'
 import type { BooterClass } from './admission/HostBootGate.js'
-import type { AiClientKind, ChromePayload, MacAdmission, ServiceTier, ClientKind, DeviceDetails, DeviceReport, FormFactor, Point, PosturesPayload, WatchEndReason } from '@tapflowio/protocol'
+import type { AiClientKind, ChromePayload, DeviceSummary, MacAdmission, ServiceTier, ClientKind, DeviceDetails, DeviceReport, FormFactor, Point, PosturesPayload, WatchEndReason } from '@tapflowio/protocol'
 
 export interface Session {
   id: string
@@ -99,6 +99,16 @@ export interface Session {
   /** The install last sent to the agent, and the `keepIfInstalled` requests of the same build waiting on it. Only the
    *  latest: a reply to an older one says nothing about what is on the device now. */
   pendingInstall?: InstalledBuild & { requestId: string; waiters: string[] }
+  /**
+   * The person this device is waiting for: a human holder whose socket went while the idle countdown runs (#1087).
+   * The owner fields above are cleared on release, so without this the same person coming back from another browser
+   * reads as anyone. Tied to the countdown the relay already keeps — set where a person's countdown starts, kept (not
+   * cleared) while an AI client borrows the device, restored in full when it hands the countdown back.
+   */
+  waitingOwner?: { user: string; label: string; since: number; deadline: number }
+  /** Someone else took or shut down the device while it waited for `ownerUser`. Expires with the idle window; a read
+   *  does not clear it, because every open tab of that person polls the listing. */
+  endedBy?: { ownerUser: string; byLabel: string; at: number }
 }
 
 export type InstalledBuild = { buildId: number; filePath: string }
@@ -356,6 +366,14 @@ export class SessionManager {
     session.holderStream = holder.stream !== false
     // A touch the previous holder began is not this one's to end.
     session.gesture = null
+    // A person taking the device ends the wait, and if it was not theirs, the one waiting is told who. An AI client
+    // only borrows it: the wait is kept and comes back when the client leaves.
+    if (!isAiClientKind(holder.kind)) {
+      const waited = session.waitingOwner
+      if (waited && waited.user !== owner.user) session.endedBy = { ownerUser: waited.user, byLabel: holder.label, at: Date.now() }
+      if (session.endedBy?.ownerUser === owner.user) session.endedBy = undefined
+      session.waitingOwner = undefined
+    }
     // Also when the same client re-joins as something that is not an AI client: a watch is admitted to an
     // AI client's session, and only that kind may be watched.
     this.evictWatchers(sessionId, 'holder-changed', (admitted) => admitted !== owner.key || !isAiClientKind(holder.kind))
@@ -390,6 +408,9 @@ export class SessionManager {
     if (session.owner !== null) {
       session.lastHolderWasAi = isAiClientKind(session.holderKind) && (!session.idleResumeOnLeave || session.lastHolderWasAi === true)
     }
+    const leavingPerson = session.owner !== null && session.ownerUser !== null && !isAiClientKind(session.holderKind)
+      ? { user: session.ownerUser, label: session.holderLabel ?? session.ownerUser }
+      : null
     session.owner = null
     session.ownerMinted = false
     session.ownerUser = null
@@ -401,9 +422,40 @@ export class SessionManager {
     if (onTimeout) {
       session.idleTimer = setTimeout(() => {
         session.idleTimer = null
+        session.waitingOwner = undefined
         onTimeout()
       }, this.idleTimeoutMs)
+      // The countdown that just started is a person's either way: this one's, or the one an AI client borrowed and is
+      // now handing back (`lastHolderWasAi` stays false then). Restored in full, as the timer is.
+      const now = Date.now()
+      if (leavingPerson) session.waitingOwner = { ...leavingPerson, since: now, deadline: now + this.idleTimeoutMs }
+      else if (session.waitingOwner && !session.lastHolderWasAi) {
+        session.waitingOwner = { ...session.waitingOwner, since: now, deadline: now + this.idleTimeoutMs }
+      } else session.waitingOwner = undefined
     }
+    // A release with no countdown cannot find a wait to end: a wait exists only after a person's countdown started, and
+    // every way out of it (a person joining, the timer, a shutdown) clears it before such a release could happen.
+  }
+
+  /**
+   * A `device:shutdown` from `by` is on its way to the agent. It ends the wait, and tells the person waited for who
+   * ended it if it was not them. Called when the shutdown is forwarded, not when it is asked for: a refused one ends
+   * nothing. The countdown is left running until `settleShutdown`, so a shutdown that fails still has it behind it.
+   */
+  noteShutdown(sessionId: string, by: { user: string; label: string }): void {
+    const session = this.sessions.get(sessionId)
+    const waited = session?.waitingOwner
+    if (!session || !waited) return
+    if (waited.user !== by.user) session.endedBy = { ownerUser: waited.user, byLabel: by.label, at: Date.now() }
+    session.waitingOwner = undefined
+  }
+
+  /** The device is down: nothing is left to count down to, and nobody to wait for. */
+  settleShutdown(sessionId: string): void {
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+    if (session.idleTimer) { clearTimeout(session.idleTimer); session.idleTimer = null }
+    session.waitingOwner = undefined
   }
 
   /**
@@ -604,6 +656,33 @@ export class SessionManager {
    * disagree would flash a device as free while a join for it is still refused.
    */
   /** An AI client holds this session on a socket that is answering — the same liveness `busy` reads. */
+  /** What the listing says about whose this device is to come back to — see the fields on `DeviceSummary`. */
+  private ownership(
+    s: Session, asker: string, askerUser: string | undefined, isAlive: (ws: WebSocket) => boolean, now: number,
+  ): Pick<DeviceSummary, 'waiting' | 'resumable' | 'releasedAgoMs' | 'heldBySelf' | 'endedBy'> {
+    const live = s.owner !== null && s.browserSocket !== null && s.browserSocket.readyState === WebSocket.OPEN && isAlive(s.browserSocket)
+    const waited = s.waitingOwner
+    const mine = askerUser !== undefined
+    const out: ReturnType<SessionManager['ownership']> = {}
+    // While a person holds it there is no wait: a person's join ends it. So a live holder here is an AI client.
+    if (waited) {
+      const yours = mine && waited.user === askerUser
+      out.waiting = {
+        user: waited.label,
+        ...(live ? { aiHolding: true as const } : { remainingMs: Math.max(0, waited.deadline - now) }),
+        ...(yours ? { yours: true as const, ...(s.installed ? { buildId: s.installed.buildId } : {}) } : {}),
+      }
+      if (!live && yours) {
+        out.resumable = true
+        out.releasedAgoMs = now - waited.since
+      }
+    }
+    if (live && mine && !isAiClientKind(s.holderKind) && s.owner !== asker && s.ownerUser === askerUser) out.heldBySelf = true
+    const ended = s.endedBy
+    if (ended && mine && ended.ownerUser === askerUser && now - ended.at < this.idleTimeoutMs) out.endedBy = { by: ended.byLabel, at: ended.at }
+    return out
+  }
+
   private liveAiHolder(s: Session, isAlive: (ws: WebSocket) => boolean): boolean {
     return isAiClientKind(s.holderKind) &&
       s.owner !== null &&
@@ -612,8 +691,13 @@ export class SessionManager {
       isAlive(s.browserSocket)
   }
 
-  /** `admissionOf` is asked once per agent, with that agent's sessions. */
-  list(asker: string, isAlive: (ws: WebSocket) => boolean, admissionOf: (sessions: Session[]) => MacAdmission): SessionInfo[] {
+  /**
+   * `admissionOf` is asked once per agent, with that agent's sessions. `askerUser` is the signed-in user behind
+   * `asker`: the fields about a person's own sessions (`resumable`, `heldBySelf`, `endedBy`) match on it, since a
+   * person comes back from another browser as another client. Without it those fields are left out.
+   */
+  list(asker: string, isAlive: (ws: WebSocket) => boolean, admissionOf: (sessions: Session[]) => MacAdmission, askerUser?: string): SessionInfo[] {
+    const now = Date.now()
     // Group sessions by agentSocket
     const agentMap = new Map<WebSocket, Session[]>()
     for (const session of this.sessions.values()) {
@@ -649,6 +733,7 @@ export class SessionManager {
         ...(s.deviceServiceTier !== undefined ? { serviceTier: s.deviceServiceTier } : {}),
         sessionId: s.id,
         ...(this.liveAiHolder(s, isAlive) ? { holder: { kind: s.holderKind as AiClientKind, user: s.holderLabel ?? 'unknown' } } : {}),
+        ...this.ownership(s, asker, askerUser, isAlive, now),
         busy:
           s.owner !== null &&
           s.owner !== asker &&
