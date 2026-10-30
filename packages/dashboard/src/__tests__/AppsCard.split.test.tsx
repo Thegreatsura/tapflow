@@ -151,6 +151,18 @@ describe('splitting', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 
+  // A list that never answers (a dead connection) would leave it busy with no way out. Real time: fake timers stall the
+  // drag sensors this file drives.
+  it('closes after a few seconds when the list does not answer', async () => {
+    await renderCard()
+    await dropIntoNewApp()
+    hold()
+    fireEvent.click(await screen.findByRole('button', { name: 'Split' }))
+    await act(async () => { await new Promise((r) => setTimeout(r, 3000)) })
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(), { timeout: 4000 })
+  }, 12000)
+
   it('says a refusal inside the dialog and stays open', async () => {
     splitAnswer = new Response(JSON.stringify({ error: 'That app has builds carrying the bundle ID of its other platform' }), { status: 409 })
     await renderCard()

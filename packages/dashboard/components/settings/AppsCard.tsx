@@ -53,6 +53,14 @@ function jumpBetweenApps(accepts: (activeId: string, droppableId: string) => boo
 }
 
 interface Pending { row: AppRow; source: App; target: App }
+/**
+ * How long a merge or split dialog waits for the app list after the relay said yes. A list that never answers (a laptop
+ * that slept on a dead connection) would otherwise leave the dialog busy with no way out; past this it closes as if the
+ * refetch had failed.
+ */
+const LIST_WAIT_MS = 5000
+const listedWithin = (refetch: Promise<unknown>) =>
+  Promise.race([refetch, new Promise((resolve) => setTimeout(resolve, LIST_WAIT_MS))])
 interface PendingSplit { row: AppRow; source: App }
 /** What a droppable id names: an app (`app:<id>`), or the New app area below one (`new:<id>`, the row's own app). */
 type Target = { kind: 'app'; app: App } | { kind: 'new'; source: App }
@@ -226,8 +234,8 @@ export function AppsCard({ apps }: { apps: App[] }) {
       setMergeAwait(moving)
       toast.success(`Merged into ${pending.target.name}`)
       void queryClient.invalidateQueries({ queryKey: ['builds'] })
-      await queryClient.invalidateQueries({ queryKey: queryKeys.apps })
-      // A refetch that failed, or a list nothing reads: close anyway rather than wait for a render that never comes.
+      await listedWithin(queryClient.invalidateQueries({ queryKey: queryKeys.apps }))
+      // A refetch that failed or hung, or a list nothing reads: close anyway rather than wait for a render that never comes.
       if (!hasLeft(queryClient.getQueryData<App[]>(queryKeys.apps), moving)) finishMerge()
     } catch {
       setMergeError('Could not reach the relay')
@@ -287,8 +295,8 @@ export function AppsCard({ apps }: { apps: App[] }) {
       setAwaitingAppId(created)
       toast.success(`Moved to ${splitName.trim()}`)
       void queryClient.invalidateQueries({ queryKey: ['builds'] })
-      await queryClient.invalidateQueries({ queryKey: queryKeys.apps })
-      // A refetch that failed, or a list nothing reads: close anyway rather than wait for a render that never comes.
+      await listedWithin(queryClient.invalidateQueries({ queryKey: queryKeys.apps }))
+      // A refetch that failed or hung, or a list nothing reads: close anyway rather than wait for a render that never comes.
       if (!queryClient.getQueryData<App[]>(queryKeys.apps)?.some((a) => a.id === created)) finishSplit()
     } catch {
       setSplitError('Could not reach the relay')
