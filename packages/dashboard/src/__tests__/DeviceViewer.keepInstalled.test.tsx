@@ -109,6 +109,15 @@ describe('DeviceViewer keeps the app it installed across a reconnect', () => {
     expect(installs().some((i) => i.keepIfInstalled !== undefined)).toBe(false)
   })
 
+  // A mount entered as a return to the tester's own session keeps the app from its very first install.
+  it('asks to keep the app from the first install when the mount is a resume', () => {
+    render(<DeviceViewer sessionId="s1" deviceId="dev-1" buildId={7} resume />)
+    rejoin(true)
+
+    expect(installs()).toHaveLength(2)
+    expect(installs().every((i) => i.keepIfInstalled === true)).toBe(true)
+  })
+
   it('starts clean again in a new mount', () => {
     const first = render(<DeviceViewer sessionId="s1" deviceId="dev-1" buildId={7} />)
     rejoin(false)

@@ -137,6 +137,51 @@ export interface DeviceSummary extends DeviceReport {
    *  **Never the owner key or the client id.** The owner key is `<userId>:<clientId>` and the client half
    *  comes off the handshake query: a local socket that learned it could claim it and drive the device. */
   holder?: SessionHolder
+  /**
+   * The device is waiting for a person whose connection dropped, and will shut down if they do not come back (#1087).
+   * Sent to everyone, so a teammate picking it knows it is someone's before taking it: this is the one place a
+   * person's session is named to others, because what it protects is that person's app state, which taking the
+   * device wipes. A connected person's session still is not named (`holder` above).
+   */
+  waiting?: DeviceWaiting
+  /** Present when the person the device is waiting for is the one asking — from any browser, since it is the
+   *  signed-in user that matches, not the tab. Absent while an AI client is borrowing the device. */
+  resumable?: true
+  /** How long ago the device started waiting, with `resumable`. A tab that finds its own session held by another of
+   *  its user's tabs waits this long before retrying, so the tab that dropped gets back first. */
+  releasedAgoMs?: number
+  /** A person is holding it from another tab of the asker's own account, live. Absent for an AI client of the same
+   *  account: nothing about that holder is going away, so waiting for it would wait forever. */
+  heldBySelf?: true
+  /** Someone else took or shut down the device while it was waiting for the asker. Sent only to that person, on every
+   *  listing until it expires — never cleared by being read, since every open tab polls. */
+  endedBy?: DeviceEndedBy
+}
+
+export interface DeviceWaiting {
+  /** A label for people (an email, or `local`), as `SessionHolder.user`. Shown on hover, under `name`. */
+  user: string
+  /** What to call them: their display name, or the part of the email before `@` (the rule `/auth/me` uses). */
+  name: string
+  /** Until the device shuts down. Absent while an AI client holds it: its countdown is stopped and starts again in
+   *  full when the client leaves. */
+  remainingMs?: number
+  aiHolding?: true
+  /** The asker is the person waited for. Unlike `resumable` it holds while an AI client borrows the device, so a
+   *  viewer can tell its own borrowed session from someone else's. */
+  yours?: true
+  /** The build last installed on the device, with `yours`: what a link back into the session opens. Absent when the
+   *  relay has no record of one. */
+  buildId?: number
+}
+
+export interface DeviceEndedBy {
+  /** The email of whoever took it, or `local`. */
+  by: string
+  /** What to call them, as `DeviceWaiting.name`. */
+  name: string
+  /** The relay's clock. Only for telling one notice from the next; never compared with the viewer's clock. */
+  at: number
 }
 
 /** A holder as the device list shows it. `user` is a label for people, not an identity to act on. */

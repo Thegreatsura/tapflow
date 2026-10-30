@@ -1609,7 +1609,7 @@ export class RelayServer {
       case 'agents:list': {
         this.sendTo(ws, {
           type: 'agents:listed',
-          sessions: this.sessions.list(this.ownerOf(ws), (holder) => this.isAlive(holder), (group) => this.macAdmission(group)),
+          sessions: this.sessions.list(this.ownerOf(ws), (holder) => this.isAlive(holder), (group) => this.macAdmission(group), this.userOf(ws)),
           features: ['device-lease', 'launch-options'],
         })
         break
@@ -1774,6 +1774,7 @@ export class RelayServer {
         this.sessions.setReadySent(session.id, false)
         this.sessions.setDeviceServiceTier(session.id, undefined)
         this.forgetInstall(session, 'The device shut down')
+        this.sessions.settleShutdown(session.id)
         // Unless a boot went out after the shutdown this answers: the shutdown carries no correlator, and a device
         // the relay shut down to make room can be picked up and started again before the agent reports back.
         if (session.lastBootPending === undefined) session.lastBoot = undefined
@@ -1796,6 +1797,7 @@ export class RelayServer {
           session.evictingAt = undefined
           this.sessions.updateDeviceStatus(session.id, 'booted')
         }
+        this.sessions.undoShutdown(session.id)
         if (session.browserSocket?.readyState === WebSocket.OPEN) {
           session.browserSocket.send(JSON.stringify(raw))
         }
@@ -1956,6 +1958,8 @@ export class RelayServer {
           break
         }
         this.rememberShutdownRequester(ws, target.session.id, msg.requestId)
+        // Here and not at the top: a refused shutdown ends nobody's wait (#1087).
+        this.sessions.noteShutdown(target.session.id, { user: this.userOf(ws), label: this.holderLabel(ws), name: this.personName(ws) })
         target.session.agentSocket.send(JSON.stringify(msg))
         break
       }
@@ -2303,6 +2307,7 @@ export class RelayServer {
     // Tracked by the socket it actually goes to (#885): a rebind invalidates only the boots
     // tied to the replaced socket, so a boot dispatched after the rebind stays answerable.
     this.rememberBoot(msg.sessionId, msg.requestId, boot.session.agentSocket)
+    this.sessions.noteBootSent(msg.sessionId)
     // `=== 'full-erase'`, never truthy: the dashboard sends `app-only` on every boot, which erases nothing.
     if (msg.payload.resetMode === 'full-erase' || msg.payload.runReset) this.forgetInstall(boot.session, 'The device is being reset')
     // The parse product, so a key a viewer appended from devtools is gone before the agent sees it.
@@ -2833,7 +2838,7 @@ export class RelayServer {
       const joined = this.sessions.join(
         msg.sessionId, ws, this.ownerRecord(ws), (h) => this.isAlive(h),
         // Recorded by the join itself, so it holds before the agent-away return below and across a rebind.
-        { kind: msg.clientKind, label: this.holderLabel(ws), ...(msg.stream === false ? { stream: false } : {}) },
+        { kind: msg.clientKind, label: this.holderLabel(ws), name: this.personName(ws), ...(msg.stream === false ? { stream: false } : {}) },
       )
       if (!joined.ok) {
         // Both of these are answered above, so arriving here means the state moved between that check and
@@ -3034,6 +3039,20 @@ export class RelayServer {
     for (const w of this.sessions.watchersOf(sessionId)) this.sendTo(w, msg)
   }
 
+  /** What to call a person to their teammates (#1087): their display name, else the part of the email before `@` —
+   *  the rule `/auth/me` uses. `local` for a loopback client with no credential, as `holderLabel`. */
+  private personName(ws: WebSocket): string {
+    const id = Number(this.userOf(ws))
+    if (!Number.isInteger(id)) return 'local'
+    try {
+      const row = getDb().prepare('SELECT email, display_name FROM users WHERE id = ?').get(id) as { email: string; display_name: string | null } | undefined
+      if (!row) return 'unknown'
+      return row.display_name ?? row.email.split('@')[0]!
+    } catch {
+      return 'unknown'
+    }
+  }
+
   /** Who to show behind a holder: the signed-in user's email, or `local` for a loopback client with no
    *  credential. A label for people only — nothing reads it back. */
   private holderLabel(ws: WebSocket): string {
@@ -3064,6 +3083,7 @@ export class RelayServer {
   private idleShutdown(sessionId: string): void {
     const session = this.sessions.get(sessionId)
     if (session?.agentSocket.readyState !== WebSocket.OPEN) return
+    this.sessions.noteShutdownSent(session.id)
     this.sendTo(session.agentSocket, {
       type: 'device:shutdown',
       sessionId: session.id,
@@ -3138,7 +3158,8 @@ export class RelayServer {
         // the agent (filtered above while within it) is taken as not having happened: still up, and idle.
         automated: s.lastBoot?.booterClass === 'automated' && (s.deviceStatus === 'booted' || s.evictingAt !== undefined || s.lastBootPending !== undefined),
         booted: (s.deviceStatus === 'booted' || s.evictingAt !== undefined) && s.lastBootPending === undefined,
-        inUse: s.owner !== null || this.sessions.watchersOf(s.id).length > 0,
+        // A device waiting for a person to come back is theirs too, as the lease treats a person's countdown (#1087).
+        inUse: s.owner !== null || s.waitingOwner !== undefined || this.sessions.watchersOf(s.id).length > 0,
         reachable: s.agentSocket.readyState === WebSocket.OPEN,
         bootedAt: s.lastBoot?.at ?? 0,
       }))
@@ -3161,6 +3182,7 @@ export class RelayServer {
     this.sessions.updateDeviceStatus(session.id, 'shutdown')
     this.sessions.setReadySent(session.id, false)
     logger.info(`boot gate: shutting down idle automation device ${session.deviceName} on ${hostKeyOf(session)} to make room`)
+    this.sessions.noteShutdownSent(session.id)
     this.sendTo(session.agentSocket, { type: 'device:shutdown', sessionId: session.id, payload: { deviceId: session.deviceId } })
   }
 

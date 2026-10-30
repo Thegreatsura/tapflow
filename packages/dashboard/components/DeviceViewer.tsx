@@ -34,6 +34,9 @@ interface Props {
   platform?: string;
   buildId?: number;
   resetMode?: 'app-only' | 'full-erase';
+  /** This mount is the tester coming back to their own session (#1087): keep the installed app from the first install
+   *  on, rather than only after one of its own has landed. Read once, at mount. */
+  resume?: boolean;
   onRecordingUploaded?: () => void;
   /** Why this viewer stopped. The viewer cannot recover from any of these on its own — it holds a
    *  socket it can make no further progress on — so it reports upward and the parent decides where to go.
@@ -44,7 +47,7 @@ interface Props {
   onSessionEnded?: (reason: SessionTerminatedReason | 'busy-elsewhere' | 'mac-overloaded') => void;
 }
 
-export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios', buildId, resetMode, onRecordingUploaded, onSessionEnded }: Props) {
+export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios', buildId, resetMode, resume = false, onRecordingUploaded, onSessionEnded }: Props) {
   const sendRef = useRef<(msg: BrowserToRelay) => void>(() => {});
   // One reset per mount; see the boot handler below.
   const resetSentRef = useRef(false);
@@ -65,10 +68,11 @@ export function DeviceViewer({ sessionId, deviceId, formFactor, platform = 'ios'
   // already there (#1087): an install clears the app's data first, and a reconnect sends one per `device:ready` it
   // gets, which is two. The relay decides, because only it saw what happened to the device in between.
   //
-  // Set on the first done, not on the first send. A device someone left running answers the first join with a
+  // A resumed mount starts true. Otherwise set on the first done, not on the first send. A device someone left
+  // running answers the first join with a
   // replayed ready and then the real one, and the second install must not be folded into the first, which is still
   // running while the device boots.
-  const keepInstalledRef = useRef(false);
+  const keepInstalledRef = useRef(resume);
   const { perfMode, visible: perfVisible } = usePerfMode();
 
   // statsRef is set by StatsOverlay; perfMetricsPushRef is set by MetricsPanel

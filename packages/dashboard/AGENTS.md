@@ -113,6 +113,29 @@ buttons are drawn at rest and nothing on the frame can be pressed.
 overlay dropped on either platform, Android's pointer handlers dropped, a rotation in flight ignored)
 survived every viewer test.
 
+### A session URL is read once, and decided from a listing (#1087)
+
+The QA page puts `session` and `device` in its URL when a device starts (`replace`) and takes them out on every way
+out. **The URL is read once, when the page mounts** (`useState` initializer): reading it on every render would send the
+URL the page itself just wrote back through the decision and re-decide the session the tester is in.
+
+**A URL entry is never a join on sight.** A session id is a device slot, so a join succeeds for a device that is off
+and the viewer then boots it. The page waits for a device listing and decides with `classifyResume`
+(`lib/resumeEntry.ts`, a pure function with its own tests): join only a session the relay says is waiting for this
+person (`resumable`); wait while another tab of theirs holds it (`heldBySelf`, and then only after it has been free
+for 10 s, so the tab that dropped wins), while an AI client borrows it, or while its Mac is not listed; otherwise go
+to the list, with a dialog for a device that is no longer theirs. The order of those checks is the decision, and the
+comment beside it says why.
+
+**The decision runs in the listing's message handler, not in an effect over `sessions`** — it sets state, and
+`set-state-in-effect` is on. `useAgentSession` takes an `onListed` callback for that.
+
+A wait is a `role="status"` banner above the list, never a dialog: it resolves on its own, and a dialog closing itself
+would move focus. A decision is a dialog over the list. Both dialogs are opened by state, so each returns focus itself.
+
+A resumed device is a `DeviceViewer` mounted with `resume` and keyed by session, and its boot never carries a full
+reset — that is for a fresh start.
+
 ### The AI session page watches and never drives
 
 `/automation/sessions/:id` watches one session through `useWatchSession` and renders `WatchedDevice` (the
