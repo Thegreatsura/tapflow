@@ -109,4 +109,27 @@ describe('merge mode', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     expect(fetchMock).not.toHaveBeenCalled()
   })
+
+  // The keyboard only stops on apps a row can go to; a mouse can let go anywhere, so the drop is checked again.
+  // Last in the file: in jsdom a pointer drag leaves dnd-kit listening on the window, which swallowed the next test's click.
+  it('asks nothing when a row is dropped with the mouse on an app that already has that platform', async () => {
+    renderCard([app(1, 'Taken', null, 'com.taken'), app(2, 'Mover', null, 'com.mover')])
+    await enterMergeMode()
+    const grip = screen.getByRole('button', { name: /Move com\.mover \(Android\)/ })
+    const pointer = { pointerId: 1, isPrimary: true, button: 0 }
+    await act(async () => {
+      fireEvent.pointerDown(grip, { ...pointer, clientX: 10, clientY: 135 })
+      await new Promise((r) => setTimeout(r, 10))
+    })
+    await act(async () => {
+      fireEvent.pointerMove(document, { ...pointer, clientX: 10, clientY: 40 })
+      await new Promise((r) => setTimeout(r, 10))
+    })
+    expect(document.querySelector('[data-app-id="1"]')).toHaveClass('opacity-50')
+    await act(async () => {
+      fireEvent.pointerUp(document, { ...pointer, clientX: 10, clientY: 40 })
+      await new Promise((r) => setTimeout(r, 10))
+    })
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  })
 })
