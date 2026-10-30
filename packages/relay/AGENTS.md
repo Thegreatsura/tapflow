@@ -19,9 +19,9 @@ A single process on a single configurable port (default: 4000) handles both WebS
 
 `apps` and `builds` are separate entities.
 
-- **apps**: product-level app identity, keyed by `bundle_id_key` alone (migration 007 dropped the old `UNIQUE(bundle_id_key, platform)`; uniqueness is enforced in `upsertApp` for uploads, and `POST /apps` refuses a manual create for a key that already has a row with 409, whatever the platform — restoring the dropped per-platform constraint would leave a row `upsertApp` never routes to). `platform` is `ios` | `android` | `both` — the same bundle ID uploaded on both platforms is **one** row promoted to `both`, not separate rows.
+- **apps**: product-level app identity. Its bundle IDs live in `app_bundle_ids` (migration 020, #1086), one row per (app, platform), so an app can have a different ID on iOS and Android. Two rules the table does not hold are kept in `lib/appBundleIds.ts`: **an ID belongs to one app whatever the platform** (every ownership lookup ignores the platform; `POST /apps` refuses a taken ID with 409) and **an app has at most one ID per platform** (a different ID for a platform the app already has goes to that ID's own app, so a build flavor stays separate). `platform` is `ios` | `android` | `both`, widened when a build or ID for the other platform arrives. `__unknown__` collects builds whose ID could not be read and never takes part in a create or a merge. `POST /apps/:id/merge` moves one platform's ID and builds into another app and deletes the source when it has nothing left; everything else a build has hangs off `build_id` and follows it, and only `builds.app_id` points at `apps`.
 - **builds**: build artifacts. `app_id FK → apps.id`. Contains `version_name`, `build_number`, `file_path`.
-- `bundle_id_key` is used to auto-lookup/create the `apps` row → re-uploading the same app adds only a new `builds` row.
+- An upload's bundle ID finds its app (`routeUploadToApp` / `upsertApp`) → re-uploading the same app adds only a new `builds` row. `app_id` adds the ID to the named app only when that app has none on the platform and no other app holds it; an `app_id` naming no app (merged away) is routed by the ID. A build's `platform` is its file type, never the caller's field.
 
 Build file storage path: `uploads/builds/`.
 

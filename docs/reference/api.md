@@ -252,7 +252,9 @@ Return all apps. Each app includes a summary of its latest build.
       "id": 7,
       "name": "My App",
       "bundle_id_key": "com.example.app",
-      "platform": "ios",
+      "bundle_ids": { "ios": "com.example.app", "android": "com.example.android" },
+      "build_platforms": ["android", "ios"],
+      "platform": "both",
       "created_at": "2025-05-01T00:00:00.000Z",
       "latest_build_id": 42,
       "version_name": "1.2.3",
@@ -264,10 +266,12 @@ Return all apps. Each app includes a summary of its latest build.
 }
 ```
 
+`bundle_ids` is the app's bundle ID per platform, `null` where it has none. `bundle_id_key` stays for older clients; when the two IDs differ, it holds the iOS one. `build_platforms` lists the platforms the app has builds on.
+
 
 ### `POST /api/v1/apps`
 
-Create an app manually. Requires the **Admin, Developer or QA** role. A Viewer gets `403`. If an app with the same `bundle_id_key` already exists, on any platform, you get `409`. Create an app for iOS and Android once, with `both`.
+Create an app manually. Requires the **Admin, Developer or QA** role. A Viewer gets `403`. If an app with the same `bundle_id_key` already exists, on any platform, you get `409`. Create an app that uses the same bundle ID on iOS and Android once, with `both`. If the IDs differ, create it for one platform and upload the other platform's build with `app_id`; that build's bundle ID is added to the app. `__unknown__` is reserved and gets `400`.
 
 ```
 Body (JSON):
@@ -310,6 +314,25 @@ Delete an app and all its builds, with their comments, recordings, run records a
 ```
 
 
+### `POST /api/v1/apps/:id/merge`
+
+Move one platform of another app into this one. That platform's bundle ID and builds move together, and the builds' comments, recordings and run records go with them. If the other app has nothing left, it is deleted. The app keeps this app's name. This cannot be undone. Requires the **Admin, Developer or QA** role.
+
+```
+Body (JSON):
+  fromAppId  number        required  the app to move from
+  platform   ios|android   required  the platform to move
+```
+
+**Response `200`**
+
+```json
+{ "ok": true, "appId": 7, "removedAppId": 9 }
+```
+
+`removedAppId` is there only when the other app was deleted. You get `409` if this app already has a bundle ID on that platform, and `404` if either app is missing. You get `400` for an app merged into itself, a platform the other app has nothing on, or the app that collects builds whose bundle ID could not be read (`__unknown__`).
+
+
 ## Builds
 
 ### `POST /api/v1/builds`
@@ -328,8 +351,8 @@ Only `file` is required; every other field is optional.
 | `file` | Yes | The build artifact. iOS: `.app.zip` or `.tar.gz` / `.tgz` (a simulator build); Android: `.apk`. Max 500 MB by default (`TAPFLOW_MAX_BUILD_BYTES` changes it). `.ipa` and `.aab` are rejected. |
 | `status` | No | Initial review status — one of `Backlog`, `In Progress`, `Done`, `Rejected`. Omit to leave it unset. |
 | `label` | No | Free-text label to identify the build in App Center (e.g. a branch name or `rc-1`). |
-| `platform` | No | `ios` or `android`. Derived from the file type when omitted. |
-| `app_id` | No | Attach to an existing app explicitly. Normally the app is resolved automatically from the bundle ID. |
+| `platform` | No | Ignored. The platform comes from the file type. |
+| `app_id` | No | Attach to an existing app. If that app has no bundle ID on the build's platform and no other app holds the build's ID, the ID is added to the app. Otherwise the build goes to the app for its bundle ID. An `app_id` removed by a merge is routed by the bundle ID instead. When omitted, the bundle ID decides the app. |
 
 ::: warning iOS builds
 `.ipa` files are not supported. Upload `.app.zip`, or the `.tar.gz` / `.tgz` a cloud simulator build produces. Build `.app.zip` with `xcodebuild -sdk iphonesimulator` and zip the `.app` folder.
