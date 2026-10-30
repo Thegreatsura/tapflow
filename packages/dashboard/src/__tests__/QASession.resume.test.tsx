@@ -46,7 +46,7 @@ function Crumbs() { return <nav>{useBreadcrumb().node}</nav> }
 const device = (over: Partial<DeviceSummary> = {}): DeviceSummary =>
   ({ id: 'dev-a', name: 'iPhone 17 Pro', platform: 'ios', status: 'booted', osVersion: 'iOS 26', sessionId: 'sess-a', busy: false, ...over })
 const listing = (...devices: DeviceSummary[]): SessionInfo[] => [{
-  agentName: 'studio-mac', platform: 'ios', capabilities: [], admission: { booting: false, overloaded: false, memoryRefuses: [] }, devices,
+  agentName: 'studio-mac', platform: 'ios', capabilities: ['full-reset'], admission: { booting: false, overloaded: false, memoryRefuses: [] }, devices,
 }]
 const listed = (...devices: DeviceSummary[]) => act(async () => { deliver!({ type: 'agents:listed', sessions: listing(...devices) }) })
 
@@ -151,6 +151,21 @@ describe('QASession — coming back through a session URL', () => {
     expect(viewer?.sessionId).toBe('sess-b')
   })
 
+  // A viewer that ends on its own (here the agent going away) must not leave an old target behind for the next listing
+  // to act on: the tester moved on when they picked another device.
+  it('forgets the session it was waiting for once the tester picks another, even if that one ends', async () => {
+    const user = userEvent.setup()
+    await open(URL)
+    const other = device({ id: 'dev-b', name: 'iPhone SE', sessionId: 'sess-b' })
+    await listed(device({ busy: true, heldBySelf: true }), other)
+    await user.click(screen.getByRole('button', { name: /iPhone SE/ }))
+    await act(async () => { viewer!.onSessionEnded!('agent-disconnected') })
+    viewer = null
+
+    await listed(device({ resumable: true, releasedAgoMs: 60_000, waiting: { user: 'me@x', remainingMs: 200_000, yours: true } }), other)
+    expect(viewer).toBeNull()
+  })
+
   // The relay can still refuse the join it just listed as free. That is the own-tab wait, not an ended session.
   it('goes back to waiting when its join meets the session still held', async () => {
     await open(URL)
@@ -210,6 +225,23 @@ describe('QASession — the device list', () => {
 
     expect(screen.queryByRole('alertdialog')).toBeNull()
     expect(viewer?.resume).toBe(true)
+  })
+
+  // Full reset is armed for one fresh pick and stays as the last applied mode. Carried into a resume it would erase the
+  // device the tester came back to.
+  it('never erases a device the tester is coming back to, whatever reset was used last', async () => {
+    const user = await onList(
+      device(),
+      device({ id: 'dev-b', name: 'iPhone SE', sessionId: 'sess-b', resumable: true, releasedAgoMs: 500, waiting: { user: 'me@x', remainingMs: 200_000, yours: true } }),
+    )
+    await user.click(screen.getByRole('switch', { name: 'Full reset' }))
+    await user.click(screen.getByRole('button', { name: /iPhone 17 Pro/ }))
+    expect(viewer?.resetMode).toBe('full-erase')
+    await user.click(screen.getByRole('button', { name: 'studio-mac' }))
+
+    await user.click(screen.getByRole('button', { name: /iPhone SE.*Your session is waiting/ }))
+    expect(viewer?.sessionId).toBe('sess-b')
+    expect(viewer?.resetMode).toBe('app-only')
   })
 
   it('offers the tester\'s interrupted session above the list, and ends it on request', async () => {
