@@ -102,8 +102,12 @@ export function AppCenter() {
   })
   const builds = buildsQuery.data ?? []
 
+  // No app named, or one that is gone — a merge removes the app it moved out of (#1086), and a tab or bookmark can
+  // still name it. Either way the first app, rather than an empty page uploads would 404 on.
   useEffect(() => {
-    if (!appsQuery.data || searchParams.get('appId') || appsQuery.data.length === 0) return
+    if (!appsQuery.data || appsQuery.data.length === 0) return
+    const named = searchParams.get('appId')
+    if (named && appsQuery.data.some((a) => String(a.id) === named)) return
     setSearchParams({ appId: String(appsQuery.data[0].id) }, { replace: true })
   }, [appsQuery.data, searchParams, setSearchParams])
 

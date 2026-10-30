@@ -34,7 +34,7 @@ its buttons, not a prop. A confirmation that asks "are you sure?" is `AlertDialo
   (`tailwindcss-animate`, #984). With the OS set to reduce motion it appears and disappears instantly.
 - **Title** — `text-lg` (18px) `font-semibold leading-none tracking-tight`, `--foreground`. Required on every
   dialog; the deeplink bar hides it visually (`sr-only`).
-- **Description** (optional) — `text-sm`, `--muted-foreground`. 2 of 7 dialogs.
+- **Description** (optional) — `text-sm`, `--muted-foreground`. 3 of 8 dialogs.
 - **Close** — 16px ✕ in the top-right corner, 16px from the top and right edges, 70% opacity, 100% on hover.
   Its focus ring uses `focus:`, so it shows on a click too. Last in the tab order, after the actions.
 
@@ -50,7 +50,7 @@ at desktop width, where the header is left-aligned and the corners are 8px.
 |-------|------------|-----------:|-------|
 | `stacked` | One primary button, full width, at the bottom of the body | 4 | Invite member, Password reset link, Create token, Add App |
 | `end` | Cancel (`outline`) and the primary action, 96px each (`w-24`), right-aligned, 8px apart | 1 | Upload build |
-| `footer` | `DialogFooter`: secondary and primary right-aligned, 8px apart; below 640px stacked with the primary on top | 1 | Streaming in Standard mode |
+| `footer` | `DialogFooter`: secondary and primary right-aligned, 8px apart; below 640px stacked with the primary on top | 2 | Streaming in Standard mode, Edit app (Settings → Apps) |
 | `inline` | No action row; the one button sits inside the bar beside the field | 1 | Open deeplink |
 
 Call-site counts are a snapshot (2026-10-18). `stacked` is what a form dialog does: fields, then the submit
@@ -58,7 +58,7 @@ button stretched to the panel's width. A dialog whose form is replaced by a resu
 token, the reset link) keeps the same shape — the copy field, then one full-width button (`Done`, `Copy & close`),
 12px apart (`gap-3`) where the form's fields are 16px apart (`gap-4`).
 
-`DialogFooter` is used once. `stacked` and `end` are plain `div`s or the `<form>` itself, which is why the
+`DialogFooter` is used twice. `stacked` and `end` are plain `div`s or the `<form>` itself, which is why the
 Figma set's `footer` axis (with / without) does not describe what ships.
 
 There is no state axis: the panel itself is not interactive. The buttons, fields and Close follow their own

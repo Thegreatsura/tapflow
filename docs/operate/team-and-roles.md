@@ -13,7 +13,7 @@ The page every member opens first. Its profile settings (nickname, avatar, passw
 
 - **Workspace** — the team name and logo. Visible to Admins only.
 - **Flow run videos** — how long passed flows' videos are kept and how much storage videos may use, with what is in use now. Visible to Admins only. See [Flow Runs](/automation/runs#recording).
-- **Apps** — rename or delete apps. Visible to Admins, Developers and QA, hidden from Viewers.
+- **Apps** — rename or delete apps, or [merge](/testing/app-center#merge-apps) apps that split. Visible to Admins, Developers and QA, hidden from Viewers.
 
 ## Team
 

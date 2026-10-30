@@ -45,6 +45,25 @@ You can also create the app first with **Add App** below the **Apps** list, givi
 
 To upload builds automatically from a CI pipeline, see [Upload from CI](/operate/ci-distribution).
 
+## Merge apps {#merge-apps}
+
+If one product split into two apps because its iOS and Android bundle IDs differ, you can merge them. This needs the **Admin, Developer or QA** role.
+
+1. In **Settings**, on the **Apps** card, press **Merge apps**. A handle appears in front of each bundle ID row, and the rows start to wiggle.
+2. Drag the bundle ID row you want to move onto the app you want to keep. From the keyboard, press Space on the handle to pick it up, choose an app with the arrow keys, and press Space to drop it.
+3. Press **Merge** in the confirmation.
+
+That platform's bundle ID and builds move to the app you keep, along with the builds' comments, recordings and run records. If the other app has nothing left, it is deleted. The app keeps the name of the one you dropped onto. A merge cannot be undone.
+
+CI that uploads with the deleted app's `app_id` keeps working, because the build's bundle ID finds the app.
+
+Some rows cannot be moved. They have no handle and do not wiggle. Point at or focus the row to see why.
+
+- A row of an app that uses the same bundle ID on both platforms. That app is already one app.
+- A row of the app that collects builds whose bundle ID could not be read.
+
+While you drag, apps the row cannot go to are dimmed: an app that already has a bundle ID on that platform. A row with builds but no bundle ID can still go there.
+
 ## Review status {#review-status}
 
 The review status tells the team how far a build has been checked. Change it from the status menu on the build's row.
@@ -78,7 +97,7 @@ Until then you can cancel it any time with the timer icon (**Cancel scheduled de
 
 - The Viewer role is read-only. When a Viewer presses **Upload build** or **Add App**, a notice says QA or Developer access is needed instead of opening the dialog. A Viewer sees no status menu and no deletion button, only **Start QA** and the status badge. For what each role can do, see [Team, roles & tokens](/operate/team-and-roles#team).
 - The list shows each app's 100 most recently uploaded builds. Search by version to find older ones.
-- App Center cannot rename or delete an app. The Admin, Developer and QA roles can do both from the **Apps** card in **Settings → Default**. Deleting an app deletes all of its builds.
+- App Center cannot rename or delete an app. The Admin, Developer and QA roles can do both from the **⋯** menu of each app on the **Apps** card in **Settings → Default** (**Edit**, **Delete**). Deleting an app deletes all of its builds.
 - The deletion confirmation always says 7 days. If your operator changed `TAPFLOW_BUILD_TTL_DAYS` on the relay, the real period follows that value.
 
 ## Troubleshooting {#troubleshooting}

@@ -46,6 +46,10 @@ export interface App {
   name: string
   /** Null for an app a merge left with builds but no ID (#1086). */
   bundle_id_key: string | null
+  /** The app's bundle ID on each platform, null where it has none (#1086). */
+  bundle_ids: { ios: string | null; android: string | null }
+  /** The platforms the app has builds on — a platform can have builds and no ID. */
+  build_platforms: Array<'ios' | 'android'>
   platform: 'ios' | 'android' | 'both'
   latest_build_id: number | null
   version_name: string | null
