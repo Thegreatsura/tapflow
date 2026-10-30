@@ -57,11 +57,12 @@ That platform's bundle ID and builds move to the app you keep, along with the bu
 
 CI that uploads with the deleted app's `app_id` keeps working, because the build's bundle ID finds the app.
 
-Some rows cannot be moved. Hover over the handle to see why.
+Some rows cannot be moved. Point at or focus the handle to see why.
 
 - A row of an app that uses the same bundle ID on both platforms. That app is already one app.
 - A row of the app that collects builds whose bundle ID could not be read.
-- A row cannot be dropped on an app that already has a bundle ID on that platform.
+
+While you drag, apps the row cannot go to are dimmed: an app that already has a bundle ID on that platform. A row with builds but no bundle ID can still go there.
 
 ## Review status {#review-status}
 

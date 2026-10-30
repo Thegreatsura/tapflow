@@ -62,7 +62,7 @@ component — propose it as a code change first.
 
 ## Variations at the call site
 
-These are `className` overrides, not props. They change layout, not the look of the card.
+These are `className` overrides, not props. All but one change layout, not the look of the card.
 
 | Where | Override | Why |
 |-------|----------|-----|
@@ -71,6 +71,7 @@ These are `className` overrides, not props. They change layout, not the look of 
 | Invite and Reset password result cards (two) | Card `text-center` | A status message with no form, all of it centered |
 | Login, Setup | CardTitle `tracking-display-md` (-0.96px) | Display tracking on the two entry titles; every other title keeps `tracking-tight` |
 | Members (Team), Tokens | CardContent `px-4 pt-0 pb-2` | The content is a table, which brings its own cell padding |
+| Apps (Settings), in merge mode | Card `border-dashed border-foreground/40` | The one look override: a mode the card is in while rows can be dragged, said without motion for anyone who has it turned off |
 
 ## Usage
 
