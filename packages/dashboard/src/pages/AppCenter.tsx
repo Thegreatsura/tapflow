@@ -492,7 +492,8 @@ export function AppCenter() {
           sessions={interrupted}
           canResume={(s) => s.device.waiting?.buildId !== undefined}
           onResume={(s) => navigate(`/app-center/build?${new URLSearchParams({ id: String(s.device.waiting!.buildId), session: s.device.sessionId, device: s.device.id })}`)}
-          onEnd={endInterrupted}
+          // The row goes with the next listing; move focus off it now.
+          onEnd={(s) => { endInterrupted(s); searchRef.current?.focus() }}
         />
         <div className="flex items-center justify-between flex-wrap gap-2">
           <h1 className="text-xl font-semibold tracking-display-sm">

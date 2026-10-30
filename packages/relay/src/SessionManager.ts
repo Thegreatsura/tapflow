@@ -109,6 +109,9 @@ export interface Session {
   /** Someone else took or shut down the device while it waited for `ownerUser`. Expires with the idle window; a read
    *  does not clear it, because every open tab of that person polls the listing. */
   endedBy?: { ownerUser: string; byLabel: string; at: number }
+  /** A boot went to the agent after the last shutdown did. Then that shutdown's done describes a device someone has
+   *  since picked up again, and the wait and countdown it would clear are newer than it. Undefined: no shutdown out. */
+  bootAfterShutdown?: boolean
 }
 
 export type InstalledBuild = { buildId: number; filePath: string }
@@ -444,16 +447,32 @@ export class SessionManager {
    */
   noteShutdown(sessionId: string, by: { user: string; label: string }): void {
     const session = this.sessions.get(sessionId)
+    if (session) session.bootAfterShutdown = false
     const waited = session?.waitingOwner
     if (!session || !waited) return
     if (waited.user !== by.user) session.endedBy = { ownerUser: waited.user, byLabel: by.label, at: Date.now() }
     session.waitingOwner = undefined
   }
 
-  /** The device is down: nothing is left to count down to, and nobody to wait for. */
+  /** A shutdown the relay sent on its own (idle, capacity): only so a later boot can be told apart. */
+  noteShutdownSent(sessionId: string): void {
+    const session = this.sessions.get(sessionId)
+    if (session) session.bootAfterShutdown = false
+  }
+
+  noteBootSent(sessionId: string): void {
+    const session = this.sessions.get(sessionId)
+    if (session && session.bootAfterShutdown === false) session.bootAfterShutdown = true
+  }
+
+  /** The device is down: nothing is left to count down to, and nobody to wait for — unless a boot went out after the
+   *  shutdown this answers, in which case the wait and countdown on the session now belong to that later pick-up. */
   settleShutdown(sessionId: string): void {
     const session = this.sessions.get(sessionId)
     if (!session) return
+    const stale = session.bootAfterShutdown === true
+    session.bootAfterShutdown = undefined
+    if (stale) return
     if (session.idleTimer) { clearTimeout(session.idleTimer); session.idleTimer = null }
     session.waitingOwner = undefined
   }

@@ -165,6 +165,24 @@ describe('a device waiting for its owner, through the relay', () => {
     expect(await waitForTypeOrNull(agent, 'device:shutdown', IDLE * 2)).not.toBeNull()
   })
 
+  // The shutdown's done arrives after the owner already came back, booted the device and dropped again.
+  it('keeps a wait that began after the device was booted again behind a shutdown', async () => {
+    const laptop = await aliceDropped()
+    laptop.send(JSON.stringify({ type: 'device:shutdown', sessionId, payload: { deviceId: 'dev-1' } }))
+    await waitForType(agent, 'device:shutdown')
+    laptop.send(JSON.stringify({ type: 'session:start', sessionId, clientKind: 'dashboard' }))
+    await waitForType(laptop, 'session:joined')
+    laptop.send(JSON.stringify({ type: 'device:boot', sessionId, requestId: 'rq-again', payload: { deviceId: 'dev-1' } }))
+    await waitForType(agent, 'device:boot')
+    laptop.terminate()
+    const phone = await browser(1, `alice-phone-${seq}`)
+    await until(phone, (d) => d.resumable === true)
+
+    agent.send(JSON.stringify({ type: 'device:shutdown-done', sessionId }))
+    await barrier(agent)
+    expect((await device(phone)).resumable).toBe(true)
+  })
+
   it('stops the countdown once the device is down', async () => {
     const laptop = await aliceDropped()
     laptop.send(JSON.stringify({ type: 'device:shutdown', sessionId, payload: { deviceId: 'dev-1' } }))

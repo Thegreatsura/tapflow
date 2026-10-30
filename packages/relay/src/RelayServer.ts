@@ -2306,6 +2306,7 @@ export class RelayServer {
     // Tracked by the socket it actually goes to (#885): a rebind invalidates only the boots
     // tied to the replaced socket, so a boot dispatched after the rebind stays answerable.
     this.rememberBoot(msg.sessionId, msg.requestId, boot.session.agentSocket)
+    this.sessions.noteBootSent(msg.sessionId)
     // `=== 'full-erase'`, never truthy: the dashboard sends `app-only` on every boot, which erases nothing.
     if (msg.payload.resetMode === 'full-erase' || msg.payload.runReset) this.forgetInstall(boot.session, 'The device is being reset')
     // The parse product, so a key a viewer appended from devtools is gone before the agent sees it.
@@ -3067,6 +3068,7 @@ export class RelayServer {
   private idleShutdown(sessionId: string): void {
     const session = this.sessions.get(sessionId)
     if (session?.agentSocket.readyState !== WebSocket.OPEN) return
+    this.sessions.noteShutdownSent(session.id)
     this.sendTo(session.agentSocket, {
       type: 'device:shutdown',
       sessionId: session.id,
@@ -3141,7 +3143,8 @@ export class RelayServer {
         // the agent (filtered above while within it) is taken as not having happened: still up, and idle.
         automated: s.lastBoot?.booterClass === 'automated' && (s.deviceStatus === 'booted' || s.evictingAt !== undefined || s.lastBootPending !== undefined),
         booted: (s.deviceStatus === 'booted' || s.evictingAt !== undefined) && s.lastBootPending === undefined,
-        inUse: s.owner !== null || this.sessions.watchersOf(s.id).length > 0,
+        // A device waiting for a person to come back is theirs too, as the lease treats a person's countdown (#1087).
+        inUse: s.owner !== null || s.waitingOwner !== undefined || this.sessions.watchersOf(s.id).length > 0,
         reachable: s.agentSocket.readyState === WebSocket.OPEN,
         bootedAt: s.lastBoot?.at ?? 0,
       }))
@@ -3164,6 +3167,7 @@ export class RelayServer {
     this.sessions.updateDeviceStatus(session.id, 'shutdown')
     this.sessions.setReadySent(session.id, false)
     logger.info(`boot gate: shutting down idle automation device ${session.deviceName} on ${hostKeyOf(session)} to make room`)
+    this.sessions.noteShutdownSent(session.id)
     this.sendTo(session.agentSocket, { type: 'device:shutdown', sessionId: session.id, payload: { deviceId: session.deviceId } })
   }
 

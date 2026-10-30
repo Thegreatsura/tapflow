@@ -32,7 +32,8 @@ export type ResumeStep =
   /** The device is off, or on and not this person's to come back to: ask before starting it. */
   | { kind: 'restart'; agentName: string; device: DeviceSummary }
   | { kind: 'taken'; agentName: string; device: DeviceSummary; by: string }
-  | { kind: 'in-use'; agentName: string }
+  /** `self`: held by another of this person's own tabs, which never let go. */
+  | { kind: 'in-use'; agentName: string; self?: true }
   /** Someone else's session is waiting on it. The card says so, and picking it asks first. */
   | { kind: 'others'; agentName: string }
   | { kind: 'gone' }
@@ -57,7 +58,7 @@ export function classifyResume(sessions: SessionInfo[], target: ResumeTarget, no
     return { kind: 'join', agentName, device }
   }
   if (device.heldBySelf) {
-    if (target.ownTabSince !== undefined && now - target.ownTabSince > GIVE_UP_MS) return { kind: 'in-use', agentName }
+    if (target.ownTabSince !== undefined && now - target.ownTabSince > GIVE_UP_MS) return { kind: 'in-use', agentName, self: true }
     return { kind: 'wait', why: 'own-tab', agentName, device }
   }
   if (device.endedBy) return { kind: 'taken', agentName, device, by: device.endedBy.by }
@@ -66,10 +67,11 @@ export function classifyResume(sessions: SessionInfo[], target: ResumeTarget, no
   return { kind: 'restart', agentName, device }
 }
 
-/** The tester's own sessions that dropped and are still waiting for them, including one an AI client is borrowing. */
-export function interruptedSessions(sessions: SessionInfo[]): { agentName: string; device: DeviceSummary }[] {
+/** The tester's own sessions that dropped and are still waiting for them, including one an AI client is borrowing.
+ *  `platform` narrows it to the devices a page can show: a QA page for an iOS build cannot resume an Android session. */
+export function interruptedSessions(sessions: SessionInfo[], platform?: string): { agentName: string; device: DeviceSummary }[] {
   return sessions.flatMap((s) => s.devices
-    .filter((d) => d.waiting?.yours && (d.resumable || d.waiting.aiHolding))
+    .filter((d) => d.waiting?.yours && (d.resumable || d.waiting.aiHolding) && (platform === undefined || d.platform === platform))
     .map((device) => ({ agentName: s.agentName ?? '', device })))
 }
 

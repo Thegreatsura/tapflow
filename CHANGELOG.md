@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Come back to a QA session after a dropped connection or a closed tab.** The QA page's URL now names the session, so reloading or reopening it takes you back to the same device with the app as you left it, as long as the device is still waiting for you (5 minutes by default, `IDLE_TIMEOUT_MS`). App Center and the device list show **Your session on … was interrupted** with **Resume** and **End**, from any browser signed in to your account. A teammate who picks a device someone is coming back to is told whose it is and asked first, and the owner is told who took it. A link to a device that has since shut down asks before starting it again.
+- **Come back to a QA session after a dropped connection or a closed tab.** The QA page's URL now names the session, so reloading or reopening it takes you back to the same device with the app as you left it, as long as the device is still waiting for you (5 minutes by default, `IDLE_TIMEOUT_MS`). App Center and the device list show **Your session on … was interrupted** with **Resume** and **End**, from any browser signed in to your account. A teammate who picks a device someone is coming back to is told whose it is and asked first, and the owner, if they come back within that time, is told who took it. A link to a device that has since shut down asks before starting it again.
 
 ### Fixed
 

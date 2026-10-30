@@ -47,13 +47,14 @@ that is destructive or hard to undo. `action` below is how the call site styles 
 
 | Value | Looks like | Call sites | Where |
 |-------|------------|-----------:|-------|
-| `primary` | `Button` `default` — ink fill, white text | 2 | Schedule deletion (build row), Restart this device (toolbar) |
-| `destructive` | `Button` `destructive` — the soft tint: `--destructive` at 10% fill (20% on hover), `--destructive` text, no border | 3 | Revoke token, Delete app (96px, `w-24`), Remove member |
+| `primary` | `Button` `default` — ink fill, white text | 3 | Schedule deletion (build row), Restart this device (toolbar), Start again (a session link to a device that has shut down) |
+| `destructive` | `Button` `destructive` — the soft tint: `--destructive` at 10% fill (20% on hover), `--destructive` text, no border | 4 | Revoke token, Delete app (96px, `w-24`), Remove member, End their session and use it (a device a teammate is coming back to) |
 
-Call-site counts are a snapshot (2026-10-18). Each button keeps its own `Button` states (hover, focus, pressed);
+Call-site counts are a snapshot (2026-10-30). Each button keeps its own `Button` states (hover, focus, pressed);
 see [button.md](./button.md). `destructive` is not a solid red fill anywhere in the dashboard.
 
-All three removals look the same; only Delete app differs, by its fixed 96px width. Remove member gets there by
+All four look the same; only Delete app differs, by its fixed 96px width. End their session and use it passes
+`buttonVariants({ variant: 'destructive' })` as its class, so it follows the variant. Remove member gets there by
 writing the variant's classes out by hand (`bg-destructive/10 text-destructive hover:bg-destructive/20 border-0`)
 instead of passing `variant="destructive"`, so it would not follow a change to the variant.
 

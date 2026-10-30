@@ -3,7 +3,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { minutesLeft } from '@/lib/resumeEntry';
 import type { DeviceSummary } from '@/lib/types';
 
@@ -12,7 +12,7 @@ import type { DeviceSummary } from '@/lib/types';
 
 const WAIT_TEXT = {
   'own-tab': (name: string) =>
-    `Returning to your session on ${name}. It continues on its own once your previous connection is cleared.`,
+    `Returning to your session on ${name}. It continues on its own once your other connection to it is closed or cleared.`,
   'ai-holding': (name: string) => `An AI client is using ${name}. You can continue your session when it is done.`,
   'mac-away': () => 'Waiting for the Mac running your device to come back.',
 } as const;
@@ -99,12 +99,15 @@ export function TakeOverDialog({ device, onCancel, onConfirm, returnFocusTo }: {
           <AlertDialogTitle>Use the device {owner} is coming back to?</AlertDialogTitle>
           <AlertDialogDescription>
             {owner}&apos;s connection dropped{minutes !== null ? `, and the device shuts down in about ${minutes} min if they do not return` : ''}.
-            Using it ends their session, and the app state they were testing is lost. They will be told who took it.
+            Using it ends their session, and the app state they were testing is lost. If they come back within a few
+            minutes, they are told who took it.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction onClick={() => { if (device) onConfirm(device); }}>End their session and use it</AlertDialogAction>
+          <AlertDialogAction className={buttonVariants({ variant: 'destructive' })} onClick={() => { if (device) onConfirm(device); }}>
+            End their session and use it
+          </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

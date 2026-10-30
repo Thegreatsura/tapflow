@@ -128,11 +128,12 @@ describe('QASession — coming back through a session URL', () => {
     expect(await screen.findByRole('alertdialog', { name: 'Start iPhone 17 Pro again?' })).toBeTruthy()
   })
 
-  it('stops waiting when the tester cancels', async () => {
+  it('stops waiting when the tester cancels, and keeps focus on the list', async () => {
     const user = userEvent.setup()
     await open(URL)
     await listed(device({ busy: true, heldBySelf: true }))
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(document.activeElement).toBe(screen.getByLabelText('Search devices'))
     await listed(device({ resumable: true, releasedAgoMs: 60_000, waiting: { user: 'me@x', remainingMs: 200_000, yours: true } }))
 
     expect(viewer).toBeNull()
@@ -149,6 +150,20 @@ describe('QASession — coming back through a session URL', () => {
 
     await listed(device({ resumable: true, releasedAgoMs: 60_000, waiting: { user: 'me@x', remainingMs: 200_000, yours: true } }), other)
     expect(viewer?.sessionId).toBe('sess-b')
+  })
+
+  // Their own tab that never lets go is theirs, not someone else's.
+  it('says the session is open in another of their tabs when that tab never lets go', async () => {
+    await open(URL)
+    const start = Date.now()
+    await listed(device({ busy: true, heldBySelf: true }))
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(start + 46_000)
+    try {
+      await listed(device({ busy: true, heldBySelf: true }))
+    } finally { clock.mockRestore() }
+
+    expect(toast.error).toHaveBeenCalledTimes(1)
+    expect(toast.error.mock.calls[0]![0]).toMatch(/another of your tabs/)
   })
 
   // A viewer that ends on its own (here the agent going away) must not leave an old target behind for the next listing
@@ -244,13 +259,49 @@ describe('QASession — the device list', () => {
     expect(viewer?.resetMode).toBe('app-only')
   })
 
-  it('offers the tester\'s interrupted session above the list, and ends it on request', async () => {
+  it('offers the tester\'s interrupted session above the list, and ends it on request without losing focus', async () => {
     const user = userEvent.setup()
     await open('?id=7')
-    await listed(device({ resumable: true, releasedAgoMs: 500, waiting: { user: 'me@x', remainingMs: 200_000, yours: true } }))
+    await listed(device({ resumable: true, releasedAgoMs: 500, waiting: { user: 'me@x', remainingMs: 200_000, yours: true, buildId: 7 } }))
 
     expect(screen.getByText(/Your session on iPhone 17 Pro was interrupted/)).toBeTruthy()
     await user.click(screen.getByRole('button', { name: 'End your session on iPhone 17 Pro' }))
     expect(sent('device:shutdown')).toEqual([{ type: 'device:shutdown', sessionId: 'sess-a', payload: { deviceId: 'dev-a' } }])
+    // Off the row that the next listing removes.
+    expect(document.activeElement?.closest('ul[aria-label="Interrupted sessions"]')).toBeNull()
+    expect(document.activeElement).not.toBe(document.body)
+  })
+
+  it('resumes the interrupted session of this build here, keeping the app', async () => {
+    const user = userEvent.setup()
+    await open('?id=7')
+    await listed(device({ resumable: true, releasedAgoMs: 500, waiting: { user: 'me@x', remainingMs: 200_000, yours: true, buildId: 7 } }))
+    await user.click(screen.getByRole('button', { name: 'Resume your session on iPhone 17 Pro' }))
+
+    expect(viewer?.sessionId).toBe('sess-a')
+    expect(viewer?.resume).toBe(true)
+  })
+
+  // Resumed here, it would install this page's build over the one the session was testing.
+  it('takes another build\'s interrupted session to that build\'s page', async () => {
+    const user = userEvent.setup()
+    await open('?id=7')
+    await listed(device({ resumable: true, releasedAgoMs: 500, waiting: { user: 'me@x', remainingMs: 200_000, yours: true, buildId: 9 } }))
+    await user.click(screen.getByRole('button', { name: 'Resume your session on iPhone 17 Pro' }))
+
+    expect(viewer).toBeNull()
+    expect(params().get('id')).toBe('9')
+    expect(params().get('session')).toBe('sess-a')
+    // The page mounts again for that build and reads the link as an entry.
+    await vi.waitFor(() => expect(deliver).not.toBeNull())
+    await listed(device({ resumable: true, releasedAgoMs: 500, waiting: { user: 'me@x', remainingMs: 200_000, yours: true, buildId: 9 } }))
+    expect(viewer?.resume).toBe(true)
+  })
+
+  it('does not offer a session on another platform', async () => {
+    await open('?id=7')
+    await listed(device({ platform: 'android', resumable: true, releasedAgoMs: 500, waiting: { user: 'me@x', remainingMs: 200_000, yours: true, buildId: 3 } }))
+
+    expect(screen.queryByText(/was interrupted/)).toBeNull()
   })
 })

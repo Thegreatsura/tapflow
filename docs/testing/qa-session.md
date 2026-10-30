@@ -32,7 +32,7 @@ Click a device under **Select device** to start the session. Each device shows i
 - **Available**: shut down and free. Picking it boots it.
 - **In use**: another teammate is using it, so it cannot be picked.
 - **Your session is waiting for you**: your session on this device dropped and is waiting for you. Pick it to carry on with the app as you left it.
-- **Waiting for … to return**: a teammate's connection dropped and the device is waiting for them. Picking it shows whose session it is and how long until the device shuts down, and asks you to confirm. Once you use it, their session ends and the app state they were testing is gone. They are told who is using the device.
+- **Waiting for … to return**: a teammate's connection dropped and the device is waiting for them. Picking it shows whose session it is and how long until the device shuts down, and asks you to confirm. Once you use it, their session ends and the app state they were testing is gone. If they come back within the time the device would have waited for them, they are told who is using it.
 - **Not enough memory to start**: the Mac's RAM is over 80%, so this device cannot be started. A device tapflow already has running can still be picked.
 
 A running device marked **Most services off** was started by an automated run with most background services turned off (`--service-tier slim`), apart from any it asked to keep. It stays that way until it restarts: pick it and restart it from the toolbar to turn them back on. The info card says so too.
@@ -49,7 +49,7 @@ Once the device is up, the build is installed on it automatically. The info card
 
 The breadcrumb at the top reads `app name › build › Mac › device`. Click an earlier step to go back to it. Leaving the device screen shuts that device down, so another teammate can use it straight away. A note under the device says so too.
 
-If you close the browser tab or lose your connection, the device does not shut down straight away. It waits for you for a while. See [Return to a session](#return-to-a-session).
+If you close the browser tab or lose your connection, the device does not shut down straight away. It waits for you for a few minutes (5 by default). See [Return to a session](#return-to-a-session).
 
 ### Return to a session {#return-to-a-session}
 
@@ -65,6 +65,7 @@ When you come back through the URL, the dashboard tells you what it found:
 | Situation | What you see |
 |---|---|
 | You reloaded while your connection was down, so your earlier tab's connection is still there. | A **Returning to your session on …** notice. The session continues on its own once the earlier connection is cleared, within about 45 seconds. You can pick another device while you wait. |
+| The same session is still open in another of your tabs. | The same notice. The session continues here once that tab is closed. If it is still open after about 45 seconds, you are told it is open in another tab. |
 | The device has already shut down. | A **Start … again?** dialog. Starting again installs the build from scratch. |
 | A teammate started using the device. | A notice saying who is using it, and the device list. |
 | An AI client is using the device for a while. | A notice saying so. You can carry on when it is done. |

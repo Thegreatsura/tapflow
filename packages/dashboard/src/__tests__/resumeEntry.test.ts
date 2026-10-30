@@ -32,7 +32,8 @@ describe('classifyResume', () => {
 
   it('gives up on another tab of theirs that never lets go', () => {
     const seen = { ...target, ownTabSince: 0 }
-    expect(classifyResume(mac(device({ busy: true, heldBySelf: true })), seen, GIVE_UP_MS + 1).kind).toBe('in-use')
+    // Said as theirs: telling them someone else has it would be false.
+    expect(classifyResume(mac(device({ busy: true, heldBySelf: true })), seen, GIVE_UP_MS + 1)).toEqual({ kind: 'in-use', agentName: 'mac-a', self: true })
   })
 
   it('waits while an AI client borrows their session, rather than joining or calling it someone else\'s', () => {

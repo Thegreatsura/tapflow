@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/queries';
 import { toast } from 'sonner';
@@ -74,7 +75,16 @@ const SESSION_ENDED_NOTICE: Record<ViewerStoppedReason, { title: string; descrip
   },
 };
 
+/**
+ * Keyed by build, so a link into another build's session (#1087) mounts the page again and is read as a URL entry:
+ * the URL is read once, at mount. Its own `session`/`device` writes do not change the key.
+ */
 export function QASession() {
+  const [searchParams] = useSearchParams();
+  return <QASessionPage key={searchParams.get('id') ?? ''} />;
+}
+
+function QASessionPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const buildId = searchParams.get('id');
@@ -91,6 +101,7 @@ export function QASession() {
   const [takeOver, setTakeOver] = useState<DeviceSummary | null>(null);
   const takeOverCardRef = useRef<HTMLElement | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const onListedRef = useRef<(sessions: SessionInfo[]) => void>(() => {});
 
   const { build } = useBuildLoader(buildId);
@@ -189,7 +200,10 @@ export function QASession() {
       setSelectedAgent(step.agentName);
       if (step.kind === 'restart') setRestartFor(step.device);
       // Taken: the notice above already said by whom. Someone else's waiting session: its card says so.
-      if (step.kind === 'in-use') toast.error('Someone else is using that device now.', { description: 'Pick another device, or wait for it to be free.' });
+      if (step.kind === 'in-use') {
+        if (step.self) toast.error('That session is still open in another of your tabs.', { description: 'Close that tab, or carry on there.' });
+        else toast.error('Someone else is using that device now.', { description: 'Pick another device, or wait for it to be free.' });
+      }
     };
   });
 
@@ -199,16 +213,32 @@ export function QASession() {
     if (build && resuming && connected) send({ type: 'agents:list' });
   }, [build, resuming, connected, send]);
 
-  const interrupted: InterruptedSession[] = interruptedSessions(sessions);
+  // Where focus goes when a notice above the list removes itself: the list's first control, never `body`. Not a control
+  // in the notices, which are the thing going away.
+  const focusList = useCallback(() => {
+    const controls = listRef.current?.querySelectorAll<HTMLElement>('input, button:not([disabled])') ?? [];
+    const first = searchRef.current ?? [...controls].find((el) => !el.closest('[data-resume-notices]'));
+    first?.focus();
+  }, []);
+
+  const interrupted: InterruptedSession[] = interruptedSessions(sessions, os);
   const resumeInterrupted = useCallback((s: InterruptedSession) => {
+    const buildOfSession = s.device.waiting?.buildId;
+    // Another build's session is resumed on that build's page, where its app is what gets kept.
+    if (buildOfSession !== undefined && buildOfSession !== build?.id) {
+      navigate(`/app-center/build?${new URLSearchParams({ id: String(buildOfSession), session: s.device.sessionId, device: s.device.id })}`);
+      return;
+    }
     stopResuming();
     setSelectedAgent(s.agentName);
     beginDevice(s.device, true);
-  }, [stopResuming, setSelectedAgent, beginDevice]);
+  }, [build, navigate, stopResuming, setSelectedAgent, beginDevice]);
   const endInterrupted = useCallback((s: InterruptedSession) => {
     send({ type: 'device:shutdown', sessionId: s.device.sessionId, payload: { deviceId: s.device.id } });
     send({ type: 'agents:list' });
-  }, [send]);
+    // The row goes with the next listing; move focus off it now.
+    focusList();
+  }, [send, focusList]);
 
   // The viewer cannot make progress — the agent went away, or another socket holds the session. Say
   // which, and go back to the Mac list. Before #426 the tab just sat on "Waiting for first frame..."
@@ -290,17 +320,25 @@ export function QASession() {
     <div className="flex h-full min-h-0 gap-6 p-6">
       <div className="flex flex-col gap-3 flex-1 min-w-0 min-h-0">
         {/* -ml-1 pl-1: 좌측 ring 클리핑 방지 / -mr-4 pr-4: 스크롤바 마진 영역으로 분리 */}
-        <div className="flex-1 min-h-0 overflow-auto -ml-1 pl-1 -mr-4 pr-4">
+        <div ref={listRef} className="flex-1 min-h-0 overflow-auto -ml-1 pl-1 -mr-4 pr-4">
           {!activeSessionId && (waitStep || interrupted.length > 0) && (
-            <div className="flex flex-col gap-2 pb-5">
+            <div data-resume-notices className="flex flex-col gap-2 pb-5">
               {waitStep && (
                 <ResumeWaitBanner
                   why={waitStep.why}
                   deviceName={waitStep.device?.name}
-                  onCancel={() => { stopResuming(); clearSessionUrl(); }}
+                  // Flushed first: the banner holding this button is gone after it, and focus must not go with it.
+                  onCancel={() => { flushSync(() => { stopResuming(); clearSessionUrl(); }); focusList(); }}
                 />
               )}
-              {!waitStep && <InterruptedSessionsBanner sessions={interrupted} onResume={resumeInterrupted} onEnd={endInterrupted} />}
+              {!waitStep && (
+                <InterruptedSessionsBanner
+                  sessions={interrupted}
+                  canResume={(s) => s.device.waiting?.buildId !== undefined}
+                  onResume={resumeInterrupted}
+                  onEnd={endInterrupted}
+                />
+              )}
             </div>
           )}
           {activeSessionId ? (
@@ -319,7 +357,9 @@ export function QASession() {
                 onRecordingUploaded={handleRecordingUploaded}
                 onSessionEnded={onSessionEnded}
               />
-              <p className="text-xs text-muted-foreground">Going back or leaving this page shuts the device down.</p>
+              <p className="text-xs text-muted-foreground">
+                Going back shuts the device down. If you close the tab or lose your connection, it waits a few minutes for you.
+              </p>
             </div>
           ) : selectedAgent ? (
             <div className="flex flex-col gap-5">

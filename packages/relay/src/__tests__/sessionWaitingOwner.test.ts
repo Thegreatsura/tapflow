@@ -232,6 +232,24 @@ describe('the device remembers who it is waiting for', () => {
       expect(device(alice).endedBy).toBeUndefined()
     })
 
+    // A done answers the shutdown that was sent, not whatever happened since. Picked up again and dropped again before
+    // the agent reported back, the device has a new wait and a new countdown, and they are not this done's to end.
+    it('leaves a wait alone that started after a boot went out behind the shutdown', () => {
+      const onTimeout = vi.fn()
+      const { sm, id } = setup()
+      sm.join(id, sock(), alice, () => true, person('alice@example.com'))
+      sm.clearBrowser(id, () => {})
+      sm.noteShutdown(id, { user: '1', label: 'alice@example.com' })
+      sm.join(id, sock(), aliceElsewhere, () => true, person('alice@example.com'))
+      sm.noteBootSent(id)
+      sm.clearBrowser(id, onTimeout)
+      sm.settleShutdown(id)
+
+      expect(sm.list(alice.key, () => true, IDLE_MAC, alice.user)[0]!.devices[0]!.resumable).toBe(true)
+      vi.advanceTimersByTime(IDLE)
+      expect(onTimeout).toHaveBeenCalledTimes(1)
+    })
+
     // Cancelled when the device is off, not when the shutdown was sent: one that fails keeps the timer as its backstop.
     it('cancels the countdown only once the device is down', () => {
       const onTimeout = vi.fn()

@@ -141,7 +141,10 @@ iOS build format: `.app.zip` **or** `.tar.gz`/`.tgz` (EAS `eas build` simulator 
   person's join, the timer, or a shutdown. A person taking it, or shutting it down, leaves `endedBy` for the one
   waited for. **A shutdown counts when it is forwarded to the agent** (`noteShutdown`), so a refused one ends
   nothing, and **the countdown is cancelled when the agent reports the device down** (`settleShutdown`), so a
-  shutdown that fails keeps its backstop. Nothing here refuses a join: a teammate may take a waiting device, and
+  shutdown that fails keeps its backstop — unless a boot went out after that shutdown (`bootAfterShutdown`): its
+  done then answers a device someone has picked up again, and the wait and countdown on the session are that later
+  pick-up's. A waiting device is also not a candidate for a capacity shutdown, as a person's countdown is not one
+  for a lease. Nothing here refuses a join: a teammate may take a waiting device, and
   the dashboard asks first. The listing reads all of it per asker *user* (`list(…, askerUser)`), because a person
   is a different client in each browser. `endedBy` is not cleared by being read: every open tab polls. Held by
   `sessionWaitingOwner.test.ts` (rules) and `sessionResumeRelay.test.ts` (wiring, two signed-in users through the
