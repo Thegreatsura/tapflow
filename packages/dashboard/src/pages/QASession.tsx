@@ -459,10 +459,11 @@ function QASessionPage() {
                       : isBooted
                         ? 'bg-emerald-400'
                         : 'bg-muted-foreground/40'
+                    const cardDisabled = isBusy || needsMemory || booting || !connected
                     const card = (
                       <button
                         key={d.id}
-                        disabled={isBusy || needsMemory || booting || !connected}
+                        disabled={cardDisabled}
                         onClick={(e) => {
                           if (yours && d.resumable) {
                             stopResuming();
@@ -491,8 +492,9 @@ function QASessionPage() {
                         )}
                       </button>
                     )
-                    // The card names the person; who exactly, by email, is on hover and focus.
-                    if (!othersWait) return card
+                    // The card names the person; who exactly, by email, is on hover and focus. A disabled button gets
+                    // neither, and its label then says who is driving it rather than whom it waits for.
+                    if (!othersWait || cardDisabled) return card
                     return (
                       <TooltipProvider key={d.id}>
                         <Tooltip>

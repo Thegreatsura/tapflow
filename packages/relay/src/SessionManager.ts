@@ -114,6 +114,9 @@ export interface Session {
   /** A boot went to the agent after the last shutdown did. Then that shutdown's done describes a device someone has
    *  since picked up again, and the wait and countdown it would clear are newer than it. Undefined: no shutdown out. */
   bootAfterShutdown?: boolean
+  /** The wait and notice a forwarded shutdown replaced, put back if the agent reports it failed: the device is still up
+   *  and its countdown still runs, so the person is still waited for. */
+  shutdownUndo?: { waitingOwner: NonNullable<Session['waitingOwner']>; endedBy: Session['endedBy'] }
 }
 
 export type InstalledBuild = { buildId: number; filePath: string }
@@ -454,10 +457,26 @@ export class SessionManager {
   noteShutdown(sessionId: string, by: { user: string; label: string; name: string }): void {
     const session = this.sessions.get(sessionId)
     if (session) session.bootAfterShutdown = false
+    if (session) session.shutdownUndo = undefined
     const waited = session?.waitingOwner
     if (!session || !waited) return
+    session.shutdownUndo = { waitingOwner: waited, endedBy: session.endedBy }
     if (waited.user !== by.user) session.endedBy = { ownerUser: waited.user, byLabel: by.label, byName: by.name, at: Date.now() }
     session.waitingOwner = undefined
+  }
+
+  /** The agent could not shut the device down. Only while nothing has happened since: nobody joined, no boot went out,
+   *  and the countdown the wait is tied to is still running. */
+  undoShutdown(sessionId: string): void {
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+    const undo = session.shutdownUndo
+    const untouched = session.bootAfterShutdown === false && session.owner === null && session.idleTimer !== null
+    session.shutdownUndo = undefined
+    session.bootAfterShutdown = undefined
+    if (!undo || !untouched || session.waitingOwner) return
+    session.waitingOwner = undo.waitingOwner
+    session.endedBy = undo.endedBy
   }
 
   /** A shutdown the relay sent on its own (idle, capacity): only so a later boot can be told apart. */
@@ -478,6 +497,7 @@ export class SessionManager {
     if (!session) return
     const stale = session.bootAfterShutdown === true
     session.bootAfterShutdown = undefined
+    session.shutdownUndo = undefined
     if (stale) return
     if (session.idleTimer) { clearTimeout(session.idleTimer); session.idleTimer = null }
     session.waitingOwner = undefined

@@ -1797,6 +1797,7 @@ export class RelayServer {
           session.evictingAt = undefined
           this.sessions.updateDeviceStatus(session.id, 'booted')
         }
+        this.sessions.undoShutdown(session.id)
         if (session.browserSocket?.readyState === WebSocket.OPEN) {
           session.browserSocket.send(JSON.stringify(raw))
         }

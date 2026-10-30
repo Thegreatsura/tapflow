@@ -164,8 +164,44 @@ describe('a device waiting for its owner, through the relay', () => {
     await waitForType(agent, 'device:shutdown')
     agent.send(JSON.stringify({ type: 'device:shutdown-error', sessionId, message: 'simctl failed' }))
 
+    await barrier(agent)
+    expect((await device(laptop)).resumable).toBe(true)
     // The relay's own shutdown when the countdown runs out.
     expect(await waitForTypeOrNull(agent, 'device:shutdown', IDLE * 2)).not.toBeNull()
+  })
+
+  // The device is still up and its countdown still runs, so it still waits for its owner — and nobody shut it down.
+  it('puts the wait back when someone else\'s shutdown fails', async () => {
+    const laptop = await aliceDropped()
+    const bob = await browser(2, 'bob')
+    bob.send(JSON.stringify({ type: 'device:shutdown', sessionId, payload: { deviceId: 'dev-1' } }))
+    await waitForType(agent, 'device:shutdown')
+    expect((await device(laptop)).endedBy).toBeDefined()
+
+    agent.send(JSON.stringify({ type: 'device:shutdown-error', sessionId, message: 'simctl failed' }))
+    await barrier(agent)
+    const mine = await device(laptop)
+    expect(mine.resumable).toBe(true)
+    expect(mine.waiting?.user).toBe('u1@test.local')
+    expect(mine.endedBy).toBeUndefined()
+  })
+
+  // The failure answers the shutdown, not the pick-up after it: that one's wait stands.
+  it('does not put an old wait back over a boot that went out after the shutdown', async () => {
+    const laptop = await aliceDropped()
+    const bob = await browser(2, 'bob')
+    bob.send(JSON.stringify({ type: 'device:shutdown', sessionId, payload: { deviceId: 'dev-1' } }))
+    await waitForType(agent, 'device:shutdown')
+    bob.send(JSON.stringify({ type: 'session:start', sessionId, clientKind: 'dashboard' }))
+    await waitForType(bob, 'session:joined')
+    bob.send(JSON.stringify({ type: 'device:boot', sessionId, requestId: 'rq-bob', payload: { deviceId: 'dev-1' } }))
+    await waitForType(agent, 'device:boot')
+
+    agent.send(JSON.stringify({ type: 'device:shutdown-error', sessionId, message: 'simctl failed' }))
+    await barrier(agent)
+    const mine = await device(laptop)
+    expect(mine.waiting).toBeUndefined()
+    expect(mine.endedBy?.by).toBe('u2@test.local')
   })
 
   // The shutdown's done arrives after the owner already came back, booted the device and dropped again.
