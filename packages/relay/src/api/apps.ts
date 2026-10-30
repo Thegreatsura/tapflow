@@ -27,7 +27,7 @@ export function handleListApps(req: http.IncomingMessage, res: http.ServerRespon
     LEFT JOIN builds b ON b.id = (
       SELECT id FROM builds WHERE app_id = a.id ORDER BY uploaded_at DESC LIMIT 1
     )
-    ORDER BY a.created_at DESC
+    ORDER BY a.created_at DESC, a.id DESC
   `).all() as Array<Record<string, unknown> & { ios_bundle_id: string | null; android_bundle_id: string | null; build_platforms: string | null }>
 
   const items = rows.map(({ ios_bundle_id, android_bundle_id, build_platforms, ...app }) => ({
@@ -110,6 +110,35 @@ export async function handleUpdateApp(
   json(res, 200, { ok: true })
 }
 
+type Db = ReturnType<typeof getDb>
+
+/**
+ * Why one platform of `source` cannot leave it, or null. Shared by merge and split, which move the same thing and differ
+ * only in where it goes, so a rule added for one holds for the other.
+ */
+function cannotLeave(db: Db, source: number, platform: Platform): { status: number; error: string } | null {
+  if (!platformsOf(db, source).includes(platform)) return { status: 400, error: `That app has nothing on ${platform}` }
+  // The app holding builds no ID could be read for stays apart, or every such upload from then on joins a real app.
+  if (holdsUnknown(db, source)) return { status: 400, error: 'Builds without a readable bundle ID cannot be moved' }
+  const movingId = idOn(db, source, platform)
+  // One platform of an app that uses the same ID on both: moving it would leave that ID on two apps, and uploads of it
+  // would then go to whichever row a lookup finds first.
+  const other: Platform = platform === 'ios' ? 'android' : 'ios'
+  if (movingId !== null && idOn(db, source, other) === movingId) {
+    return { status: 409, error: `That app uses ${movingId} on both platforms, so one platform cannot be moved on its own` }
+  }
+  // Routing finds an app by its ID on any platform, so a build can carry the ID of its app's other platform. Moving one
+  // side of such an app would part builds from the ID their next uploads follow, in either direction: builds staying
+  // behind with the ID that moves, or builds moving with the ID that stays.
+  const retainedId = idOn(db, source, other)
+  const carries = (onPlatform: Platform, id: string | null) => id !== null &&
+    db.prepare('SELECT 1 FROM builds WHERE app_id = ? AND platform = ? AND bundle_id = ?').get(source, onPlatform, id) !== undefined
+  if (carries(other, movingId) || carries(platform, retainedId)) {
+    return { status: 409, error: `That app has builds carrying the bundle ID of its other platform, so its ${platform} side cannot be moved on its own` }
+  }
+  return null
+}
+
 /**
  * Moves one platform of an app into another (#1086): that platform's bundle ID and its builds. Everything else a build
  * has — comments, recordings, run records — hangs off the build and goes with it. The app left with nothing is
@@ -134,29 +163,12 @@ export async function handleMergeApp(
   const db = getDb()
   const exists = db.prepare('SELECT id FROM apps WHERE id IN (?, ?)').all(source, target) as { id: number }[]
   if (exists.length !== 2) return json(res, 404, { error: 'App not found' })
-  if (!platformsOf(db, source).includes(platform)) {
-    return json(res, 400, { error: `That app has nothing on ${platform}` })
-  }
-  const movingId = idOn(db, source, platform)
-  // The app holding builds no ID could be read for stays apart, or every such upload from then on joins a real app.
-  if (holdsUnknown(db, source) || holdsUnknown(db, target)) return json(res, 400, { error: 'Builds without a readable bundle ID cannot be merged' })
-  if (movingId !== null && idOn(db, target, platform) !== null) {
+  // The source's rules first, then the target's.
+  const problem = cannotLeave(db, source, platform)
+  if (problem) return json(res, problem.status, { error: problem.error })
+  if (holdsUnknown(db, target)) return json(res, 400, { error: 'Builds without a readable bundle ID cannot be merged' })
+  if (idOn(db, source, platform) !== null && idOn(db, target, platform) !== null) {
     return json(res, 409, { error: `The target app already has a ${platform} bundle ID` })
-  }
-  // One platform of an app that uses the same ID on both: moving it would leave that ID on two apps, and uploads of it
-  // would then go to whichever row a lookup finds first.
-  const other: Platform = platform === 'ios' ? 'android' : 'ios'
-  if (movingId !== null && idOn(db, source, other) === movingId) {
-    return json(res, 409, { error: `That app uses ${movingId} on both platforms, so one platform cannot be moved on its own` })
-  }
-  // Routing finds an app by its ID on any platform, so a build can carry the ID of its app's other platform. Splitting
-  // such an app would part builds from the ID their next uploads follow, in either direction: builds staying behind
-  // with the ID that moves, or builds moving with the ID that stays.
-  const retainedId = idOn(db, source, other)
-  const carries = (onPlatform: Platform, id: string | null) => id !== null &&
-    db.prepare('SELECT 1 FROM builds WHERE app_id = ? AND platform = ? AND bundle_id = ?').get(source, onPlatform, id) !== undefined
-  if (carries(other, movingId) || carries(platform, retainedId)) {
-    return json(res, 409, { error: `That app has builds carrying the bundle ID of its other platform, so its ${platform} side cannot be moved on its own` })
   }
 
   const removed = db.transaction(() => {
@@ -173,3 +185,38 @@ export async function handleMergeApp(
   json(res, 200, { ok: true, appId: target, ...(removed ? { removedAppId: source } : {}) })
 }
 
+
+/**
+ * The other way round from a merge (#1086): one platform of an app — its bundle ID and builds — becomes an app of its
+ * own, named by the caller. It is how a wrong merge, or an ID attached to the wrong app, is undone. The source must
+ * keep its other platform: splitting off all it has would only rename it and change its id under CI's `app_id`.
+ */
+export async function handleSplitApp(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  params: Record<string, string>,
+): Promise<void> {
+  if (!requireRole(req, res, APP_MANAGERS)) return
+
+  const body = await readJson<{ platform?: unknown; name?: unknown }>(req)
+  const source = Number(params.id)
+  const platform = body.platform
+  const name = typeof body.name === 'string' ? body.name.trim() : ''
+  if (platform !== 'ios' && platform !== 'android') return json(res, 400, { error: 'platform must be ios or android' })
+  if (!name) return json(res, 400, { error: 'name is required' })
+
+  const db = getDb()
+  if (!db.prepare('SELECT 1 FROM apps WHERE id = ?').get(source)) return json(res, 404, { error: 'App not found' })
+  const problem = cannotLeave(db, source, platform)
+  if (problem) return json(res, problem.status, { error: problem.error })
+  if (platformsOf(db, source).length < 2) return json(res, 400, { error: 'Nothing would stay behind' })
+
+  const appId = db.transaction(() => {
+    const created = Number(db.prepare('INSERT INTO apps (name, platform) VALUES (?, ?)').run(name, platform).lastInsertRowid)
+    db.prepare('UPDATE app_bundle_ids SET app_id = ? WHERE app_id = ? AND platform = ?').run(created, source, platform)
+    db.prepare('UPDATE builds SET app_id = ? WHERE app_id = ? AND platform = ?').run(created, source, platform)
+    recomputePlatform(db, source)
+    return created
+  })()
+  json(res, 200, { ok: true, appId })
+}
