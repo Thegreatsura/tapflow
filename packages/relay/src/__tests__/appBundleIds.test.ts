@@ -179,20 +179,31 @@ describe('the apps API', () => {
     })
 
     it('moves one platform out of an app that has two, leaving the other', async () => {
-      const source = upsertApp('Split', 'com.split', 'ios')
-      route(null, 'com.split', 'android')
-      const iosBuild = addBuild(source, 'ios', 'com.split')
+      const source = upsertApp('Split', 'org.split', 'ios')
+      route(source, 'com.split', 'android')
+      const iosBuild = addBuild(source, 'ios', 'org.split')
       const androidBuild = addBuild(source, 'android', 'com.split')
       const target = upsertApp('Target', 'org.target', 'ios')
 
       const r = await merge(target, source, 'android')
       expect(r.status).toBe(200)
       expect(r.body.removedAppId).toBeUndefined()
-      expect(ids(source)).toEqual({ ios: 'com.split' })
+      expect(ids(source)).toEqual({ ios: 'org.split' })
       expect(platformOf(source)).toBe('ios')
       expect(appOf(iosBuild)).toBe(source)
       expect(appOf(androidBuild)).toBe(target)
       expect(ids(target)).toEqual({ ios: 'org.target', android: 'com.split' })
+    })
+
+    // The ID would then be on two apps, and its uploads would go to whichever row a lookup found first.
+    it('refuses to move one platform of an app that uses the same ID on both', async () => {
+      const source = upsertApp('Same both', 'com.same.both', 'ios')
+      route(null, 'com.same.both', 'android')
+      const target = upsertApp('Elsewhere', 'org.elsewhere', 'ios')
+
+      expect((await merge(target, source, 'android')).status).toBe(409)
+      expect(ids(source)).toEqual({ ios: 'com.same.both', android: 'com.same.both' })
+      expect(ids(target)).toEqual({ ios: 'org.elsewhere' })
     })
 
     // An iOS build whose bundle could not be read, uploaded with app_id, sits under an app with no iOS ID. Moving the

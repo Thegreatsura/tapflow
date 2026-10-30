@@ -143,6 +143,12 @@ export async function handleMergeApp(
   if (movingId !== null && idOn(db, target, platform) !== null) {
     return json(res, 409, { error: `The target app already has a ${platform} bundle ID` })
   }
+  // One platform of an app that uses the same ID on both: moving it would leave that ID on two apps, and uploads of it
+  // would then go to whichever row a lookup finds first.
+  const other: Platform = platform === 'ios' ? 'android' : 'ios'
+  if (movingId !== null && idOn(db, source, other) === movingId) {
+    return json(res, 409, { error: `That app uses ${movingId} on both platforms, so one platform cannot be moved on its own` })
+  }
 
   const removed = db.transaction(() => {
     db.prepare('UPDATE app_bundle_ids SET app_id = ? WHERE app_id = ? AND platform = ?').run(target, source, platform)
