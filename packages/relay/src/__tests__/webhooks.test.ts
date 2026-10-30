@@ -375,6 +375,14 @@ describe('webhook firing on build status transition', () => {
     expect(got.body).not.toMatch(/file_path|uploads|\.zip|\.tar/)
   })
 
+  // The app is on both platforms; the build is one. The payload used to carry the app's `both`, which the docs do not allow.
+  it('sends the build\'s platform, not its app\'s', async () => {
+    getDb().prepare("UPDATE apps SET platform = 'both' WHERE id = (SELECT app_id FROM builds WHERE id = ?)").run(buildId)
+    await httpJson(port, 'PATCH', `/api/v1/builds/${buildId}`, cookie, { status_label: 'Done' })
+    await waitFor(() => receiver.requests.length === 1)
+    expect((JSON.parse(receiver.requests[0].body) as WebhookPayload).build.platform).toBe('ios')
+  })
+
   it('#2 fires on transition to Rejected', async () => {
     await httpJson(port, 'PATCH', `/api/v1/builds/${buildId}`, cookie, { status_label: 'Rejected' })
     await waitFor(() => receiver.requests.length === 1)
