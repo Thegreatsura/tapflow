@@ -93,6 +93,17 @@ describe('merge mode', () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Actions for WDIO' })))
   })
 
+  // A teammate's merge or deletion, arriving by refetch, can leave one app while the mode is on.
+  it('can still be left when a refetch leaves one app', async () => {
+    const { refetched } = renderCard()
+    const mode = await enterMergeMode()
+    refetched([app(1, 'WDIO', 'org.wdiodemoapp', null)])
+    expect(mode).toBeInTheDocument()
+    fireEvent.click(mode)
+    expect(screen.queryByText('Drag a bundle ID onto the app it belongs to.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Merge apps' })).not.toBeInTheDocument()
+  })
+
   it('puts focus back on the dropped row when the merge is cancelled', async () => {
     renderCard()
     await enterMergeMode()

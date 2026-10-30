@@ -227,7 +227,8 @@ export function AppsCard({ apps }: { apps: App[] }) {
         <CardTitle>Apps</CardTitle>
         <div className="flex items-center gap-3">
           {merging && <p className="text-sm text-muted-foreground">Drag a bundle ID onto the app it belongs to.</p>}
-          {apps.length > 1 && (
+          {/* Kept while merging: a refetch can leave one app, and the mode must still be leavable. */}
+          {(apps.length > 1 || merging) && (
             <Button ref={modeButtonRef} size="sm" variant={merging ? 'outline' : 'ghost'} onClick={() => setMerging((m) => !m)}>
               {merging ? 'Done' : 'Merge apps'}
             </Button>

@@ -17,6 +17,8 @@ with Edit and Delete.
 
 ## Anatomy
 
+The account menu, drawn below; the app menu differs only where [The app menu](#the-app-menu) says.
+
 ```
 ┌──────────────────────────────┐   content: 224px, --popover, 1px --border, rounded-md, shadow-md, 4px padding
 │ ⚙   Settings                 │   item: 32px, rounded-sm
@@ -27,15 +29,16 @@ with Edit and Delete.
 [ avatar  Ann                  ]   trigger: the sidebar footer's user button
 ```
 
-- **Content** — 224px wide (`w-56`, set at the call site; the base minimum is 128px). `--popover` fill (`#ffffff`
+- **Content** — 224px wide in the account menu (`w-56`, set at the call site; the base minimum is 128px). `--popover` fill (`#ffffff`
   / `#1c1c1c`), `--popover-foreground` text, 1px `--border`, `rounded-md` (6px), Tailwind `shadow-md`, 4px padding
-  (`p-1`). Opens above the trigger (`side="top"`), aligned to its left edge, 4px from it (`sideOffset`). Radix flips
-  it below when there is no room above.
+  (`p-1`). The account menu opens above the trigger (`side="top"`), aligned to its left edge, 4px from it
+  (`sideOffset`). Radix flips it below when there is no room above.
 - **Item** — 32px high: `text-sm` (14px) regular on a 20px line, 6px top and bottom, 8px sides (`px-2 py-1.5`).
-  `rounded-sm` (4px). 214px wide inside the 224px panel. The pointer stays an arrow (`cursor-default`), and the text
+  `rounded-sm` (4px). 214px wide inside the account menu's 224px panel. The pointer stays an arrow (`cursor-default`), and the text
   cannot be selected.
-- **Icon** — 16px (`[&_svg]:size-4`), before the label. **16px from the label, not 8px:** the item puts 8px between
-  its children (`gap-2`) and both call sites add `mr-2` to the icon on top of it. Draw the 16px that ships.
+- **Icon** — account menu only. 16px (`[&_svg]:size-4`), before the label. **16px from the label, not 8px:** the
+  item puts 8px between its children (`gap-2`) and both account items add `mr-2` to the icon on top of it. Draw the
+  16px that ships.
 - **Separator** — 1px of `--muted` across the full panel width (`-mx-1` cancels the padding), 4px above and below
   (`my-1`). On the white panel it is very faint (`#f5f5f5` on `#ffffff`); draw it at that value.
 - **Motion** — opens in 150ms: fades in, scales from 95% and slides 8px up from the trigger's side. Closes with a fade
@@ -43,6 +46,18 @@ with Edit and Delete.
   stays.
 
 The whole account menu is 83px high: 1px border and 4px padding at each end, two 32px items and a 9px separator.
+The app menu is the same height.
+
+### The app menu
+
+Each app's menu in Settings → Apps, with Edit and Delete.
+
+- **Content** — 160px wide (`w-40`). Opens below the trigger (the default side), aligned to its right edge
+  (`align="end"`), 4px from it. Radix flips it above when there is no room below. Items are 150px wide.
+- **Items** — text only, no icon. Edit, a separator, then Delete.
+- **Trigger** — a `ghost` icon Button, 32px square (`size="icon-sm"` narrowed with `h-8 w-8`), holding a 16px
+  `Ellipsis`. Named `Actions for <app name>`. In merge mode it is `invisible`: it keeps its place so the header does
+  not shift, and cannot be reached.
 
 ### The trigger
 
@@ -60,8 +75,8 @@ that frame too, with both avatars. Without a photo the trigger is then named onl
 
 | Value | Looks like | Call sites |
 |-------|------------|-----------:|
-| `default` | No fill, `--popover-foreground` text (or the call site's color) | 2 |
-| `focus` | `--accent` fill (`#f5f5f5` / `#262626`), `--accent-foreground` text; 150ms color transition | 2 |
+| `default` | No fill, `--popover-foreground` text (or the call site's color) | 4 |
+| `focus` | `--accent` fill (`#f5f5f5` / `#262626`), `--accent-foreground` text; 150ms color transition. A destructive item takes the red tint instead (below) | 4 |
 | `disabled` | 50% opacity, no pointer events (`data-disabled`) | 0 — defined, no item is disabled |
 
 - **`focus` is also hover.** Radix moves focus to the item under the mouse and back to the panel when the mouse
