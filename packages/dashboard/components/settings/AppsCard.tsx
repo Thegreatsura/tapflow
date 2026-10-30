@@ -149,7 +149,7 @@ export function AppsCard({ apps }: { apps: App[] }) {
 
   // ── Arrange mode (#1086) ────────────────────────────────────────────────
   // People decide which bundle IDs are one product, merging or splitting; the relay only refuses what would break its rules.
-  const [merging, setMerging] = useState(false)
+  const [arranging, setArranging] = useState(false)
   const [dragging, setDragging] = useState<AppRow | null>(null)
   const [pending, setPending] = useState<Pending | null>(null)
   const [mergeError, setMergeError] = useState<string | null>(null)
@@ -225,7 +225,7 @@ export function AppsCard({ apps }: { apps: App[] }) {
       // The kept app's menu: two apps becoming one removes the mode button, and the dropped row went with the merge.
       focusAfterRef.current = menuOf(pending.target.id)
       setPending(null)
-      setMerging(false)
+      setArranging(false)
       toast.success(`Merged into ${into}`)
     } catch {
       setMergeError('Could not reach the relay')
@@ -246,7 +246,7 @@ export function AppsCard({ apps }: { apps: App[] }) {
     setAwaitingAppId(null)
     setSplitting(null)
     setSplitBusy(false)
-    setMerging(false)
+    setArranging(false)
   }
   // Closed in the render the new app first appears in — awaiting the refetch resolves before that render.
   if (awaitingAppId !== null && byId.has(awaitingAppId)) finishSplit()
@@ -296,11 +296,11 @@ export function AppsCard({ apps }: { apps: App[] }) {
       <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
         <CardTitle>Apps</CardTitle>
         <div className="flex items-center gap-3">
-          {merging && <p className="text-sm text-muted-foreground">Drag a bundle ID onto another app, or into New app below its own.</p>}
-          {/* Kept while merging: a refetch can leave one app, and the mode must still be leavable. */}
-          {(apps.length > 1 || merging) && (
-            <Button ref={modeButtonRef} size="sm" variant={merging ? 'outline' : 'ghost'} onClick={() => setMerging((m) => !m)}>
-              {merging ? 'Done' : 'Arrange apps'}
+          {arranging && <p className="text-sm text-muted-foreground">Drag a bundle ID onto another app, or into New app below its own.</p>}
+          {/* Kept while arranging: a refetch can leave one app, and the mode must still be leavable. */}
+          {(apps.length > 1 || arranging) && (
+            <Button ref={modeButtonRef} size="sm" variant={arranging ? 'outline' : 'ghost'} onClick={() => setArranging((m) => !m)}>
+              {arranging ? 'Done' : 'Arrange apps'}
             </Button>
           )}
         </div>
@@ -315,12 +315,12 @@ export function AppsCard({ apps }: { apps: App[] }) {
             <div className="flex flex-col gap-4">
               {apps.map((app) => (
                 <Fragment key={app.id}>
-                  <AppGroup app={app} merging={merging} dragging={dragging}
+                  <AppGroup app={app} arranging={arranging} dragging={dragging}
                     menu={
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          {/* Kept in place while merging so the header does not shift; nothing in it belongs to a merge. */}
-                          <Button variant="ghost" size="icon-sm" className={cn('h-8 w-8', merging && 'invisible')}
+                          {/* Kept in place while arranging so the header does not shift; nothing in it is part of arranging. */}
+                          <Button variant="ghost" size="icon-sm" className={cn('h-8 w-8', arranging && 'invisible')}
                             aria-label={`Actions for ${app.name}`} data-app-menu={app.id}>
                             <Ellipsis aria-hidden="true" />
                           </Button>
@@ -335,7 +335,7 @@ export function AppsCard({ apps }: { apps: App[] }) {
                       </DropdownMenu>
                     }>
                     {rowsOf(app).map((row) => (
-                      <BundleRow key={row.platform} row={row} index={rowIndex++} merging={merging} fixedBecause={whyFixed(app)} />
+                      <BundleRow key={row.platform} row={row} index={rowIndex++} arranging={arranging} fixedBecause={whyFixed(app)} />
                     ))}
                   </AppGroup>
                   {showNewApp(app) && <NewAppZone source={app} />}
@@ -470,13 +470,13 @@ function RowLabel({ row }: { row: AppRow }) {
   )
 }
 
-function AppGroup({ app, merging, dragging, menu, children }: {
-  app: App; merging: boolean; dragging: AppRow | null; menu: ReactNode; children: ReactNode
+function AppGroup({ app, arranging, dragging, menu, children }: {
+  app: App; arranging: boolean; dragging: AppRow | null; menu: ReactNode; children: ReactNode
 }) {
   const allowed = dragging !== null && canDrop(dragging, app)
   // Not `disabled` for the apps a row cannot go to: whether it can is known only once `dragging` reaches here, and the
   // keyboard and the drop check it anyway. (A droppable registered or enabled mid-drag is measured all the same.)
-  const { setNodeRef, isOver } = useDroppable({ id: `app:${app.id}`, disabled: !merging })
+  const { setNodeRef, isOver } = useDroppable({ id: `app:${app.id}`, disabled: !arranging })
   const isSource = dragging?.appId === app.id
   return (
     <div
@@ -515,10 +515,10 @@ function NewAppZone({ source }: { source: App }) {
   )
 }
 
-function BundleRow({ row, index, merging, fixedBecause }: {
-  row: AppRow; index: number; merging: boolean; fixedBecause: string | null
+function BundleRow({ row, index, arranging, fixedBecause }: {
+  row: AppRow; index: number; arranging: boolean; fixedBecause: string | null
 }) {
-  const movable = merging && fixedBecause === null
+  const movable = arranging && fixedBecause === null
   const key = `row:${row.appId}:${row.platform}`
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, isDragging } = useDraggable({ id: key, disabled: !movable })
   const style: CSSProperties = {
@@ -528,13 +528,13 @@ function BundleRow({ row, index, merging, fixedBecause }: {
     scale: isDragging ? '1.03' : '1',
     animationDelay: `${-index * 0.11}s`,
   }
-  const fixedInMerge = merging && fixedBecause !== null
+  const fixedWhileArranging = arranging && fixedBecause !== null
   const body = (
     <div
       ref={setNodeRef}
       style={style}
       // Focusable only so a keyboard can reach the reason it stays put.
-      tabIndex={fixedInMerge ? 0 : undefined}
+      tabIndex={fixedWhileArranging ? 0 : undefined}
       className={cn(
         'flex h-11 items-center gap-2 rounded-md bg-card motion-safe:[transition:scale_150ms_ease-out,box-shadow_150ms_ease-out]',
         movable ? 'p-1.5' : 'px-4',
@@ -542,7 +542,7 @@ function BundleRow({ row, index, merging, fixedBecause }: {
         // win over the drag's.
         movable && !isDragging && 'animate-row-wiggle motion-reduce:animate-none',
         isDragging && 'relative z-10 shadow-md',
-        fixedInMerge && 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        fixedWhileArranging && 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
       )}
     >
       {movable && (
@@ -564,7 +564,7 @@ function BundleRow({ row, index, merging, fixedBecause }: {
       <RowLabel row={row} />
     </div>
   )
-  if (!fixedInMerge) return body
+  if (!fixedWhileArranging) return body
   return (
     <Tooltip>
       <TooltipTrigger asChild>{body}</TooltipTrigger>

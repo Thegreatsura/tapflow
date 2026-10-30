@@ -69,7 +69,7 @@ There is no state axis: the panel is not interactive.
 |-------|----------|-----|
 | Delete app (Settings → Apps) | Both buttons `w-24` (96px) | Equal-width pair. Below 640px they keep 96px instead of stretching, stacked at the left edge |
 | Revoke token | The action is a plain `Button`, not `AlertDialogAction` | It waits for the revoke and closes only when it succeeds; a failure leaves the dialog open with a toast. There is no pending look: the label and enabled state do not change while it waits |
-| Merge (Settings → Apps, merge mode) | The action is a plain `Button` with `aria-disabled` while it waits; a `role="status"` line between the description and the footer | Waits for the relay like Revoke, but says a refusal inside the dialog (a toast is hidden while it is open). Opened by a drop, not a trigger, so `onCloseAutoFocus` puts focus back itself: on the kept app's name after a merge (two apps becoming one removes the mode button), else on the row that was dropped. The busy action reads `Merging…` and dims with `aria-disabled:` classes |
+| Merge (Settings → Apps, arrange mode) | The action is a plain `Button` with `aria-disabled` while it waits; a `role="status"` line between the description and the footer | Waits for the relay like Revoke, but says a refusal inside the dialog (a toast is hidden while it is open). Opened by a drop, not a trigger, so `onCloseAutoFocus` puts focus back itself: on the kept app's name after a merge (two apps becoming one removes the mode button), else on the row that was dropped. The busy action reads `Merging…` and dims with `aria-disabled:` classes |
 
 ## Usage
 

@@ -316,7 +316,7 @@ Delete an app and all its builds, with their comments, recordings, run records a
 
 ### `POST /api/v1/apps/:id/merge`
 
-Move one platform of another app into this one. That platform's bundle ID and builds move together, and the builds' comments, recordings and run records go with them. If the other app has nothing left, it is deleted. The app keeps this app's name. This cannot be undone. Requires the **Admin, Developer or QA** role.
+Move one platform of another app into this one. That platform's bundle ID and builds move together, and the builds' comments, recordings and run records go with them. If the other app has nothing left, it is deleted. The app keeps this app's name. To undo it, split the platform out again with [`POST /api/v1/apps/:id/split`](#post-api-v1-apps-id-split); the deleted app's name does not come back. Requires the **Admin, Developer or QA** role.
 
 ```
 Body (JSON):
@@ -331,6 +331,26 @@ Body (JSON):
 ```
 
 `removedAppId` is there only when the other app was deleted. You get `409` if the platform you move has a bundle ID and this app already has one there, or if the other app has builds carrying the bundle ID of its other platform, or uses one ID on both, so one platform cannot be moved on its own. You get `404` if either app is missing. You get `400` for an app merged into itself, a platform the other app has nothing on, or when either app is the one that collects builds whose bundle ID could not be read (`__unknown__`).
+
+### `POST /api/v1/apps/:id/split`
+
+Move one platform of this app into a new app: the other way round from a merge. That platform's bundle ID and builds move together, and the builds' comments, recordings and run records go with them. The new app is listed first. Requires the **Admin, Developer or QA** role.
+
+```
+Body (JSON):
+  platform   ios|android   required  the platform to move
+  name       string        required  the new app's name
+```
+
+**Response `200`**
+
+```json
+{ "ok": true, "appId": 12 }
+```
+
+`appId` is the new app. This app must keep its other platform, so an app with only one gets `400`. You get `409` if this app uses one bundle ID on both platforms, or has builds carrying the bundle ID of its other platform. You get `404` if the app is missing, and `400` for an empty name, a platform this app has nothing on, or the app that collects builds whose bundle ID could not be read (`__unknown__`).
+
+Uploads that name this app's `app_id` and carry the moved bundle ID go to the new app. Builds whose bundle ID could not be read follow `app_id`, so if the platform you moved had no bundle ID, point CI at the new app's `app_id`.
 
 
 ## Builds
