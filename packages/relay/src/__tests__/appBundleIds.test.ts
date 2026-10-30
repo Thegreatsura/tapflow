@@ -296,7 +296,8 @@ describe('the apps API', () => {
       expect(appOf(androidBuild)).toBe(created)
       expect(appOf(iosBuild)).toBe(app)
       expect((getDb().prepare('SELECT COUNT(*) AS n FROM comments WHERE build_id = ?').get(androidBuild) as { n: number }).n).toBe(1)
-      // Created in the same millisecond as other apps of this file, so the order rests on the id tiebreak.
+      // Apps made in the same millisecond tie on created_at; the id decides, so the newest still lists first.
+      getDb().prepare('UPDATE apps SET created_at = (SELECT created_at FROM apps WHERE id = ?)').run(created)
       const first = ((await request(port, 'GET', '/api/v1/apps')).body.items as Array<{ id: number; name: string }>)[0]!
       expect(first).toMatchObject({ id: created, name: 'Joined (Android)' })
 
