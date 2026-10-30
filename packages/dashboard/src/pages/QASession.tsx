@@ -224,7 +224,8 @@ function QASessionPage() {
   const interrupted: InterruptedSession[] = interruptedSessions(sessions, os);
   const resumeInterrupted = useCallback((s: InterruptedSession) => {
     const buildOfSession = s.device.waiting?.buildId;
-    // Another build's session is resumed on that build's page, where its app is what gets kept.
+    // Another build's session is resumed on that build's page, where its app is what gets kept. With no build on
+    // record the relay does not count the app as installed, so this page's build goes on, as from the device's card.
     if (buildOfSession !== undefined && buildOfSession !== build?.id) {
       navigate(`/app-center/build?${new URLSearchParams({ id: String(buildOfSession), session: s.device.sessionId, device: s.device.id })}`);
       return;
@@ -334,7 +335,6 @@ function QASessionPage() {
               {!waitStep && (
                 <InterruptedSessionsBanner
                   sessions={interrupted}
-                  canResume={(s) => s.device.waiting?.buildId !== undefined}
                   onResume={resumeInterrupted}
                   onEnd={endInterrupted}
                 />
