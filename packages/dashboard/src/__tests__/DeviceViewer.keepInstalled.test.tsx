@@ -93,6 +93,7 @@ describe('DeviceViewer keeps the app it installed across a reconnect', () => {
 
     rejoin(true)
 
+    expect(installs()).toHaveLength(2)
     expect(installs().some((i) => i.keepIfInstalled !== undefined)).toBe(false)
   })
 
@@ -104,6 +105,7 @@ describe('DeviceViewer keeps the app it installed across a reconnect', () => {
 
     rejoin(true)
 
+    expect(installs()).toHaveLength(2)
     expect(installs().some((i) => i.keepIfInstalled !== undefined)).toBe(false)
   })
 
@@ -117,6 +119,7 @@ describe('DeviceViewer keeps the app it installed across a reconnect', () => {
     render(<DeviceViewer sessionId="s1" deviceId="dev-1" buildId={7} />)
     rejoin(true)
 
+    expect(installs()).toHaveLength(2)
     expect(installs().some((i) => i.keepIfInstalled !== undefined)).toBe(false)
   })
 })

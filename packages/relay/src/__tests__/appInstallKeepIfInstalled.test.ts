@@ -229,6 +229,8 @@ describe('app:install with keepIfInstalled', () => {
 
     const errors = [await waitForType<AppInstallError>(browser, 'app:install-error'), await waitForType<AppInstallError>(browser, 'app:install-error')]
     expect(errors.map((e) => e.requestId).sort()).toEqual([first, waiter].sort())
+    // The agent's reason, not a generic one: the original reply goes to an id the viewer has already let go of.
+    expect(errors.find((e) => e.requestId === waiter)!.message).toBe('simctl failed')
     const requestId = rid()
     install(browser, buildA, requestId, true)
     expect((await waitForType<AgentInstall>(agent, 'app:install')).requestId).toBe(requestId)
@@ -324,7 +326,7 @@ describe('app:install with keepIfInstalled', () => {
     })
   })
 
-  describe('an install in flight when its agent goes away is answered, not left waiting', () => {
+  describe('a request joined to an install in flight is answered when its agent goes away, not left waiting', () => {
     async function waiterInFlight(): Promise<string> {
       install(browser, buildA, rid(), false)
       await waitForType<AgentInstall>(agent, 'app:install')

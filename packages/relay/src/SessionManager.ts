@@ -90,6 +90,10 @@ export interface Session {
    * without wiping the app (#1087). Identified by id **and** stored path, because `builds.id` has no AUTOINCREMENT and
    * deleting the newest build hands its id to the next upload. Cleared wherever the app may have gone without the
    * relay installing over it: a shutdown, a cold boot, an erase or a run reset.
+   *
+   * What the relay cannot see, it cannot clear: an app deleted on the device by hand, or a simulator erased and booted
+   * again outside tapflow before tapflow's next boot (which then reads as warm), stays recorded until the next shutdown
+   * or cold boot, and a `keepIfInstalled` install is answered as done. Picking the device again installs it.
    */
   installed?: InstalledBuild
   /** The install last sent to the agent, and the `keepIfInstalled` requests of the same build waiting on it. Only the

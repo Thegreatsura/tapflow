@@ -128,7 +128,11 @@ iOS build format: `.app.zip` **or** `.tar.gz`/`.tgz` (EAS `eas build` simulator 
   skips the hold). Treating an unknown ready as cold has a cost, written down rather than hidden: a device
   that was shut down outside tapflow (Simulator.app, DeviceHub, a crash) and came back with the app's data
   intact is reinstalled anyway. The relay cannot tell that case from iOS's zombie recovery, which erases.
-  `appInstallKeepIfInstalled.test.ts` walks each of these.
+  The opposite direction has a cost too: an app deleted on the device by hand, or a simulator erased and booted
+  again outside tapflow before tapflow boots it, stays recorded — the next boot reads as warm — so a
+  reconnect answers "installed" and Launch fails, where it used to reinstall. Picking the device again
+  installs it. Fixing it needs the agent to report a shutdown it did not perform; no one has hit it.
+  `appInstallKeepIfInstalled.test.ts` walks each way the record is dropped.
 - **A session an AI client holds can be watched, read-only** (`watch:*`). The rules live with the code, and
   the ones that are easy to undo are these:
   - **Watchers are an index in `SessionManager`, never `owner` or `browserSocket`,** each bound to the owner

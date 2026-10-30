@@ -83,8 +83,9 @@ export const relayCannotOriginateKeyboard: RelayOutbound = { type: 'keyboard:tog
 export const inboundFromAgent: BrowserInbound = { type: 'input:done', sessionId: 's', requestId: 'rq' }
 export const inboundFromRelay: BrowserInbound = { type: 'error', sessionId: 's', message: 'x', reason: 'session-busy' }
 
-// @ts-expect-error - sessionId is required on every one of the twelve forward-only messages
-export const forwardWithoutSession: AgentToBrowser = { type: 'app:install-done' }
+// @ts-expect-error - sessionId is required on every forward-only message. `device:booting` because sessionId is its only
+// field: a message with another required field would keep this error for that field alone.
+export const forwardWithoutSession: AgentToBrowser = { type: 'device:booting' }
 
 // The shape an agent actually sends for the three shared messages the relay also replays. `sessionId`
 // is optional on the shared declaration because the replay omits it, so this direction cannot reject

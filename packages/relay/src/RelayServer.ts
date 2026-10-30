@@ -1816,6 +1816,8 @@ export class RelayServer {
         // it down (Simulator.app, DeviceHub, a crash), and iOS's zombie recovery erases on the way. An agent that does
         // not say is counted as cold, which costs a reinstall and nothing worse. Handled before the ready is forwarded,
         // so the install the viewer sends in answer to it already meets no record.
+        // `pendingInstall` is left: every client installs after a ready, so none is in flight across a cold boot, and one
+        // that were would settle itself with its own done or error.
         if (facts.cold !== false) session.installed = undefined
         if (facts.serviceTier !== undefined) this.sessions.setDeviceServiceTier(session.id, facts.serviceTier)
         this.settleLastBoot(session, msg.requestId, facts.cold)
@@ -1843,7 +1845,8 @@ export class RelayServer {
       case 'keyboard:toggled': {
         const session = this.sessions.get(msg.sessionId)
         if (session && (msg.type === 'app:install-done' || msg.type === 'app:install-error')) {
-          this.settleInstall(session, msg.requestId, msg.type === 'app:install-done')
+          const reason = typeof raw['message'] === 'string' ? raw['message'] : undefined
+          this.settleInstall(session, msg.requestId, msg.type === 'app:install-done', reason)
         }
         if (session?.browserSocket?.readyState === WebSocket.OPEN) {
           session.browserSocket.send(JSON.stringify(raw))
@@ -3524,13 +3527,14 @@ export class RelayServer {
    * forwarded as before and changes no record. Read whether or not a browser holds the session — an install that
    * finishes while the tester is reconnecting is exactly the one they are coming back to.
    */
-  private settleInstall(session: Session, requestId: string, done: boolean): void {
+  private settleInstall(session: Session, requestId: string, done: boolean, reason?: string): void {
     const pending = session.pendingInstall
     if (!pending || pending.requestId !== requestId) return
     session.pendingInstall = undefined
     session.installed = done ? { buildId: pending.buildId, filePath: pending.filePath } : undefined
     for (const waiter of pending.waiters) {
-      this.answerInstallWaiter(session, waiter, done ? null : 'The install this was waiting on failed')
+      // The agent's own reason. Its reply goes out under the original id, which a reconnected viewer has let go of.
+      this.answerInstallWaiter(session, waiter, done ? null : (reason ?? 'The install this was waiting on failed'))
     }
   }
 
