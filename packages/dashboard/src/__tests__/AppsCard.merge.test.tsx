@@ -25,8 +25,8 @@ beforeEach(() => {
   mergeAnswer = new Response(JSON.stringify({ ok: true, appId: 1, removedAppId: 2 }))
   fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => mergeAnswer)
   vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
-    const box = this.closest('[data-app-id]')
-    const i = box ? [...document.querySelectorAll('[data-app-id]')].indexOf(box) : 0
+    const box = this.closest('[data-app-id], [data-drop-box]')
+    const i = box ? [...document.querySelectorAll('[data-app-id], [data-drop-box]')].indexOf(box) : 0
     const top = i * 100 + (box === this ? 0 : 30)
     const height = box === this ? 90 : 20
     return { top, left: 0, width: 300, height, bottom: top + height, right: 300, x: 0, y: top, toJSON: () => ({}) } as DOMRect
@@ -43,10 +43,10 @@ function renderCard(apps = APPS) {
 }
 
 async function enterMergeMode() {
-  const mode = screen.getByRole('button', { name: 'Merge apps' })
+  const mode = screen.getByRole('button', { name: 'Arrange apps' })
   mode.focus()
   fireEvent.click(mode)
-  expect(await screen.findByText('Drag a bundle ID onto the app it belongs to.')).toBeInTheDocument()
+  expect(await screen.findByText('Drag a bundle ID onto another app, or into New app below its own.')).toBeInTheDocument()
   return mode
 }
 
@@ -87,7 +87,7 @@ describe('merge mode', () => {
     const [url, init] = fetchMock.mock.calls[0]!
     expect(url).toBe('/api/v1/apps/1/merge')
     expect(JSON.parse(String((init as RequestInit).body))).toEqual({ fromAppId: 2, platform: 'android' })
-    expect(mode).toHaveTextContent('Merge apps')
+    expect(mode).toHaveTextContent('Arrange apps')
     // Two apps became one, so the refetch takes the mode button away; focus is on the kept app's menu, not on the page.
     refetched([app(1, 'WDIO', 'org.wdiodemoapp', 'com.wdiodemoapp')])
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Actions for WDIO' })))
@@ -100,8 +100,8 @@ describe('merge mode', () => {
     refetched([app(1, 'WDIO', 'org.wdiodemoapp', null)])
     expect(mode).toBeInTheDocument()
     fireEvent.click(mode)
-    expect(screen.queryByText('Drag a bundle ID onto the app it belongs to.')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Merge apps' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Drag a bundle ID onto another app, or into New app below its own.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Arrange apps' })).not.toBeInTheDocument()
   })
 
   it('puts focus back on the dropped row when the merge is cancelled', async () => {

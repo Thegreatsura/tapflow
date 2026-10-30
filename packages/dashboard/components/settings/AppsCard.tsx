@@ -1,4 +1,4 @@
-import { useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
+import { Fragment, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   DndContext, KeyboardSensor, PointerSensor, useDraggable, useDroppable, useSensor, useSensors,
@@ -8,7 +8,7 @@ import { Ellipsis, GripVertical } from 'lucide-react'
 import { toast } from 'sonner'
 import { queryKeys } from '@/lib/queries'
 import type { App } from '@/lib/types'
-import { canDrop, rowsOf, UNKNOWN_BUNDLE_ID, whyFixed, type AppRow } from '@/lib/appRows'
+import { canDrop, canSplit, rowsOf, UNKNOWN_BUNDLE_ID, whyFixed, type AppRow } from '@/lib/appRows'
 import { cn } from '@/lib/utils'
 import { PLATFORM_LABEL } from '@/lib/build-format'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -53,13 +53,24 @@ function jumpBetweenApps(accepts: (activeId: string, droppableId: string) => boo
 }
 
 interface Pending { row: AppRow; source: App; target: App }
+interface PendingSplit { row: AppRow; source: App }
+/** What a droppable id names: an app (`app:<id>`), or the New app area below one (`new:<id>`, the row's own app). */
+type Target = { kind: 'app'; app: App } | { kind: 'new'; source: App }
 
 const menuOf = (appId: number) => `[data-app-menu="${appId}"]`
 
 export function AppsCard({ apps }: { apps: App[] }) {
   const queryClient = useQueryClient()
   const byId = new Map(apps.map((a) => [a.id, a]))
-  const appOfRow = (key: string) => byId.get(Number(key.split(':')[1]))
+  const targetOf = (droppableId: string): Target | undefined => {
+    const [kind, appId] = droppableId.split(':')
+    const app = byId.get(Number(appId))
+    if (!app) return undefined
+    return kind === 'new' ? { kind: 'new', source: app } : { kind: 'app', app }
+  }
+  const allows = (row: AppRow, target: Target) =>
+    target.kind === 'app' ? canDrop(row, target.app) : canSplit(row, target.source)
+  const targetName = (target: Target) => target.kind === 'app' ? target.app.name : 'New app'
   const rowOfKey = (key: string): AppRow | undefined => {
     const [, appId, platform] = key.split(':')
     const app = byId.get(Number(appId))
@@ -136,8 +147,8 @@ export function AppsCard({ apps }: { apps: App[] }) {
     }
   }
 
-  // ── Merge mode (#1086) ──────────────────────────────────────────────────
-  // People decide two apps are one product; the relay only refuses what would break its rules.
+  // ── Arrange mode (#1086) ────────────────────────────────────────────────
+  // People decide which bundle IDs are one product, merging or splitting; the relay only refuses what would break its rules.
   const [merging, setMerging] = useState(false)
   const [dragging, setDragging] = useState<AppRow | null>(null)
   const [pending, setPending] = useState<Pending | null>(null)
@@ -145,8 +156,8 @@ export function AppsCard({ apps }: { apps: App[] }) {
   const [mergeBusy, setMergeBusy] = useState(false)
   const accepts = (activeId: string, droppableId: string) => {
     const row = rowOfKey(activeId)
-    const target = appOfRow(droppableId)
-    return row !== undefined && target !== undefined && canDrop(row, target)
+    const target = targetOf(droppableId)
+    return row !== undefined && target !== undefined && allows(row, target)
   }
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -160,12 +171,12 @@ export function AppsCard({ apps }: { apps: App[] }) {
       return row ? `Picked up ${rowLabel(row)}. Use the arrow keys to move to another app.` : undefined
     },
     onDragOver: ({ active, over }) => {
-      const target = over ? appOfRow(String(over.id)) : undefined
-      return target && accepts(String(active.id), String(over!.id)) ? `Over ${target.name}.` : 'Not over an app this can go to.'
+      const target = over ? targetOf(String(over.id)) : undefined
+      return target && accepts(String(active.id), String(over!.id)) ? `Over ${targetName(target)}.` : 'Not over an app this can go to.'
     },
     onDragEnd: ({ active, over }) => {
-      const target = over ? appOfRow(String(over.id)) : undefined
-      return target && accepts(String(active.id), String(over!.id)) ? `Dropped on ${target.name}.` : 'Nothing changed.'
+      const target = over ? targetOf(String(over.id)) : undefined
+      return target && accepts(String(active.id), String(over!.id)) ? `Dropped on ${targetName(target)}.` : 'Nothing changed.'
     },
     onDragCancel: () => 'Cancelled. Nothing changed.',
   }
@@ -177,12 +188,18 @@ export function AppsCard({ apps }: { apps: App[] }) {
   function onDragEnd({ active, over }: DragEndEvent) {
     setDragging(null)
     const row = rowOfKey(String(active.id))
-    const target = over && appOfRow(String(over.id))
+    const target = over ? targetOf(String(over.id)) : undefined
     const source = row && byId.get(row.appId)
-    if (!row || !target || !source || !canDrop(row, target)) return
-    setMergeError(null)
+    if (!row || !target || !source || !allows(row, target)) return
     focusAfterRef.current = `[data-row-key="${String(active.id)}"]`
-    setPending({ row, source, target })
+    if (target.kind === 'new') {
+      setSplitName(`${source.name} (${PLATFORM_LABEL[row.platform]})`)
+      setSplitError(null)
+      setSplitting({ row, source })
+      return
+    }
+    setMergeError(null)
+    setPending({ row, source, target: target.app })
   }
 
   async function confirmMerge() {
@@ -217,6 +234,59 @@ export function AppsCard({ apps }: { apps: App[] }) {
     }
   }
 
+  // ── Splitting ───────────────────────────────────────────────────────────
+  const [splitting, setSplitting] = useState<PendingSplit | null>(null)
+  const [splitName, setSplitName] = useState('')
+  const [splitBusy, setSplitBusy] = useState(false)
+  const [splitError, setSplitError] = useState<string | null>(null)
+  // The new app, until the list that has it arrives. The dialog stays open till then: closing first would send focus to
+  // a menu that is not on the page yet.
+  const [awaitingAppId, setAwaitingAppId] = useState<number | null>(null)
+  function finishSplit() {
+    setAwaitingAppId(null)
+    setSplitting(null)
+    setSplitBusy(false)
+    setMerging(false)
+  }
+  // Closed in the render the new app first appears in — awaiting the refetch resolves before that render.
+  if (awaitingAppId !== null && byId.has(awaitingAppId)) finishSplit()
+
+  async function confirmSplit(e: FormEvent) {
+    e.preventDefault()
+    if (!splitting || splitBusy || !splitName.trim()) return
+    setSplitBusy(true)
+    setSplitError(null)
+    try {
+      const res = await fetch(`/api/v1/apps/${splitting.source.id}/split`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform: splitting.row.platform, name: splitName.trim() }),
+      })
+      const body = await res.json().catch(() => ({})) as { appId?: number; error?: string }
+      if (!res.ok || typeof body.appId !== 'number') {
+        // Said inside the dialog: a toast is hidden from screen readers while it is open.
+        setSplitError(body.error ?? 'Could not split this app')
+        setSplitBusy(false)
+        return
+      }
+      const created = body.appId
+      focusAfterRef.current = menuOf(created)
+      setAwaitingAppId(created)
+      toast.success(`Moved to ${splitName.trim()}`)
+      void queryClient.invalidateQueries({ queryKey: ['builds'] })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.apps })
+      // A refetch that failed, or a list nothing reads: close anyway rather than wait for a render that never comes.
+      if (!queryClient.getQueryData<App[]>(queryKeys.apps)?.some((a) => a.id === created)) finishSplit()
+    } catch {
+      setSplitError('Could not reach the relay')
+      setSplitBusy(false)
+    }
+  }
+
+  const splitFrom = dragging === null ? undefined : byId.get(dragging.appId)
+  const showNewApp = (app: App) => dragging !== null && splitFrom?.id === app.id && canSplit(dragging, app)
+
   const sourceEmptied = pending !== null && rowsOf(pending.source).length === 1
   // A running count across every app, so neighbouring rows wiggle out of step.
   let rowIndex = 0
@@ -226,11 +296,11 @@ export function AppsCard({ apps }: { apps: App[] }) {
       <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
         <CardTitle>Apps</CardTitle>
         <div className="flex items-center gap-3">
-          {merging && <p className="text-sm text-muted-foreground">Drag a bundle ID onto the app it belongs to.</p>}
+          {merging && <p className="text-sm text-muted-foreground">Drag a bundle ID onto another app, or into New app below its own.</p>}
           {/* Kept while merging: a refetch can leave one app, and the mode must still be leavable. */}
           {(apps.length > 1 || merging) && (
             <Button ref={modeButtonRef} size="sm" variant={merging ? 'outline' : 'ghost'} onClick={() => setMerging((m) => !m)}>
-              {merging ? 'Done' : 'Merge apps'}
+              {merging ? 'Done' : 'Arrange apps'}
             </Button>
           )}
         </div>
@@ -244,29 +314,32 @@ export function AppsCard({ apps }: { apps: App[] }) {
             }}>
             <div className="flex flex-col gap-4">
               {apps.map((app) => (
-                <AppGroup key={app.id} app={app} merging={merging} dragging={dragging}
-                  menu={
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        {/* Kept in place while merging so the header does not shift; nothing in it belongs to a merge. */}
-                        <Button variant="ghost" size="icon-sm" className={cn('h-8 w-8', merging && 'invisible')}
-                          aria-label={`Actions for ${app.name}`} data-app-menu={app.id}>
-                          <Ellipsis aria-hidden="true" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-40">
-                        <DropdownMenuItem onSelect={() => openEdit(app)}>Edit</DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onSelect={() => openDelete(app)} className="text-destructive focus:bg-destructive/10 focus:text-destructive">
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  }>
-                  {rowsOf(app).map((row) => (
-                    <BundleRow key={row.platform} row={row} index={rowIndex++} merging={merging} fixedBecause={whyFixed(app)} />
-                  ))}
-                </AppGroup>
+                <Fragment key={app.id}>
+                  <AppGroup app={app} merging={merging} dragging={dragging}
+                    menu={
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          {/* Kept in place while merging so the header does not shift; nothing in it belongs to a merge. */}
+                          <Button variant="ghost" size="icon-sm" className={cn('h-8 w-8', merging && 'invisible')}
+                            aria-label={`Actions for ${app.name}`} data-app-menu={app.id}>
+                            <Ellipsis aria-hidden="true" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-40">
+                          <DropdownMenuItem onSelect={() => openEdit(app)}>Edit</DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onSelect={() => openDelete(app)} className="text-destructive focus:bg-destructive/10 focus:text-destructive">
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    }>
+                    {rowsOf(app).map((row) => (
+                      <BundleRow key={row.platform} row={row} index={rowIndex++} merging={merging} fixedBecause={whyFixed(app)} />
+                    ))}
+                  </AppGroup>
+                  {showNewApp(app) && <NewAppZone source={app} />}
+                </Fragment>
               ))}
             </div>
           </DndContext>
@@ -330,7 +403,7 @@ export function AppsCard({ apps }: { apps: App[] }) {
                   <strong>{rowLabel(pending.row)}</strong> moves from <strong>{pending.source.name}</strong> with its builds,
                   and their comments, recordings and run records.
                   {sourceEmptied ? ` ${pending.source.name} is then removed.` : ''} The app keeps the name {pending.target.name}.
-                  This cannot be undone.
+                  You can split it out again later{sourceEmptied ? `, under a new name` : ''}.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <p role="status" className="text-sm text-destructive">{mergeError}</p>
@@ -349,6 +422,34 @@ export function AppsCard({ apps }: { apps: App[] }) {
           )}
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={splitting !== null} onOpenChange={(open) => { if (!open && !splitBusy) setSplitting(null) }}>
+        <DialogContent onCloseAutoFocus={returnFocus}>
+          {splitting && (
+            <form onSubmit={confirmSplit} className="flex flex-col gap-4">
+              <DialogHeader>
+                <DialogTitle>Move {rowLabel(splitting.row)} to a new app?</DialogTitle>
+                <DialogDescription>
+                  It leaves {splitting.source.name} with its builds, and their comments, recordings and run records.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="split-name">New app name</Label>
+                <Input id="split-name" value={splitName} onChange={(e) => setSplitName(e.target.value)} />
+              </div>
+              <p role="status" className="text-sm text-destructive">{splitError}</p>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => { if (!splitBusy) setSplitting(null) }}>Cancel</Button>
+                {/* Waits for the relay and for the list with the new app; stays open on a refusal, which it says above. */}
+                <Button type="submit" disabled={!splitName.trim()} aria-disabled={splitBusy}
+                  className="aria-disabled:opacity-50 aria-disabled:cursor-not-allowed">
+                  {splitBusy ? 'Splitting…' : 'Split'}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
     </Card>
   )
 }
@@ -373,8 +474,8 @@ function AppGroup({ app, merging, dragging, menu, children }: {
   app: App; merging: boolean; dragging: AppRow | null; menu: ReactNode; children: ReactNode
 }) {
   const allowed = dragging !== null && canDrop(dragging, app)
-  // Not `disabled` for the apps a row cannot go to: dnd-kit measures droppables as a drag starts, before `dragging`
-  // reaches here, so a disabled one would stay unmeasured. The drop is checked again when it lands.
+  // Not `disabled` for the apps a row cannot go to: whether it can is known only once `dragging` reaches here, and the
+  // keyboard and the drop check it anyway. (A droppable registered or enabled mid-drag is measured all the same.)
   const { setNodeRef, isOver } = useDroppable({ id: `app:${app.id}`, disabled: !merging })
   const isSource = dragging?.appId === app.id
   return (
@@ -393,6 +494,23 @@ function AppGroup({ app, merging, dragging, menu, children }: {
         {menu}
       </div>
       <div className="flex flex-col gap-2 py-1.5">{children}</div>
+    </div>
+  )
+}
+
+/** Below the dragged row's own app: dropped here, its platform becomes an app of its own. */
+function NewAppZone({ source }: { source: App }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `new:${source.id}` })
+  return (
+    <div
+      ref={setNodeRef}
+      data-drop-box="new-app"
+      className={cn(
+        'flex h-16 items-center justify-center rounded-lg border border-dashed border-foreground/30 text-sm text-muted-foreground transition-[box-shadow]',
+        isOver && 'border-transparent text-foreground ring-2 ring-foreground',
+      )}
+    >
+      New app
     </div>
   )
 }
