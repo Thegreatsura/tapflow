@@ -1154,6 +1154,10 @@ export type RelayOrAgentToBrowser =
   | NetworkError
   | ClipboardError
   | DeviceShutdownError
+  // Moved out of `AgentToBrowser` for the same reason as `input:type-error`: the relay answers an install with
+  // `keepIfInstalled` itself when the build is already on the device, and it answers in the shape the install's
+  // waiter reads.
+  | AppInstallDone
 
 export interface AgentsListed {
   type: 'agents:listed'
@@ -1548,11 +1552,12 @@ export interface ClipboardWriteDone {
  *  than re-creating them, so it never constructs one — which is exactly why they were missing from
  *  this file until L3: nothing on the relay's own send path referenced them.
  *
- *  The twelve declared below carry `sessionId` as required, on two independent grounds: both agents
+ *  The ones declared below carry `sessionId` as required, on two independent grounds: both agents
  *  include it in every send literal, and the relay's forward gate resolves `sessions.get(msg.sessionId)`
  *  before forwarding, so a message with no sessionId never reaches a browser by this path.
  *
- *  Nine of the ten inherited from `RelayOrAgentToBrowser` now carry it too. Three of them
+ *  Every member inherited from `RelayOrAgentToBrowser` carries it too except `device:ready` — deliberately no
+ *  count, because members move into that union whenever the relay starts producing one. Three of them
  *  (`session:chrome`, `session:deviceInfo`, `device:ready`) were `sessionId?` for as long as the relay's
  *  replay omitted what both agents stamped. Two ways to tighten the *declaration* were weighed and
  *  rejected — declaring the three twice (drift, which is the finding this surface exists to remove), and
@@ -1571,7 +1576,6 @@ export type AgentToBrowser =
   | RelayOrAgentToBrowser
   | DeviceBooting
   | DeviceShutdownDone
-  | AppInstallDone
   | AppLaunchDone
   | AppClearStateDone
   | OpenUrlDone
@@ -1966,6 +1970,16 @@ export interface AppInstallToRelay {
   sessionId: string
   requestId: string
   buildId: number
+  /**
+   * Install only if this build is not already on the device. The relay answers `app:install-done` itself when it
+   * last installed this build there, and joins an install of it already in flight. A viewer sends it when coming
+   * back to a device it was using, because every install clears the app's data first (iOS uninstalls, Android
+   * clears) — so reinstalling on a reconnect would cost the tester the state they came back for.
+   *
+   * Absent means install as before. A relay that predates the field strips it and reinstalls, which is the
+   * behaviour from before it existed.
+   */
+  keepIfInstalled?: boolean
 }
 
 export interface AppLaunchToRelay extends LaunchOptions {

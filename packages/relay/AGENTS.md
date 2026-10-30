@@ -118,6 +118,17 @@ iOS build format: `.app.zip` **or** `.tar.gz`/`.tgz` (EAS `eas build` simulator 
   deliberately not through `dispatchTarget`: that resolver also decides agent liveness, and using it there
   would move `agent offline` ahead of `Build not found`, changing which of two simultaneous problems the
   caller is told about.
+- **The relay keeps a record of the build on each device, so a viewer coming back does not wipe it** (#1087).
+  An install clears the app's data first, and a reconnecting viewer sends one per `device:ready`. An
+  `app:install` with `keepIfInstalled` is answered here when `Session.installed` names the same build (id and
+  stored path), or joins `Session.pendingInstall` when that build is already on its way. The record is
+  dropped wherever the app may have gone without the relay installing over it — a shutdown, a ready that is
+  not explicitly warm, a full-erase or run-reset boot, another install starting — and the pending half also
+  in `rejectPending`, which every way an agent leaves passes through (a restart that replaces its socket
+  skips the hold). Treating an unknown ready as cold has a cost, written down rather than hidden: a device
+  that was shut down outside tapflow (Simulator.app, DeviceHub, a crash) and came back with the app's data
+  intact is reinstalled anyway. The relay cannot tell that case from iOS's zombie recovery, which erases.
+  `appInstallKeepIfInstalled.test.ts` walks each of these.
 - **A session an AI client holds can be watched, read-only** (`watch:*`). The rules live with the code, and
   the ones that are easy to undo are these:
   - **Watchers are an index in `SessionManager`, never `owner` or `browserSocket`,** each bound to the owner

@@ -342,7 +342,13 @@ and the disposition table above cannot show the difference. Three rules, each ho
   absent one is not, because both the replay and an agent predating the echo arrive that way — and while
   the correlator is optional those two are indistinguishable. So what this newly catches is a straggler
   from an earlier boot cycle releasing the current rebind, and *not* the replayed ready firing a duplicate
-  install, which stays as it was.
+  install, which stays as it was. Since #1087 the duplicate is harmless once this mount's own install has
+  landed: from then on every install carries `keepIfInstalled` (`keepInstalledRef`), and the relay answers it
+  without touching the device. **The flag turns on at the first done, not the first send** — a device someone
+  left running answers the first join with the replay and then the real ready, and the second install must
+  not be folded into the first while the device is still booting. `DeviceViewer.keepInstalled.test.tsx` sends
+  the real reconnect order (joined, replayed ready, booting, correlated ready); one ready per join passes a
+  design that fails in the browser.
 
 And a fourth rule, about the set rather than the gate — **`bootIdsRef` is cleared on `session:joined` and
 nowhere else.** Not on `device:booting`, even though that branch is where every other per-cycle record is

@@ -6,7 +6,7 @@ import path from 'path'
 import { randomUUID } from 'crypto'
 import { WebSocketServer, WebSocket } from 'ws'
 import { SessionManager, isAiClientKind } from './SessionManager.js'
-import type { Session } from './SessionManager.js'
+import type { InstalledBuild, Session } from './SessionManager.js'
 import type { AgentResources } from './types.js'
 import type { DeviceDetails, UIElement } from './types.js'
 import type { AdmissionRefusal, BootRefusalReason, ChromePayload, LeaseRefusalReason, InputErrorReason, MacAdmission, RelayOutbound, PosturesPayload, WatchActionKind, WatchRefusal } from '@tapflowio/protocol'
@@ -155,6 +155,10 @@ const BOOT_REFUSAL_MESSAGES: Record<BootRefusalReason, string> = {
  *  idle steers it off a device it could have had. Shared so the two never drift. */
 function ownershipRefusal(session: Session): string {
   return session.browserSocket ? 'session held by another client' : 'session not joined'
+}
+
+function sameBuild(a: InstalledBuild, b: InstalledBuild): boolean {
+  return a.buildId === b.buildId && a.filePath === b.filePath
 }
 
 /**
@@ -1769,6 +1773,7 @@ export class RelayServer {
         this.sessions.updateDeviceStatus(session.id, 'shutdown')
         this.sessions.setReadySent(session.id, false)
         this.sessions.setDeviceServiceTier(session.id, undefined)
+        this.forgetInstall(session, 'The device shut down')
         // Unless a boot went out after the shutdown this answers: the shutdown carries no correlator, and a device
         // the relay shut down to make room can be picked up and started again before the agent reports back.
         if (session.lastBootPending === undefined) session.lastBoot = undefined
@@ -1807,6 +1812,11 @@ export class RelayServer {
         const session = this.sessions.get(msg.sessionId)
         if (!session) break
         const facts = readyFacts(raw)
+        // Anything other than a warm ready: the device came up from off, possibly after something outside tapflow shut
+        // it down (Simulator.app, DeviceHub, a crash), and iOS's zombie recovery erases on the way. An agent that does
+        // not say is counted as cold, which costs a reinstall and nothing worse. Handled before the ready is forwarded,
+        // so the install the viewer sends in answer to it already meets no record.
+        if (facts.cold !== false) session.installed = undefined
         if (facts.serviceTier !== undefined) this.sessions.setDeviceServiceTier(session.id, facts.serviceTier)
         this.settleLastBoot(session, msg.requestId, facts.cold)
         this.gateEvent({ kind: 'ready', hostKey: hostKeyOf(session), sessionId: session.id, cold: facts.cold })
@@ -1832,6 +1842,9 @@ export class RelayServer {
       case 'input:error':
       case 'keyboard:toggled': {
         const session = this.sessions.get(msg.sessionId)
+        if (session && (msg.type === 'app:install-done' || msg.type === 'app:install-error')) {
+          this.settleInstall(session, msg.requestId, msg.type === 'app:install-done')
+        }
         if (session?.browserSocket?.readyState === WebSocket.OPEN) {
           session.browserSocket.send(JSON.stringify(raw))
         }
@@ -2168,6 +2181,12 @@ export class RelayServer {
    * timeout, minutes later, having told the caller nothing in between.
    */
   private rejectPending(sessionIds: Set<string>, reason: string): void {
+    // An install in flight goes too, and here rather than at one caller: a restart that replaces the socket rebinds
+    // without passing through the hold. `installed` stays — the app is still on the device.
+    for (const id of sessionIds) {
+      const session = this.sessions.get(id)
+      if (session) this.dropPendingInstall(session, reason)
+    }
     for (const pendings of [this.pendingScreenshots, this.pendingUITrees]) {
       for (const [reqId, pending] of pendings.entries()) {
         if (!sessionIds.has(pending.sessionId)) continue
@@ -2281,6 +2300,8 @@ export class RelayServer {
     // Tracked by the socket it actually goes to (#885): a rebind invalidates only the boots
     // tied to the replaced socket, so a boot dispatched after the rebind stays answerable.
     this.rememberBoot(msg.sessionId, msg.requestId, boot.session.agentSocket)
+    // `=== 'full-erase'`, never truthy: the dashboard sends `app-only` on every boot, which erases nothing.
+    if (msg.payload.resetMode === 'full-erase' || msg.payload.runReset) this.forgetInstall(boot.session, 'The device is being reset')
     // The parse product, so a key a viewer appended from devtools is gone before the agent sees it.
     boot.session.agentSocket.send(JSON.stringify(msg))
   }
@@ -3437,6 +3458,22 @@ export class RelayServer {
     // Answer now rather than letting the caller time out — the same shape as `open-url` above.
     if (session.agentSocket.readyState !== WebSocket.OPEN) return fail('agent offline')
 
+    // The stored path, not the resolved one: it is what identifies the upload, and it does not move when the data
+    // directory does.
+    const thisBuild = { buildId: msg.buildId, filePath: build.file_path }
+    if (msg.keepIfInstalled) {
+      // Joined rather than sent again. A second install would uninstall the first one's app mid-install on iOS.
+      const pending = session.pendingInstall
+      if (pending && sameBuild(pending, thisBuild)) {
+        pending.waiters.push(requestId)
+        return
+      }
+      if (!pending && session.installed && sameBuild(session.installed, thisBuild)) {
+        this.sendTo(ws, { type: 'app:install-done', sessionId, requestId })
+        return
+      }
+    }
+
     // The correlator rides across the rebuild. `open-url` got this for free — the relay re-serialises
     // that message whole — but this is a *different* message from the one the browser sent, and the
     // agent's reply is forwarded back generically without the relay looking at it. So if the id does not
@@ -3463,6 +3500,9 @@ export class RelayServer {
       return fail('The relay cannot read this build file. It may have been deleted — re-upload the build.')
     }
 
+    // Whatever was on the device is uninstalled first, so the record goes now rather than when this one lands.
+    this.forgetInstall(session, 'Replaced by another install on this device')
+    session.pendingInstall = { ...thisBuild, requestId, waiters: [] }
     this.sendTo(session.agentSocket, {
       type: 'app:install',
       sessionId,
@@ -3477,6 +3517,45 @@ export class RelayServer {
       },
     })
     this.tellWatchersAction(sessionId, { kind: 'install' })
+  }
+
+  /**
+   * An agent answered an install. Only the latest one sent says what is on the device: a reply to one it replaced is
+   * forwarded as before and changes no record. Read whether or not a browser holds the session — an install that
+   * finishes while the tester is reconnecting is exactly the one they are coming back to.
+   */
+  private settleInstall(session: Session, requestId: string, done: boolean): void {
+    const pending = session.pendingInstall
+    if (!pending || pending.requestId !== requestId) return
+    session.pendingInstall = undefined
+    session.installed = done ? { buildId: pending.buildId, filePath: pending.filePath } : undefined
+    for (const waiter of pending.waiters) {
+      this.answerInstallWaiter(session, waiter, done ? null : 'The install this was waiting on failed')
+    }
+  }
+
+  /** The device may no longer have the app the record names. */
+  private forgetInstall(session: Session, reason: string): void {
+    session.installed = undefined
+    this.dropPendingInstall(session, reason)
+  }
+
+  /** The install in flight will not land as recorded. Its waiters are answered: each holds a viewer's install
+   *  spinner, and nothing else would stop it. */
+  private dropPendingInstall(session: Session, reason: string): void {
+    const pending = session.pendingInstall
+    if (!pending) return
+    session.pendingInstall = undefined
+    for (const waiter of pending.waiters) this.answerInstallWaiter(session, waiter, reason)
+  }
+
+  /** To whoever holds the session now, as the agent's own reply is: a waiter joined from a socket that held it. */
+  private answerInstallWaiter(session: Session, requestId: string, failure: string | null): void {
+    const holder = session.browserSocket
+    if (!holder) return
+    this.sendTo(holder, failure === null
+      ? { type: 'app:install-done', sessionId: session.id, requestId }
+      : { type: 'app:install-error', sessionId: session.id, requestId, message: failure })
   }
 
   /**

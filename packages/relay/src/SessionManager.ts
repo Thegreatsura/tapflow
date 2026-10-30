@@ -85,7 +85,19 @@ export interface Session {
   /** An automation client joined while the idle timer was running and stopped it: its leave starts it again, so a
    *  device a person left is not kept up for good by a run that borrowed it. */
   idleResumeOnLeave: boolean
+  /**
+   * The build the relay last saw installed on this device, so an install with `keepIfInstalled` can be answered
+   * without wiping the app (#1087). Identified by id **and** stored path, because `builds.id` has no AUTOINCREMENT and
+   * deleting the newest build hands its id to the next upload. Cleared wherever the app may have gone without the
+   * relay installing over it: a shutdown, a cold boot, an erase or a run reset.
+   */
+  installed?: InstalledBuild
+  /** The install last sent to the agent, and the `keepIfInstalled` requests of the same build waiting on it. Only the
+   *  latest: a reply to an older one says nothing about what is on the device now. */
+  pendingInstall?: InstalledBuild & { requestId: string; waiters: string[] }
 }
+
+export type InstalledBuild = { buildId: number; filePath: string }
 
 /**
  * Why a `session:start` could not bind, or that it did.
