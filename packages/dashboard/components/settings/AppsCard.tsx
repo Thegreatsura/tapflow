@@ -26,6 +26,8 @@ import {
  * Arrow keys jump between the apps `accepts` says a row can go to, top to bottom. dnd-kit's default moves the row 25px a
  * press, which takes a keyboard user many presses to reach the next card.
  */
+const LAND = 8
+
 function jumpBetweenApps(accepts: (activeId: string, droppableId: string) => boolean): KeyboardCoordinateGetter {
   return (event, { active, context }) => {
     const down = event.code === 'ArrowDown' || event.code === 'ArrowRight'
@@ -38,8 +40,9 @@ function jumpBetweenApps(accepts: (activeId: string, droppableId: string) => boo
       .map((c) => context.droppableRects.get(c.id))
       .filter((r): r is NonNullable<typeof r> => r !== undefined)
       .sort((a, b) => a.top - b.top)
-    const next = down ? rects.find((r) => r.top > at + 1) : [...rects].reverse().find((r) => r.top < at - 1)
-    return next ? { x: next.left + 8, y: next.top + 8 } : undefined
+    // Compared by where the row lands (8px in), so a row already on an app moves off it in either direction.
+    const next = down ? rects.find((r) => r.top + LAND > at + 1) : [...rects].reverse().find((r) => r.top + LAND < at - 1)
+    return next ? { x: next.left + LAND, y: next.top + LAND } : undefined
   }
 }
 
@@ -104,6 +107,9 @@ export function AppsCard({ apps }: { apps: App[] }) {
   const [mergeBusy, setMergeBusy] = useState(false)
   // One element for both labels, so switching the mode never unmounts the focused button.
   const modeButtonRef = useRef<HTMLButtonElement>(null)
+  // Where focus goes when the dialog closes: the kept app's name after a merge (the only control sure to be there —
+  // two apps becoming one removes the mode button), else back on the row that was dropped.
+  const focusAfterRef = useRef<string | null>(null)
   const accepts = (activeId: string, droppableId: string) => {
     const row = rowOfKey(activeId)
     const target = appOfRow(droppableId)
@@ -114,19 +120,19 @@ export function AppsCard({ apps }: { apps: App[] }) {
     useSensor(KeyboardSensor, { coordinateGetter: jumpBetweenApps(accepts) }),
   )
 
-  const rowLabel = (row: AppRow) => `${row.id ?? 'builds without a bundle ID'} (${PLATFORM_LABEL[row.platform]})`
+  const rowLabel = (row: AppRow) => `${rowText(row)} (${PLATFORM_LABEL[row.platform]})`
   const announcements: Announcements = {
     onDragStart: ({ active }) => {
       const row = rowOfKey(String(active.id))
       return row ? `Picked up ${rowLabel(row)}. Use the arrow keys to move to another app.` : undefined
     },
-    onDragOver: ({ over }) => {
-      const target = over && appOfRow(String(over.id))
-      return target ? `Over ${target.name}.` : 'Not over an app.'
+    onDragOver: ({ active, over }) => {
+      const target = over ? appOfRow(String(over.id)) : undefined
+      return target && accepts(String(active.id), String(over!.id)) ? `Over ${target.name}.` : 'Not over an app this can go to.'
     },
-    onDragEnd: ({ over }) => {
-      const target = over && appOfRow(String(over.id))
-      return target ? `Dropped on ${target.name}.` : 'Dropped. Nothing changed.'
+    onDragEnd: ({ active, over }) => {
+      const target = over ? appOfRow(String(over.id)) : undefined
+      return target && accepts(String(active.id), String(over!.id)) ? `Dropped on ${target.name}.` : 'Nothing changed.'
     },
     onDragCancel: () => 'Cancelled. Nothing changed.',
   }
@@ -142,6 +148,7 @@ export function AppsCard({ apps }: { apps: App[] }) {
     const source = row && byId.get(row.appId)
     if (!row || !target || !source || !canDrop(row, target)) return
     setMergeError(null)
+    focusAfterRef.current = `[data-row-key="${String(active.id)}"]`
     setPending({ row, source, target })
   }
 
@@ -165,6 +172,7 @@ export function AppsCard({ apps }: { apps: App[] }) {
       void queryClient.invalidateQueries({ queryKey: queryKeys.apps })
       void queryClient.invalidateQueries({ queryKey: ['builds'] })
       const into = pending.target.name
+      focusAfterRef.current = `#app-${pending.target.id}`
       setPending(null)
       setMerging(false)
       toast.success(`Merged into ${into}`)
@@ -262,9 +270,13 @@ export function AppsCard({ apps }: { apps: App[] }) {
         )}
       </CardContent>
 
-      {/* Opened by a drop, not a trigger, so it puts focus back itself: on the mode button, which is there either way. */}
+      {/* Opened by a drop, not a trigger, so it puts focus back itself. */}
       <AlertDialog open={pending !== null} onOpenChange={(open) => { if (!open && !mergeBusy) setPending(null) }}>
-        <AlertDialogContent onCloseAutoFocus={(e) => { e.preventDefault(); modeButtonRef.current?.focus() }}>
+        <AlertDialogContent onCloseAutoFocus={(e) => {
+          e.preventDefault()
+          const back = focusAfterRef.current ? document.querySelector<HTMLElement>(focusAfterRef.current) : null
+          ;(back ?? modeButtonRef.current)?.focus()
+        }}>
           {pending && (
             <>
               <AlertDialogHeader>
@@ -281,11 +293,11 @@ export function AppsCard({ apps }: { apps: App[] }) {
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                 {/* Waits for the relay and stays open on a refusal, which it says above. */}
                 <Button
-                  className={buttonVariants({ variant: 'destructive' })}
+                  className={cn(buttonVariants({ variant: 'destructive' }), 'aria-disabled:opacity-50 aria-disabled:cursor-not-allowed')}
                   aria-disabled={mergeBusy}
                   onClick={confirmMerge}
                 >
-                  Merge
+                  {mergeBusy ? 'Merging…' : 'Merge'}
                 </Button>
               </AlertDialogFooter>
             </>
@@ -296,11 +308,16 @@ export function AppsCard({ apps }: { apps: App[] }) {
   )
 }
 
+/** What a row is called on screen and to assistive tech alike, so a spoken "click No bundle ID" finds it. */
+function rowText(row: AppRow): string {
+  return row.id === UNKNOWN_BUNDLE_ID ? 'No readable bundle ID' : row.id ?? 'No bundle ID'
+}
+
 function RowLabel({ row }: { row: AppRow }) {
   return (
     <span className="flex items-center gap-2">
-      <span className={cn('text-xs font-mono', row.id === null ? 'text-muted-foreground italic' : 'text-muted-foreground')}>
-        {row.id === UNKNOWN_BUNDLE_ID ? 'No readable bundle ID' : row.id ?? 'No bundle ID'}
+      <span className={cn('text-xs font-mono text-muted-foreground', row.id === null && 'italic')}>
+        {rowText(row)}
       </span>
       <Badge tone={row.platform}>{PLATFORM_LABEL[row.platform]}</Badge>
     </span>
@@ -342,7 +359,8 @@ function MergeRow({ row, fixedBecause }: { row: AppRow; fixedBecause: string | n
       {...(fixedBecause === null ? listeners : {})}
       {...attributes}
       aria-disabled={fixedBecause !== null || undefined}
-      aria-label={`Move ${row.id ?? 'builds without a bundle ID'} (${PLATFORM_LABEL[row.platform]}) to another app`}
+      aria-label={`Move ${rowText(row)} (${PLATFORM_LABEL[row.platform]}) to another app`}
+      data-row-key={`row:${row.appId}:${row.platform}`}
       style={transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined}
       className={cn(
         'flex items-center gap-2 rounded-sm px-1 py-0.5 text-left touch-none',

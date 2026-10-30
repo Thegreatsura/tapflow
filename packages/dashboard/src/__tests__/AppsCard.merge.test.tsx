@@ -36,7 +36,10 @@ afterEach(() => vi.restoreAllMocks())
 
 function renderCard(apps = APPS) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
-  return render(<QueryClientProvider client={client}><AppsCard apps={apps} /></QueryClientProvider>)
+  const view = render(<QueryClientProvider client={client}><AppsCard apps={apps} /></QueryClientProvider>)
+  /** What the apps refetch after a merge does to the card. */
+  const refetched = (next: App[]) => view.rerender(<QueryClientProvider client={client}><AppsCard apps={next} /></QueryClientProvider>)
+  return { ...view, refetched }
 }
 
 async function enterMergeMode() {
@@ -47,8 +50,8 @@ async function enterMergeMode() {
   return mode
 }
 
-/** dnd-kit's keyboard path: pick up, move to the app above, drop. It starts listening on a timer after the pick-up. */
-async function dragUpFromKeyboard(grip: HTMLElement) {
+/** dnd-kit's keyboard path: pick up, move with the arrows, drop. It starts listening on a timer after the pick-up. */
+async function dragFromKeyboard(grip: HTMLElement, moves: Array<'ArrowUp' | 'ArrowDown'>) {
   const press = async (code: string, key: string) => {
     await act(async () => {
       fireEvent.keyDown(grip, { code, key })
@@ -57,9 +60,10 @@ async function dragUpFromKeyboard(grip: HTMLElement) {
   }
   grip.focus()
   await press('Space', ' ')
-  await press('ArrowUp', 'ArrowUp')
+  for (const m of moves) await press(m, m)
   await press('Space', ' ')
 }
+const dragUpFromKeyboard = (grip: HTMLElement) => dragFromKeyboard(grip, ['ArrowUp'])
 
 describe('merge mode', () => {
   it('keeps focus on the one button that enters and leaves it', async () => {
@@ -70,7 +74,7 @@ describe('merge mode', () => {
   })
 
   it('merges from the keyboard, after saying what moves, and leaves the mode', async () => {
-    renderCard()
+    const { refetched } = renderCard()
     const mode = await enterMergeMode()
     await dragUpFromKeyboard(screen.getByRole('button', { name: /Move com\.wdiodemoapp \(Android\)/ }))
 
@@ -84,7 +88,26 @@ describe('merge mode', () => {
     expect(url).toBe('/api/v1/apps/1/merge')
     expect(JSON.parse(String((init as RequestInit).body))).toEqual({ fromAppId: 2, platform: 'android' })
     expect(mode).toHaveTextContent('Merge apps')
-    await waitFor(() => expect(document.activeElement).toBe(mode))
+    // Two apps became one, so the refetch takes the mode button away; focus is on the kept app, not on the page.
+    refetched([app(1, 'WDIO', 'org.wdiodemoapp', 'com.wdiodemoapp')])
+    await waitFor(() => expect(document.activeElement).toBe(document.getElementById('app-1')))
+  })
+
+  it('puts focus back on the dropped row when the merge is cancelled', async () => {
+    renderCard()
+    await enterMergeMode()
+    const grip = screen.getByRole('button', { name: /Move com\.wdiodemoapp \(Android\)/ })
+    await dragUpFromKeyboard(grip)
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(document.activeElement).toBe(grip))
+  })
+
+  // Each press lands the row on the next app it can go to, and the row moves back up off one it is on.
+  it('moves between apps with the arrow keys in both directions', async () => {
+    renderCard([app(1, 'Mover', null, 'com.mover'), app(2, 'First', 'org.first', null), app(3, 'Second', 'org.second', null)])
+    await enterMergeMode()
+    await dragFromKeyboard(screen.getByRole('button', { name: /Move com\.mover \(Android\)/ }), ['ArrowDown', 'ArrowDown', 'ArrowUp'])
+    expect(await screen.findByRole('alertdialog')).toHaveTextContent('Merge into First?')
   })
 
   // A toast is hidden from screen readers while the dialog is open, so the refusal is said inside it.
@@ -101,7 +124,8 @@ describe('merge mode', () => {
   })
 
   it('does not let a row of an app using one ID on both platforms be picked up', async () => {
-    renderCard([app(1, 'Same', 'com.same', 'com.same'), app(2, 'Other', 'org.other', null)])
+    // Below an app it could go to, so the arrow has somewhere to take it if it could be picked up.
+    renderCard([app(1, 'Other', 'org.other', null), app(2, 'Same', 'com.same', 'com.same')])
     await enterMergeMode()
     const grip = screen.getByRole('button', { name: /Move com\.same \(Android\)/ })
     expect(grip).toHaveAttribute('aria-disabled', 'true')
