@@ -252,7 +252,9 @@ Body (JSON):
       "id": 7,
       "name": "My App",
       "bundle_id_key": "com.example.app",
-      "platform": "ios",
+      "bundle_ids": { "ios": "com.example.app", "android": "com.example.android" },
+      "build_platforms": ["android", "ios"],
+      "platform": "both",
       "created_at": "2025-05-01T00:00:00.000Z",
       "latest_build_id": 42,
       "version_name": "1.2.3",
@@ -264,10 +266,12 @@ Body (JSON):
 }
 ```
 
+`bundle_ids`는 플랫폼별 bundle ID입니다. 그 플랫폼에 ID가 없으면 `null`입니다. `bundle_id_key`는 예전 클라이언트를 위해 남겨 둔 값입니다. 두 ID가 다르면 iOS 쪽을 담습니다. `build_platforms`는 빌드가 있는 플랫폼입니다.
+
 
 ### `POST /api/v1/apps`
 
-앱을 수동으로 생성합니다. **Admin, Developer, QA** 권한이 필요합니다. Viewer는 `403`을 받습니다. 같은 `bundle_id_key`인 앱이 이미 있으면 플랫폼과 관계없이 `409`를 받습니다. iOS와 Android 양쪽에서 쓰는 앱은 `both`로 한 번만 만드세요.
+앱을 수동으로 생성합니다. **Admin, Developer, QA** 권한이 필요합니다. Viewer는 `403`을 받습니다. 같은 `bundle_id_key`인 앱이 이미 있으면 플랫폼과 관계없이 `409`를 받습니다. iOS와 Android에서 같은 bundle ID를 쓰는 앱은 `both`로 한 번만 만드세요. 플랫폼마다 bundle ID가 다르면 한쪽 플랫폼으로 만든 뒤, 다른 플랫폼 빌드를 `app_id`를 지정해 올리세요. 그 빌드의 bundle ID가 앱에 추가됩니다. `__unknown__`은 예약된 값이라 `400`을 받습니다.
 
 ```
 Body (JSON):
@@ -310,6 +314,25 @@ Body (JSON):
 ```
 
 
+### `POST /api/v1/apps/:id/merge`
+
+다른 앱의 한 플랫폼을 이 앱으로 옮깁니다. 그 플랫폼의 bundle ID와 빌드가 함께 옮겨집니다. 빌드에 딸린 댓글·녹화·실행 기록도 따라옵니다. 옮긴 뒤 원래 앱에 남은 것이 없으면 원래 앱은 삭제됩니다. 앱 이름은 이 앱의 이름을 그대로 씁니다. 되돌릴 수 없습니다. **Admin, Developer, QA** 권한이 필요합니다.
+
+```
+Body (JSON):
+  fromAppId  number        필수  옮겨 올 앱
+  platform   ios|android   필수  옮길 플랫폼
+```
+
+**응답 `200`**
+
+```json
+{ "ok": true, "appId": 7, "removedAppId": 9 }
+```
+
+`removedAppId`는 원래 앱이 삭제됐을 때만 있습니다. 옮기는 플랫폼에 bundle ID가 있는데 이 앱에도 그 플랫폼의 bundle ID가 이미 있으면 `409`를 받습니다. 원래 앱이 두 플랫폼에 같은 ID를 쓰거나, 다른 플랫폼의 bundle ID를 가진 빌드가 있어 한 플랫폼만 떼어 낼 수 없을 때도 `409`를 받습니다. 앱이 없으면 `404`를 받습니다. 같은 앱끼리, 원래 앱에 그 플랫폼이 없을 때, 두 앱 중 하나가 bundle ID를 읽지 못한 빌드를 모아 둔 앱(`__unknown__`)일 때는 `400`을 받습니다.
+
+
 ## 빌드 (Builds)
 
 ### `POST /api/v1/builds`
@@ -328,8 +351,8 @@ Authorization: Bearer tflw_pat_<token>  (또는 세션 쿠키)
 | `file` | 필수 | 빌드 산출물. iOS는 `.app.zip` 또는 `.tar.gz`/`.tgz`(시뮬레이터 빌드), Android는 `.apk`입니다. 최대 크기는 기본 500MB이며 `TAPFLOW_MAX_BUILD_BYTES`로 바꿀 수 있습니다. `.ipa`·`.aab`는 거부됩니다. |
 | `status` | 선택 | 초기 리뷰 상태로 `Backlog`, `In Progress`, `Done`, `Rejected` 중 하나입니다. 생략하면 미설정으로 둡니다. |
 | `label` | 선택 | App Center에서 빌드를 식별하는 자유 텍스트 레이블입니다(예: 브랜치명이나 `rc-1`). |
-| `platform` | 선택 | `ios` 또는 `android`입니다. 생략하면 파일 형식에서 자동으로 정해집니다. |
-| `app_id` | 선택 | 기존 앱에 명시적으로 연결합니다. 보통은 bundle ID로 앱이 자동 결정됩니다. |
+| `platform` | 선택 | 무시됩니다. 플랫폼은 파일 형식으로 정해집니다. |
+| `app_id` | 선택 | 기존 앱에 연결합니다. 그 앱에 해당 플랫폼의 bundle ID가 없고 다른 앱도 그 ID를 쓰지 않으면, 빌드의 bundle ID가 그 앱에 추가됩니다. 그렇지 않으면 빌드는 자기 bundle ID의 앱으로 갑니다. 병합으로 삭제된 앱의 `app_id`를 보내도 bundle ID로 앱을 찾아 연결합니다. 생략하면 bundle ID로 앱이 정해집니다. |
 
 ::: warning iOS 빌드 주의사항
 `.ipa` 파일은 지원하지 않습니다. `.app.zip`을 올리거나, 클라우드 시뮬레이터 빌드가 만드는 `.tar.gz`/`.tgz`를 올리세요. `.app.zip`은 `xcodebuild -sdk iphonesimulator`로 빌드한 `.app` 폴더를 zip으로 압축하면 됩니다.

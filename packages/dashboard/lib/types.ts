@@ -44,7 +44,8 @@ export interface Recording {
 export interface App {
   id: number
   name: string
-  bundle_id_key: string
+  /** Null for an app a merge left with builds but no ID (#1086). */
+  bundle_id_key: string | null
   platform: 'ios' | 'android' | 'both'
   latest_build_id: number | null
   version_name: string | null

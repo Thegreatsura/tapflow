@@ -11,8 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Come back to a QA session after a dropped connection or a closed tab.** The QA page's URL now names the session, so reloading or reopening it takes you back to the same device with the app as you left it, as long as the device is still waiting for you (5 minutes by default, `IDLE_TIMEOUT_MS`). App Center and the device list show **Your session on … was interrupted** with **Resume** and **End**, from any browser signed in to your account. A teammate who picks a device someone is coming back to is told whose it is and asked first, and the owner, if they come back within that time, is told who took it. A link to a device that has since shut down asks before starting it again.
 
+- **An app can have a different bundle ID on iOS and Android.** A product whose IDs differ, such as `org.wdiodemoapp` and `com.wdiodemoapp`, used to split into two apps: uploading the Android build with the iOS app's `app_id` started a new app. Now that build's ID is added to the app when the app has none on that platform yet. Two apps that already split can be joined with `POST /api/v1/apps/:id/merge`, which moves one platform's bundle ID and builds, with their comments, recordings and run records, into the other app. `GET /api/v1/apps` lists `bundle_ids` per platform and keeps `bundle_id_key`. MCP `list_builds` gives each build its own bundle ID, so an agent writing a flow for an Android build reads the Android one.
+
+### Changed
+
+- **A build's platform comes from its file.** The upload's `platform` field is ignored, so an `.apk` sent with `platform=ios` is recorded as Android. Builds already on record are corrected the same way when the relay upgrades.
+- **An upload naming an app that no longer exists is routed by its bundle ID** instead of failing with `404`, so CI that pinned the `app_id` of an app removed by a merge keeps uploading. A build whose bundle ID cannot be read still gets `404`.
+
 ### Fixed
 
+- **The build list's `platform` filter and the `build.status_changed` webhook use the build's platform.** Both read the app's, so builds of an app on both platforms never matched `platform=ios` or `platform=android`, and the webhook sent `"both"`, which its documentation does not allow.
 - **Reconnecting to a device no longer wipes the app under test.** When the dashboard lost its connection to the relay, even for a second, it reinstalled the build on reconnect, and an install clears the app's data first, so the tester came back to a logged-out, reset app. The relay now remembers the build it installed on each device, and the dashboard asks it to keep that build when it reconnects. Picking a device from the list still installs the build cleanly, and a restart still reinstalls it. A device that was shut down outside tapflow, for example by quitting Simulator.app, is reinstalled when the session comes back. Upgrade the relay: an older relay ignores the request and reinstalls as before.
 
 ## [0.31.0] - 2026-10-29

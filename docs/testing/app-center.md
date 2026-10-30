@@ -11,7 +11,7 @@ App Center is the build list inside the tapflow dashboard. It has nothing to do 
 
 ## How to use {#how-to-use}
 
-1. Pick an app from the **Apps** list on the left. An app is identified by its bundle ID (the iOS bundle identifier or the Android package name) and platform.
+1. Pick an app from the **Apps** list on the left. An app is identified by its bundle ID (the iOS bundle identifier or the Android package name), and can have a different one on each platform.
 2. Builds are grouped by version name into collapsible releases. A build whose version name could not be read goes under **Unversioned**.
 3. Press **Start QA** on the build you want to test. The build's [QA Session](/testing/qa-session) opens.
 
@@ -39,7 +39,7 @@ When nothing matches, the list shows **No matching builds**.
 `.ipa` is the format for real devices. tapflow accepts `.app.zip` and `.tar.gz`/`.tgz` for simulators. If an upload fails, see [Builds & uploads troubleshooting](/troubleshooting/builds#ios-build-upload-errors).
 :::
 
-An uploaded build is linked to an app by its bundle ID. If no app has that bundle ID, a new one is created. Uploading while an app is selected links the build to that app. If the build's bundle ID differs from the selected app's, it goes to the app for its own bundle ID instead.
+An uploaded build is linked to an app by its bundle ID. If no app has that bundle ID, a new one is created. Uploading while an app is selected links the build to that app. If the app has no bundle ID on that platform yet, the build's ID is added to it, so an app whose iOS and Android IDs differ can still be one app. If another app already holds the build's ID, or the selected app has a different ID on that platform, the build goes to the app for its own bundle ID.
 
 You can also create the app first with **Add App** below the **Apps** list, giving its **Name**, **Bundle ID** and **Platform** (iOS, Android or Both).
 

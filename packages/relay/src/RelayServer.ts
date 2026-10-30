@@ -104,7 +104,7 @@ import { handleVerifyReset, handleDoReset, handleSendMemberReset } from './api/p
 import { EMAIL_KEY_SQL } from './lib/email.js'
 import { handleListBuilds, handleGetBuild, handleUpdateBuild, handleUploadBuild, handleScheduleBuildDeletion, handleCancelBuildDeletion, purgeExpiredBuilds } from './api/builds.js'
 import type { BuildFileDirs } from './lib/buildDeletion.js'
-import { handleListApps, handleCreateApp, handleUpdateApp, handleDeleteApp } from './api/apps.js'
+import { handleListApps, handleCreateApp, handleUpdateApp, handleDeleteApp, handleMergeApp } from './api/apps.js'
 import { handleListWebhooks, handleCreateWebhook, handleUpdateWebhook, handleDeleteWebhook } from './api/webhooks.js'
 import { handleListComments, handleCreateComment, handleDeleteComment } from './api/comments.js'
 import { handleListMembers, handleInvite, handleUpdateMember, handleDeleteMember } from './api/team.js'
@@ -565,6 +565,7 @@ export class RelayServer {
     this.router.get('/api/v1/apps', handleListApps)
     this.router.post('/api/v1/apps', handleCreateApp)
     this.router.patch('/api/v1/apps/:id', handleUpdateApp)
+    this.router.post('/api/v1/apps/:id/merge', handleMergeApp)
     this.router.delete('/api/v1/apps/:id', (req, res, params) => handleDeleteApp(req, res, params, this.buildFileDirs()))
 
     // builds
