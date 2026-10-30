@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { App } from '@/lib/types'
-import { canDrop, rowsOf, whyFixed } from '@/lib/appRows'
+import { canDrop, canSplit, rowsOf, whyFixed } from '@/lib/appRows'
 
 const app = (id: number, ios: string | null, android: string | null, builds: Array<'ios' | 'android'> = []): App => ({
   id, name: `App ${id}`, bundle_id_key: ios ?? android, bundle_ids: { ios, android }, build_platforms: builds,
@@ -30,5 +30,16 @@ describe('merge mode rows (#1086)', () => {
     expect(canDrop(row, app(4, '__unknown__', null))).toBe(false)
     const noId = { appId: 1, platform: 'android' as const, id: null }
     expect(canDrop(noId, app(3, null, 'com.c'))).toBe(true)
+  })
+})
+
+describe('canSplit', () => {
+  it('lets a row leave an app that keeps its other platform, and nothing else', () => {
+    expect(canSplit({ appId: 1, platform: 'android', id: 'com.two' }, app(1, 'org.two', 'com.two'))).toBe(true)
+    // Builds without an ID still make a platform that stays behind.
+    expect(canSplit({ appId: 1, platform: 'android', id: 'com.two' }, app(1, null, 'com.two', ['ios']))).toBe(true)
+    expect(canSplit({ appId: 1, platform: 'ios', id: 'org.one' }, app(1, 'org.one', null))).toBe(false)
+    expect(canSplit({ appId: 1, platform: 'android', id: 'com.same' }, app(1, 'com.same', 'com.same'))).toBe(false)
+    expect(canSplit({ appId: 9, platform: 'android', id: 'com.two' }, app(1, 'org.two', 'com.two'))).toBe(false)
   })
 })

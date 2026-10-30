@@ -13,7 +13,7 @@ description: 대시보드 Settings의 하위 페이지입니다. 워크스페이
 
 - **Workspace** — 팀 이름과 로고를 설정합니다. Admin에게만 보입니다.
 - **Flow run videos** — 통과한 플로우의 영상을 며칠 남길지와 영상에 쓸 저장 공간을 정하고 지금 쓰는 용량을 봅니다. Admin에게만 보입니다. [플로우 실행 기록](/ko/automation/runs#recording)을 참고하세요.
-- **Apps** — 앱 이름을 바꾸거나 앱을 삭제합니다. 나뉜 앱을 [합칠](/ko/testing/app-center#merge-apps) 수도 있습니다. Admin, Developer, QA에게 보이고 Viewer에게는 보이지 않습니다.
+- **Apps** — 앱 이름을 바꾸거나 앱을 삭제합니다. 앱을 [합치거나 나눌](/ko/testing/app-center#merge-apps) 수도 있습니다. Admin, Developer, QA에게 보이고 Viewer에게는 보이지 않습니다.
 
 ## Team
 

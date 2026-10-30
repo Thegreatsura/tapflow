@@ -56,7 +56,7 @@ Each app's menu in Settings → Apps, with Edit and Delete.
   (`align="end"`), 4px from it. Radix flips it above when there is no room below. Items are 150px wide.
 - **Items** — text only, no icon. Edit, a separator, then Delete.
 - **Trigger** — a `ghost` icon Button, 32px square (`size="icon-sm"` narrowed with `h-8 w-8`), holding a 16px
-  `Ellipsis`. Named `Actions for <app name>`. In merge mode it is `invisible`: it keeps its place so the header does
+  `Ellipsis`. Named `Actions for <app name>`. In arrange mode it is `invisible`: it keeps its place so the header does
   not shift, and cannot be reached.
 
 ### The trigger

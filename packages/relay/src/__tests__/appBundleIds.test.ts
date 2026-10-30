@@ -136,6 +136,8 @@ describe('the apps API', () => {
     ((await request(port, 'GET', '/api/v1/apps')).body.items as Array<Record<string, unknown>>).find((a) => a.id === appId)!
   const merge = (target: number, fromAppId: number, platform: string, role?: string) =>
     request(port, 'POST', `/api/v1/apps/${target}/merge`, { fromAppId, platform }, role)
+  const split = (source: number, platform: string, name: unknown = 'Split off', role?: string) =>
+    request(port, 'POST', `/api/v1/apps/${source}/split`, { platform, name }, role)
 
   it('lists each app\'s ID per platform, and keeps `bundle_id_key` for older clients', async () => {
     const app = upsertApp('Listed', 'org.listed', 'ios')
@@ -272,6 +274,81 @@ describe('the apps API', () => {
       expect((await merge(a, b, 'web')).status).toBe(400)
       expect((await merge(a, b, 'ios', 'Viewer')).status).toBe(403)
       expect(ids(b)).toEqual({ ios: 'com.solo.two' })
+    })
+  })
+
+  // The way back from a merge: one platform becomes an app of its own.
+  describe('splitting', () => {
+    it('moves one platform, its builds and what hangs off them, into a new app that lists first', async () => {
+      const app = upsertApp('Joined', 'org.joined', 'ios')
+      route(app, 'com.joined', 'android')
+      const iosBuild = addBuild(app, 'ios', 'org.joined')
+      const androidBuild = addBuild(app, 'android', 'com.joined')
+      getDb().prepare("INSERT INTO comments (build_id, author_id, body) VALUES (?, 1, 'on android')").run(androidBuild)
+
+      const r = await split(app, 'android', '  Joined (Android)  ')
+      expect(r.status).toBe(200)
+      const created = Number(r.body.appId)
+      expect(ids(created)).toEqual({ android: 'com.joined' })
+      expect(ids(app)).toEqual({ ios: 'org.joined' })
+      expect(platformOf(created)).toBe('android')
+      expect(platformOf(app)).toBe('ios')
+      expect(appOf(androidBuild)).toBe(created)
+      expect(appOf(iosBuild)).toBe(app)
+      expect((getDb().prepare('SELECT COUNT(*) AS n FROM comments WHERE build_id = ?').get(androidBuild) as { n: number }).n).toBe(1)
+      // Apps made in the same millisecond tie on created_at; the id decides, so the newest still lists first.
+      getDb().prepare('UPDATE apps SET created_at = (SELECT created_at FROM apps WHERE id = ?)').run(created)
+      const first = ((await request(port, 'GET', '/api/v1/apps')).body.items as Array<{ id: number; name: string }>)[0]!
+      expect(first).toMatchObject({ id: created, name: 'Joined (Android)' })
+
+      // CI still naming the old app sends the moved ID's builds to the new one.
+      expect(route(app, 'com.joined', 'android')).toBe(created)
+    })
+
+    it('splits off a platform that has builds but no ID', async () => {
+      const app = upsertApp('Half known', 'com.halfknown', 'android')
+      const noId = addBuild(app, 'ios')
+      const r = await split(app, 'ios')
+      expect(r.status).toBe(200)
+      expect(appOf(noId)).toBe(Number(r.body.appId))
+      expect(ids(Number(r.body.appId))).toEqual({})
+      expect(platformOf(app)).toBe('android')
+    })
+
+    it('refuses to split off all an app has, changing nothing', async () => {
+      const app = upsertApp('Alone', 'com.alone', 'android')
+      const built = addBuild(app, 'android', 'com.alone')
+      const before = (getDb().prepare('SELECT COUNT(*) AS n FROM apps').get() as { n: number }).n
+      expect(await split(app, 'android')).toMatchObject({ status: 400, body: { error: 'Nothing would stay behind' } })
+      expect(appOf(built)).toBe(app)
+      expect((getDb().prepare('SELECT COUNT(*) AS n FROM apps').get() as { n: number }).n).toBe(before)
+    })
+
+    it('holds the rules a merge holds for the side that leaves', async () => {
+      const same = upsertApp('Same split', 'com.same.split', 'ios')
+      route(null, 'com.same.split', 'android')
+      expect((await split(same, 'android')).status).toBe(409)
+
+      const crossed = upsertApp('Crossed split', 'org.crossedsplit', 'ios')
+      route(crossed, 'com.crossedsplit', 'android')
+      addBuild(crossed, 'ios', 'com.crossedsplit')
+      expect((await split(crossed, 'android')).status).toBe(409)
+      expect(ids(crossed)).toEqual({ ios: 'org.crossedsplit', android: 'com.crossedsplit' })
+
+      const unknown = Number(route(null, null, 'android'))
+      route(unknown, null, 'ios')
+      expect((await split(unknown, 'android')).status).toBe(400)
+    })
+
+    it('refuses bad input, a missing app and a Viewer', async () => {
+      const app = upsertApp('Two sides', 'org.twosides', 'ios')
+      route(app, 'com.twosides', 'android')
+      expect((await split(app, 'web')).status).toBe(400)
+      expect((await split(app, 'android', '   ')).status).toBe(400)
+      expect((await split(app, 'android', 7)).status).toBe(400)
+      expect((await split(999999, 'android')).status).toBe(404)
+      expect((await split(app, 'android', 'Nope', 'Viewer')).status).toBe(403)
+      expect(ids(app)).toEqual({ ios: 'org.twosides', android: 'com.twosides' })
     })
   })
 

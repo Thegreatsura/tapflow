@@ -1,6 +1,6 @@
 import type { App } from '@/lib/types'
 
-// Merge mode's rules (#1086), mirroring the relay's in `relay/src/lib/appBundleIds.ts`.
+// Arrange mode's rules (#1086), mirroring the relay's in `relay/src/lib/appBundleIds.ts`.
 
 export type Platform = 'ios' | 'android'
 /** One platform of an app: its bundle ID, or none when the app has builds there without one. */
@@ -31,4 +31,9 @@ export function whyFixed(app: App): string | null {
 export function canDrop(row: AppRow, target: App): boolean {
   if (target.id === row.appId || holdsUnknown(target)) return false
   return row.id === null || target.bundle_ids[row.platform] === null
+}
+
+/** Whether `row` can become an app of its own: its app keeps its other platform, as the relay requires. */
+export function canSplit(row: AppRow, app: App): boolean {
+  return row.appId === app.id && whyFixed(app) === null && rowsOf(app).length === 2
 }

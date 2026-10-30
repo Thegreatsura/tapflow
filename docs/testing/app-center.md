@@ -45,19 +45,33 @@ You can also create the app first with **Add App** below the **Apps** list, givi
 
 To upload builds automatically from a CI pipeline, see [Upload from CI](/operate/ci-distribution).
 
-## Merge apps {#merge-apps}
+## Merge and split apps {#merge-apps}
 
-If one product split into two apps because its iOS and Android bundle IDs differ, you can merge them. This needs the **Admin, Developer or QA** role.
+If one product split into two apps because its iOS and Android bundle IDs differ, you can merge them. You can also split them again: an app merged by mistake, or a bundle ID attached to the wrong app. This needs the **Admin, Developer or QA** role.
 
-1. In **Settings**, on the **Apps** card, press **Merge apps**. A handle appears in front of each bundle ID row, and the rows start to wiggle.
+### Merge
+
+1. In **Settings**, on the **Apps** card, press **Arrange apps**. A handle appears in front of each bundle ID row, and the rows start to wiggle.
 2. Drag the bundle ID row you want to move onto the app you want to keep. From the keyboard, press Space on the handle to pick it up, choose an app with the arrow keys, and press Space to drop it.
 3. Press **Merge** in the confirmation.
 
-That platform's bundle ID and builds move to the app you keep, along with the builds' comments, recordings and run records. If the other app has nothing left, it is deleted. The app keeps the name of the one you dropped onto. A merge cannot be undone.
+That platform's bundle ID and builds move to the app you keep, along with the builds' comments, recordings and run records. If the other app has nothing left, it is deleted. The app keeps the name of the one you dropped onto. You can split a merged app again as below, but the deleted app's name does not come back.
 
 CI that uploads with the deleted app's `app_id` keeps working, because the build's bundle ID finds the app.
 
-Some rows cannot be moved. They have no handle and do not wiggle. Point at or focus the row to see why.
+### Split
+
+1. Press **Arrange apps** and pick up the bundle ID row to take out. A **New app** area opens right below the app it was in.
+2. Drop the row on **New app**. From the keyboard, pick the row up, move down to **New app** with the arrow key, and press Space.
+3. Name the new app in the confirmation and press **Split**. The name starts as the original app's name followed by the platform.
+
+That platform's bundle ID and builds move to the new app, which is listed first. The original app has to keep its other platform, so **New app** does not open for an app with only one row.
+
+Builds uploaded with the original app's `app_id` still go to the new app when they carry the bundle ID you moved. If the row you took out had builds but no bundle ID, point CI at the new app's `app_id`: builds whose bundle ID could not be read follow `app_id`.
+
+### Rows that cannot move
+
+They have no handle and do not wiggle. Point at or focus the row to see why.
 
 - A row of an app that uses the same bundle ID on both platforms. That app is already one app.
 - A row of the app that collects builds whose bundle ID could not be read.
