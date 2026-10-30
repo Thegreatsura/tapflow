@@ -42,7 +42,7 @@ every side and only its position and the direction of its slide change.
 
 | Side | Call sites | Where |
 |-------|-----------:|-------|
-| `top` | 6 | The default. Full reset switch and an overloaded Mac (QA session), the build row's deletion button, the gap and step marks on the run video's timeline, a bundle ID row that cannot move in merge mode (Settings → Apps) |
+| `top` | 6 | The default. Full reset switch and an overloaded Mac (QA session), the build row's deletion button, the gap and step marks on the run video's timeline, a bundle ID row that cannot move in merge mode (Settings → Apps), shown on the row itself, which has no handle |
 | `left` | 12 | Every device toolbar button (the toolbar sits to the right of the device) |
 | `right` | 1 | `SidebarMenuButton`'s `tooltip`, which shows only while the sidebar is collapsed to icons, and never on a phone. AppSidebar passes it on all three nav groups |
 | `bottom` | 0 | Not used |

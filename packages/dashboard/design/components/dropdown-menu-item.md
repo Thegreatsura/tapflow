@@ -11,8 +11,9 @@ own: state
 > This file holds only what is specific to DropdownMenuItem.
 
 `components/ui/dropdown-menu.tsx` wraps Radix DropdownMenu and has no `cva`. This spec covers the item and the
-content panel and separator around it; `state` below is what renders, not a prop. The dashboard has one dropdown
-menu: the account menu in the sidebar footer, with two items, Settings and Log out.
+content panel and separator around it; `state` below is what renders, not a prop. The dashboard has two dropdown
+menus: the account menu in the sidebar footer, with Settings and Log out, and each app's menu in Settings → Apps,
+with Edit and Delete.
 
 ## Anatomy
 
@@ -77,12 +78,13 @@ that frame too, with both avatars. Without a photo the trigger is then named onl
 | Where | Override | Why |
 |-------|----------|-----|
 | Settings | `asChild`, rendered as a link to Settings → Default | Navigation; the menu closes and the page changes. In the mobile sheet it also closes the sheet |
-| Log out | `text-destructive focus:text-destructive` | Red text at rest and on the `--accent` fill when focused (`--destructive`, about `#f00000` / `#e25a5a`). Not the destructive Button's tint: no red fill. At 14px it is just under 4.5:1 (4.46 at rest, 4.09 focused in light; 4.74 and 4.21 in dark). Signs out and goes to the sign-in page, with no pending look while it waits |
+| Log out | `text-destructive focus:bg-destructive/10 focus:text-destructive` | Red text (`--destructive`, about `#f00000` / `#e25a5a`), and when focused the destructive Button's tint instead of the `--accent` fill: `--destructive` at 10%. At 14px it is just under 4.5:1 (4.47 at rest, 3.75 focused in light; 4.75 and 4.24 in dark). Signs out and goes to the sign-in page, with no pending look while it waits |
+| Delete (Settings → Apps) | Same as Log out | Opens the delete confirmation for that app |
 
 ## Usage
 
 - Use it for a short list of actions behind one trigger. Each item is an icon and a one- or two-word label.
-- Put the destructive item last, after a separator, and color its text only.
+- Put the destructive item last, after a separator. Its text is red, and its focus fill is the red tint.
 - Keyboard: Enter, Space or ↓ on the trigger opens the menu with focus on the first item; pressing it with the mouse
   opens it with focus on the panel. ↑ ↓ move between items and stop at the ends, Home and End jump, typing a letter jumps to the item
   that starts with it. Enter or Space chooses. Escape closes, and focus goes back to the trigger.
@@ -92,5 +94,5 @@ that frame too, with both avatars. Without a photo the trigger is then named onl
 ## Figma
 
 Component set **DropdownMenuItem** in the `Design System` page — `state` × 3. The value names were not checked
-against this spec. The content panel, the separator and Log out's red text are not in the set; draw them from the
+against this spec. The content panel, the separator and the destructive item's red text and tint are not in the set; draw them from the
 anatomy and the table above.

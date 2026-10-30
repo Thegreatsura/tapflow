@@ -90,12 +90,16 @@ const config: Config = {
       },
       keyframes: {
         'screen-shimmer': { from: { backgroundPosition: '150% 0' }, to: { backgroundPosition: '-50% 0' } },
-        // Merge mode's grip, like an icon held on a phone's home screen. Only the grip: the bundle ID beside it is text to read.
-        'grip-wiggle': { '0%, 100%': { transform: 'rotate(-8deg)' }, '50%': { transform: 'rotate(8deg)' } },
+        // Merge mode's bundle ID rows, like icons held on a phone's home screen. A fraction of a degree: a row is wide, and
+        // the ID on it is text to read.
+        'row-wiggle': {
+          '0%, 100%': { transform: 'translate3d(0, 0, 2px) rotate(0.2deg)' },
+          '50%': { transform: 'translate3d(0, 0, -2px) rotate(-0.2deg)' },
+        },
       },
       animation: {
         'screen-shimmer': 'screen-shimmer 1.6s linear infinite',
-        'grip-wiggle': 'grip-wiggle 0.3s ease-in-out infinite',
+        'row-wiggle': 'row-wiggle 0.3s ease-in-out infinite',
       },
       zIndex: {
         /* Layer tokens — use these instead of raw z-{n} for semantic stacking.

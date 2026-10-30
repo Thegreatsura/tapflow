@@ -88,9 +88,9 @@ describe('merge mode', () => {
     expect(url).toBe('/api/v1/apps/1/merge')
     expect(JSON.parse(String((init as RequestInit).body))).toEqual({ fromAppId: 2, platform: 'android' })
     expect(mode).toHaveTextContent('Merge apps')
-    // Two apps became one, so the refetch takes the mode button away; focus is on the kept app, not on the page.
+    // Two apps became one, so the refetch takes the mode button away; focus is on the kept app's menu, not on the page.
     refetched([app(1, 'WDIO', 'org.wdiodemoapp', 'com.wdiodemoapp')])
-    await waitFor(() => expect(document.activeElement).toBe(document.getElementById('app-1')))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Actions for WDIO' })))
   })
 
   it('puts focus back on the dropped row when the merge is cancelled', async () => {
@@ -123,15 +123,15 @@ describe('merge mode', () => {
     expect(screen.getByRole('alertdialog')).toBeInTheDocument()
   })
 
-  it('does not let a row of an app using one ID on both platforms be picked up', async () => {
-    // Below an app it could go to, so the arrow has somewhere to take it if it could be picked up.
+  it('gives a row of an app using one ID on both platforms no grip, and leaves it still', async () => {
     renderCard([app(1, 'Other', 'org.other', null), app(2, 'Same', 'com.same', 'com.same')])
     await enterMergeMode()
-    const grip = screen.getByRole('button', { name: /Move com\.same \(Android\)/ })
-    expect(grip).toHaveAttribute('aria-disabled', 'true')
-    await dragUpFromKeyboard(grip)
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: /Move com\.same/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Move org\.other/ }).parentElement).toHaveClass('animate-row-wiggle')
+    const still = screen.getAllByText('com.same')[0]!.closest('[tabindex]')!
+    expect(still).not.toHaveClass('animate-row-wiggle')
+    // A keyboard reaches it, and with it the reason.
+    expect(still).toHaveAttribute('tabindex', '0')
   })
 
   // The keyboard only stops on apps a row can go to; a mouse can let go anywhere, so the drop is checked again.

@@ -49,7 +49,7 @@ CI 파이프라인에서 빌드를 자동으로 올리는 방법은 [CI에서 �
 
 iOS와 Android의 bundle ID가 달라 한 제품이 두 앱으로 나뉘어 있으면 하나로 합칠 수 있습니다. **Admin, Developer, QA** 권한이 필요합니다.
 
-1. **Settings**의 **Apps** 카드에서 **Merge apps**를 누릅니다. 각 bundle ID 줄 앞에 손잡이가 나타납니다.
+1. **Settings**의 **Apps** 카드에서 **Merge apps**를 누릅니다. 각 bundle ID 줄 앞에 손잡이가 나타나고 줄이 흔들리기 시작합니다.
 2. 옮길 bundle ID 줄을 남길 앱 위로 끌어다 놓습니다. 키보드로는 손잡이에서 Space를 눌러 집습니다. 방향키로 앱을 고른 뒤 Space를 눌러 놓습니다.
 3. 확인 창에서 **Merge**를 누릅니다.
 
@@ -57,7 +57,7 @@ iOS와 Android의 bundle ID가 달라 한 제품이 두 앱으로 나뉘어 있�
 
 삭제된 앱의 `app_id`로 빌드를 올리는 CI도 계속 동작합니다. 빌드의 bundle ID로 앱을 찾아 연결하기 때문입니다.
 
-옮길 수 없는 줄도 있습니다. 손잡이에 마우스를 올리거나 포커스하면 이유가 보입니다.
+옮길 수 없는 줄도 있습니다. 이런 줄에는 손잡이가 없고 흔들리지 않습니다. 줄에 마우스를 올리거나 포커스하면 이유가 보입니다.
 
 - 두 플랫폼에 같은 bundle ID를 쓰는 앱의 줄입니다. 이런 앱은 이미 한 앱으로 모여 있습니다.
 - bundle ID를 읽지 못한 빌드를 모아 두는 앱의 줄입니다.
@@ -97,7 +97,7 @@ iOS와 Android의 bundle ID가 달라 한 제품이 두 앱으로 나뉘어 있�
 
 - Viewer 역할은 읽기 전용입니다. Viewer가 **Upload build**나 **Add App**을 누르면 창 대신 QA나 Developer 권한이 필요하다는 알림이 뜹니다. Viewer에게는 상태 메뉴와 삭제 예약 버튼이 보이지 않고 **Start QA**와 상태 배지만 보입니다. 역할별 권한은 [팀·역할·토큰](/ko/operate/team-and-roles#team)을 참고하세요.
 - 목록에는 앱마다 최근에 올린 빌드 100개까지 보입니다. 더 오래된 빌드는 버전 검색으로 찾습니다.
-- App Center에서는 앱 이름을 바꾸거나 앱을 지울 수 없습니다. Admin, Developer, QA 역할은 **Settings → Default**의 **Apps** 카드에서 할 수 있습니다. 앱을 지우면 그 앱의 빌드도 모두 지워집니다.
+- App Center에서는 앱 이름을 바꾸거나 앱을 지울 수 없습니다. Admin, Developer, QA 역할은 **Settings → Default**의 **Apps** 카드에서 각 앱의 **⋯** 메뉴(**Edit**, **Delete**)로 할 수 있습니다. 앱을 지우면 그 앱의 빌드도 모두 지워집니다.
 - 삭제 예약 확인 창은 항상 7일이라고 안내합니다. 운영자가 릴레이의 `TAPFLOW_BUILD_TTL_DAYS`를 바꿨다면 실제 기간은 그 값을 따릅니다.
 
 ## 문제 해결 {#troubleshooting}
