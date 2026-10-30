@@ -149,10 +149,14 @@ export async function handleMergeApp(
   if (movingId !== null && idOn(db, source, other) === movingId) {
     return json(res, 409, { error: `That app uses ${movingId} on both platforms, so one platform cannot be moved on its own` })
   }
-  // Routing finds an app by its ID on any platform, so the app can hold builds of the other platform with this ID too.
-  // They would stay behind while the ID — and their next uploads — moved.
-  if (movingId !== null && db.prepare('SELECT 1 FROM builds WHERE app_id = ? AND platform = ? AND bundle_id = ?').get(source, other, movingId)) {
-    return json(res, 409, { error: `That app has ${other} builds with ${movingId}, so its ${platform} side cannot be moved on its own` })
+  // Routing finds an app by its ID on any platform, so a build can carry the ID of its app's other platform. Splitting
+  // such an app would part builds from the ID their next uploads follow, in either direction: builds staying behind
+  // with the ID that moves, or builds moving with the ID that stays.
+  const retainedId = idOn(db, source, other)
+  const carries = (onPlatform: Platform, id: string | null) => id !== null &&
+    db.prepare('SELECT 1 FROM builds WHERE app_id = ? AND platform = ? AND bundle_id = ?').get(source, onPlatform, id) !== undefined
+  if (carries(other, movingId) || carries(platform, retainedId)) {
+    return json(res, 409, { error: `That app has builds carrying the bundle ID of its other platform, so its ${platform} side cannot be moved on its own` })
   }
 
   const removed = db.transaction(() => {

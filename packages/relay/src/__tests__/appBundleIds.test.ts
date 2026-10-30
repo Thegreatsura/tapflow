@@ -218,6 +218,18 @@ describe('the apps API', () => {
       expect(appOf(crossed)).toBe(source)
     })
 
+    // The other direction: an Android build carrying the iOS ID that stays with the source.
+    it('refuses to move builds that carry the ID staying behind', async () => {
+      const source = upsertApp('Crossed back', 'org.crossedback', 'ios')
+      route(source, 'com.crossedback', 'android')
+      const crossed = addBuild(source, 'android', 'org.crossedback')
+      const target = upsertApp('Over there', 'org.overthere', 'ios')
+
+      expect((await merge(target, source, 'android')).status).toBe(409)
+      expect(appOf(crossed)).toBe(source)
+      expect(ids(target)).toEqual({ ios: 'org.overthere' })
+    })
+
     // An iOS build whose bundle could not be read, uploaded with app_id, sits under an app with no iOS ID. Moving the
     // app's Android ID must not leave it under an app that is then deleted — or delete it with the app.
     it('keeps a platform that has builds but no ID, so moving the last ID strands nothing', async () => {

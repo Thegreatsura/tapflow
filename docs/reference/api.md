@@ -330,7 +330,7 @@ Body (JSON):
 { "ok": true, "appId": 7, "removedAppId": 9 }
 ```
 
-`removedAppId` is there only when the other app was deleted. You get `409` if the platform you move has a bundle ID and this app already has one there, or if the other app also uses that bundle ID on its other platform, as an ID or in builds, so one platform cannot be moved on its own. You get `404` if either app is missing. You get `400` for an app merged into itself, a platform the other app has nothing on, or the app that collects builds whose bundle ID could not be read (`__unknown__`).
+`removedAppId` is there only when the other app was deleted. You get `409` if the platform you move has a bundle ID and this app already has one there, or if the other app has builds carrying the bundle ID of its other platform, or uses one ID on both, so one platform cannot be moved on its own. You get `404` if either app is missing. You get `400` for an app merged into itself, a platform the other app has nothing on, or when either app is the one that collects builds whose bundle ID could not be read (`__unknown__`).
 
 
 ## Builds
