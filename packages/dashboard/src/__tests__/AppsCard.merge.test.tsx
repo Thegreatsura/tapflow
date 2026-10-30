@@ -109,8 +109,14 @@ describe('merge mode', () => {
     await enterMergeMode()
     const grip = screen.getByRole('button', { name: /Move com\.wdiodemoapp \(Android\)/ })
     await dragUpFromKeyboard(grip)
-    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+    // While it asks, the row is shown landed in WDIO and faded where it still is.
+    await screen.findByRole('alertdialog')
+    expect(document.querySelector('[data-app-id="1"] [data-preview]')).toHaveTextContent('com.wdiodemoapp')
+    expect(grip.parentElement).toHaveClass('opacity-40')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     await waitFor(() => expect(document.activeElement).toBe(grip))
+    expect(document.querySelector('[data-preview]')).toBeNull()
+    expect(grip.parentElement).not.toHaveClass('opacity-40')
   })
 
   // Each press lands the row on the next app it can go to, and the row moves back up off one it is on.

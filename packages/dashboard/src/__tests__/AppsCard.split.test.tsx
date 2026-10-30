@@ -38,7 +38,7 @@ beforeEach(() => {
       if (held) await held.promise
       return listFails ? new Response('{}', { status: 500 }) : new Response(JSON.stringify({ items: serverApps }))
     }
-    return splitAnswer
+    return String(url).endsWith('/merge') ? new Response(JSON.stringify({ ok: true, appId: 2 })) : splitAnswer
   })
   vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
     const box = this.closest('[data-app-id], [data-drop-box]')
@@ -161,11 +161,39 @@ describe('splitting', () => {
     expect(screen.getByRole('button', { name: 'Split' })).toBeInTheDocument()
   })
 
-  it('puts focus back on the dropped row when cancelled', async () => {
+  it('shows the row in New app while it asks, and puts it and focus back when cancelled', async () => {
     await renderCard()
     const handle = await dropIntoNewApp()
-    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+    await screen.findByRole('dialog')
+    expect(document.querySelector('[data-drop-box] [data-preview]')).toHaveTextContent('com.joined')
+    expect(handle.parentElement).toHaveClass('opacity-40')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     await waitFor(() => expect(document.activeElement).toBe(handle))
+    expect(document.querySelector('[data-drop-box]')).toBeNull()
+  })
+
+  // A merge waits the same way: closed early, the row would sit in its old app until the list moved it.
+  it('keeps a merge\'s dialog and its landed row until the list shows the row moved', async () => {
+    await renderCard()
+    const handle = grip(/Move com\.joined \(Android\)/)
+    handle.focus()
+    await press(handle, 'Space', ' ')
+    await press(handle, 'ArrowDown', 'ArrowDown')
+    await press(handle, 'ArrowDown', 'ArrowDown')
+    await press(handle, 'Space', ' ')
+    expect(await screen.findByRole('alertdialog')).toHaveTextContent('Merge into Other?')
+
+    const refetch = hold()
+    serverApps = [app(1, 'Joined', 'org.joined', null), app(2, 'Other', 'org.other', 'com.joined')]
+    fireEvent.click(screen.getByRole('button', { name: 'Merge' }))
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)) })
+    expect(screen.getByRole('button', { name: 'Merging…' })).toBeInTheDocument()
+    expect(document.querySelector('[data-app-id="2"] [data-preview]')).toHaveTextContent('com.joined')
+
+    refetch.release()
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(document.querySelector('[data-preview]')).toBeNull()
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Actions for Other' })))
   })
 
   it('will not split under an empty name', async () => {

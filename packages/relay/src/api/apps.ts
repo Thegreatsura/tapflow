@@ -119,7 +119,7 @@ type Db = ReturnType<typeof getDb>
 function cannotLeave(db: Db, source: number, platform: Platform): { status: number; error: string } | null {
   if (!platformsOf(db, source).includes(platform)) return { status: 400, error: `That app has nothing on ${platform}` }
   // The app holding builds no ID could be read for stays apart, or every such upload from then on joins a real app.
-  if (holdsUnknown(db, source)) return { status: 400, error: 'Builds without a readable bundle ID cannot be moved' }
+  if (holdsUnknown(db, source)) return { status: 400, error: 'Builds without a readable bundle ID stay apart' }
   const movingId = idOn(db, source, platform)
   // One platform of an app that uses the same ID on both: moving it would leave that ID on two apps, and uploads of it
   // would then go to whichever row a lookup finds first.
@@ -163,10 +163,11 @@ export async function handleMergeApp(
   const db = getDb()
   const exists = db.prepare('SELECT id FROM apps WHERE id IN (?, ?)').all(source, target) as { id: number }[]
   if (exists.length !== 2) return json(res, 404, { error: 'App not found' })
-  // The source's rules first, then the target's.
+  // The source's rules first, then the target's: when both sides break one, the source's answer is the one given, status
+  // code included (a source using one ID on both platforms is 409 even if the target is the unreadable-builds app).
   const problem = cannotLeave(db, source, platform)
   if (problem) return json(res, problem.status, { error: problem.error })
-  if (holdsUnknown(db, target)) return json(res, 400, { error: 'Builds without a readable bundle ID cannot be merged' })
+  if (holdsUnknown(db, target)) return json(res, 400, { error: 'Builds without a readable bundle ID stay apart' })
   if (idOn(db, source, platform) !== null && idOn(db, target, platform) !== null) {
     return json(res, 409, { error: `The target app already has a ${platform} bundle ID` })
   }

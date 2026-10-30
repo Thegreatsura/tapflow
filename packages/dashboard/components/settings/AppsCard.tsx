@@ -217,22 +217,34 @@ export function AppsCard({ apps }: { apps: App[] }) {
         // Said inside the dialog: a toast is hidden from screen readers while it is open.
         const body = await res.json().catch(() => ({})) as { error?: string }
         setMergeError(body.error ?? 'Could not merge these apps')
+        setMergeBusy(false)
         return
       }
-      void queryClient.invalidateQueries({ queryKey: queryKeys.apps })
-      void queryClient.invalidateQueries({ queryKey: ['builds'] })
-      const into = pending.target.name
       // The kept app's menu: two apps becoming one removes the mode button, and the dropped row went with the merge.
       focusAfterRef.current = menuOf(pending.target.id)
-      setPending(null)
-      setArranging(false)
-      toast.success(`Merged into ${into}`)
+      const moving = { sourceId: pending.source.id, platform: pending.row.platform }
+      setMergeAwait(moving)
+      toast.success(`Merged into ${pending.target.name}`)
+      void queryClient.invalidateQueries({ queryKey: ['builds'] })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.apps })
+      // A refetch that failed, or a list nothing reads: close anyway rather than wait for a render that never comes.
+      if (!hasLeft(queryClient.getQueryData<App[]>(queryKeys.apps), moving)) finishMerge()
     } catch {
       setMergeError('Could not reach the relay')
-    } finally {
       setMergeBusy(false)
     }
   }
+
+  // Like a split below, the dialog waits for the list where the row has moved, and the drop is shown landed meanwhile:
+  // closing first would put the row back in its old app for a moment before the list moves it.
+  const [mergeAwait, setMergeAwait] = useState<{ sourceId: number; platform: AppRow['platform'] } | null>(null)
+  function finishMerge() {
+    setMergeAwait(null)
+    setPending(null)
+    setMergeBusy(false)
+    setArranging(false)
+  }
+  if (mergeAwait !== null && hasLeft(apps, mergeAwait)) finishMerge()
 
   // ── Splitting ───────────────────────────────────────────────────────────
   const [splitting, setSplitting] = useState<PendingSplit | null>(null)
@@ -285,7 +297,12 @@ export function AppsCard({ apps }: { apps: App[] }) {
   }
 
   const splitFrom = dragging === null ? undefined : byId.get(dragging.appId)
-  const showNewApp = (app: App) => dragging !== null && splitFrom?.id === app.id && canSplit(dragging, app)
+  // Open while a row that can split is dragged from this app, and kept open, holding the row, while its split is confirmed.
+  const showNewApp = (app: App) =>
+    splitting?.source.id === app.id || (dragging !== null && splitFrom?.id === app.id && canSplit(dragging, app))
+  // The row a confirmation is open for: shown where it was dropped, and faded where it still is.
+  const held = pending?.row ?? splitting?.row ?? null
+  const isHeld = (row: AppRow) => held !== null && held.appId === row.appId && held.platform === row.platform
 
   const sourceEmptied = pending !== null && rowsOf(pending.source).length === 1
   // A running count across every app, so neighbouring rows wiggle out of step.
@@ -316,6 +333,7 @@ export function AppsCard({ apps }: { apps: App[] }) {
               {apps.map((app) => (
                 <Fragment key={app.id}>
                   <AppGroup app={app} arranging={arranging} dragging={dragging}
+                    incoming={pending?.target.id === app.id ? pending.row : undefined}
                     menu={
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -335,10 +353,11 @@ export function AppsCard({ apps }: { apps: App[] }) {
                       </DropdownMenu>
                     }>
                     {rowsOf(app).map((row) => (
-                      <BundleRow key={row.platform} row={row} index={rowIndex++} arranging={arranging} fixedBecause={whyFixed(app)} />
+                      <BundleRow key={row.platform} row={row} index={rowIndex++} arranging={arranging} fixedBecause={whyFixed(app)}
+                        held={isHeld(row)} />
                     ))}
                   </AppGroup>
-                  {showNewApp(app) && <NewAppZone source={app} />}
+                  {showNewApp(app) && <NewAppZone source={app} incoming={splitting?.source.id === app.id ? splitting.row : undefined} />}
                 </Fragment>
               ))}
             </div>
@@ -430,7 +449,7 @@ export function AppsCard({ apps }: { apps: App[] }) {
               <DialogHeader>
                 <DialogTitle>Move {rowLabel(splitting.row)} to a new app?</DialogTitle>
                 <DialogDescription>
-                  It leaves {splitting.source.name} with its builds, and their comments, recordings and run records.
+                  {rowLabel(splitting.row)} moves out of {splitting.source.name} into the new app, with its builds, and their comments, recordings and run records.
                 </DialogDescription>
               </DialogHeader>
               <div className="flex flex-col gap-2">
@@ -470,8 +489,15 @@ function RowLabel({ row }: { row: AppRow }) {
   )
 }
 
-function AppGroup({ app, arranging, dragging, menu, children }: {
-  app: App; arranging: boolean; dragging: AppRow | null; menu: ReactNode; children: ReactNode
+/** Whether `apps` shows the row gone from its app — or the app gone with it. */
+function hasLeft(apps: App[] | undefined, { sourceId, platform }: { sourceId: number; platform: AppRow['platform'] }): boolean {
+  if (!apps) return false
+  const source = apps.find((a) => a.id === sourceId)
+  return !source || !rowsOf(source).some((r) => r.platform === platform)
+}
+
+function AppGroup({ app, arranging, dragging, incoming, menu, children }: {
+  app: App; arranging: boolean; dragging: AppRow | null; incoming?: AppRow; menu: ReactNode; children: ReactNode
 }) {
   const allowed = dragging !== null && canDrop(dragging, app)
   // Not `disabled` for the apps a row cannot go to: whether it can is known only once `dragging` reaches here, and the
@@ -485,7 +511,7 @@ function AppGroup({ app, arranging, dragging, menu, children }: {
       className={cn(
         'flex flex-col gap-2 rounded-lg bg-background px-4 pb-3 pt-4 transition-[box-shadow,opacity]',
         // Only the app under the row is marked: the ones it cannot go to are already dimmed.
-        allowed && isOver && 'ring-2 ring-foreground',
+        ((allowed && isOver) || incoming) && 'ring-2 ring-foreground',
         dragging !== null && !allowed && !isSource && 'opacity-50',
       )}
     >
@@ -493,30 +519,46 @@ function AppGroup({ app, arranging, dragging, menu, children }: {
         <span className="truncate text-sm font-medium">{app.name}</span>
         {menu}
       </div>
-      <div className="flex flex-col gap-2 py-1.5">{children}</div>
+      <div className="flex flex-col gap-2 py-1.5">
+        {children}
+        {incoming && <PreviewRow row={incoming} />}
+      </div>
+    </div>
+  )
+}
+
+/** The dropped row where it will land, while its confirmation is open. A picture only: nothing in it can be reached. */
+function PreviewRow({ row }: { row: AppRow }) {
+  return (
+    <div aria-hidden="true" data-preview="" className="flex h-11 w-full items-center gap-2 rounded-md bg-card p-1.5 shadow-md">
+      <span className="flex h-8 w-6 shrink-0 items-center justify-center rounded-sm bg-background">
+        <GripVertical className="size-4 text-muted-foreground" />
+      </span>
+      <RowLabel row={row} />
     </div>
   )
 }
 
 /** Below the dragged row's own app: dropped here, its platform becomes an app of its own. */
-function NewAppZone({ source }: { source: App }) {
+function NewAppZone({ source, incoming }: { source: App; incoming?: AppRow }) {
   const { setNodeRef, isOver } = useDroppable({ id: `new:${source.id}` })
   return (
     <div
       ref={setNodeRef}
       data-drop-box="new-app"
       className={cn(
-        'flex h-16 items-center justify-center rounded-lg border border-dashed border-foreground/30 text-sm text-muted-foreground transition-[box-shadow]',
-        isOver && 'border-transparent text-foreground ring-2 ring-foreground',
+        'flex h-[124px] items-center justify-center rounded-lg border border-dashed border-foreground/30 text-sm text-muted-foreground transition-[box-shadow]',
+        (isOver || incoming) && 'border-transparent text-foreground ring-2 ring-foreground',
+        incoming && 'px-3',
       )}
     >
-      New app
+      {incoming ? <PreviewRow row={incoming} /> : 'New app'}
     </div>
   )
 }
 
-function BundleRow({ row, index, arranging, fixedBecause }: {
-  row: AppRow; index: number; arranging: boolean; fixedBecause: string | null
+function BundleRow({ row, index, arranging, fixedBecause, held }: {
+  row: AppRow; index: number; arranging: boolean; fixedBecause: string | null; held: boolean
 }) {
   const movable = arranging && fixedBecause === null
   const key = `row:${row.appId}:${row.platform}`
@@ -540,7 +582,9 @@ function BundleRow({ row, index, arranging, fixedBecause }: {
         movable ? 'p-1.5' : 'px-4',
         // The whole row, like an icon held on a phone's home screen. Not while dragged: the animation's transform would
         // win over the drag's.
-        movable && !isDragging && 'animate-row-wiggle motion-reduce:animate-none',
+        movable && !isDragging && !held && 'animate-row-wiggle motion-reduce:animate-none',
+        // Moving elsewhere once confirmed; still here, so focus can come back to it on a cancel.
+        held && 'opacity-40',
         isDragging && 'relative z-10 shadow-md',
         fixedWhileArranging && 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
       )}
