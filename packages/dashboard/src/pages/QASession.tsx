@@ -342,7 +342,7 @@ function QASessionPage() {
             </div>
           )}
           {activeSessionId ? (
-            <div className="min-h-full flex flex-col items-center justify-center gap-3 py-6 px-8 min-w-max">
+            <div className="min-h-full flex items-center justify-center py-6 px-8 min-w-max">
               <DeviceViewer
                 // Keyed, so a different session is a different mount: the viewer's per-mount records (the reset already
                 // sent, the installs kept) belong to one session.
@@ -357,9 +357,6 @@ function QASessionPage() {
                 onRecordingUploaded={handleRecordingUploaded}
                 onSessionEnded={onSessionEnded}
               />
-              <p className="text-xs text-muted-foreground">
-                Going back shuts the device down. If you close the tab or lose your connection, it waits a few minutes for you.
-              </p>
             </div>
           ) : selectedAgent ? (
             <div className="flex flex-col gap-5">

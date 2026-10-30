@@ -47,7 +47,7 @@ Once the device is up, the build is installed on it automatically. The info card
 
 ### Leave a session {#leave-a-session}
 
-The breadcrumb at the top reads `app name › build › Mac › device`. Click an earlier step to go back to it. Leaving the device screen shuts that device down, so another teammate can use it straight away. A note under the device says so too.
+The breadcrumb at the top reads `app name › build › Mac › device`. Click an earlier step to go back to it. Leaving the device screen shuts that device down, so another teammate can use it straight away.
 
 If you close the browser tab or lose your connection, the device does not shut down straight away. It waits for you for a few minutes (5 by default). See [Return to a session](#return-to-a-session).
 
