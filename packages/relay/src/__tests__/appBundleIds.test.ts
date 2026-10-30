@@ -206,6 +206,18 @@ describe('the apps API', () => {
       expect(ids(target)).toEqual({ ios: 'org.elsewhere' })
     })
 
+    // Routing finds the app by the ID on any platform, so an iOS build can carry the app's Android ID.
+    it('refuses to move an ID that builds of the other platform also carry', async () => {
+      const source = upsertApp('Crossed', 'org.crossed', 'ios')
+      route(source, 'com.crossed', 'android')
+      const crossed = addBuild(source, 'ios', 'com.crossed')
+      const target = upsertApp('Somewhere', 'org.somewhere', 'ios')
+
+      expect((await merge(target, source, 'android')).status).toBe(409)
+      expect(ids(source)).toEqual({ ios: 'org.crossed', android: 'com.crossed' })
+      expect(appOf(crossed)).toBe(source)
+    })
+
     // An iOS build whose bundle could not be read, uploaded with app_id, sits under an app with no iOS ID. Moving the
     // app's Android ID must not leave it under an app that is then deleted — or delete it with the app.
     it('keeps a platform that has builds but no ID, so moving the last ID strands nothing', async () => {

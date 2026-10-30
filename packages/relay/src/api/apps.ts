@@ -149,6 +149,11 @@ export async function handleMergeApp(
   if (movingId !== null && idOn(db, source, other) === movingId) {
     return json(res, 409, { error: `That app uses ${movingId} on both platforms, so one platform cannot be moved on its own` })
   }
+  // Routing finds an app by its ID on any platform, so the app can hold builds of the other platform with this ID too.
+  // They would stay behind while the ID — and their next uploads — moved.
+  if (movingId !== null && db.prepare('SELECT 1 FROM builds WHERE app_id = ? AND platform = ? AND bundle_id = ?').get(source, other, movingId)) {
+    return json(res, 409, { error: `That app has ${other} builds with ${movingId}, so its ${platform} side cannot be moved on its own` })
+  }
 
   const removed = db.transaction(() => {
     db.prepare('UPDATE app_bundle_ids SET app_id = ? WHERE app_id = ? AND platform = ?').run(target, source, platform)
