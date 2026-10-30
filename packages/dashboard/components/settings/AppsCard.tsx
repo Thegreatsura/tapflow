@@ -365,7 +365,9 @@ export function AppsCard({ apps }: { apps: App[] }) {
                         held={isHeld(row)} />
                     ))}
                   </AppGroup>
-                  {showNewApp(app) && <NewAppZone source={app} incoming={splitting?.source.id === app.id ? splitting.row : undefined} />}
+                  {showNewApp(app) && (
+                    <NewAppZone source={app} incoming={splitting?.source.id === app.id ? splitting.row : undefined} name={splitName} />
+                  )}
                 </Fragment>
               ))}
             </div>
@@ -538,7 +540,7 @@ function AppGroup({ app, arranging, dragging, incoming, menu, children }: {
 /** The dropped row where it will land, while its confirmation is open. A picture only: nothing in it can be reached. */
 function PreviewRow({ row }: { row: AppRow }) {
   return (
-    <div aria-hidden="true" data-preview="" className="flex h-11 w-full items-center gap-2 rounded-md bg-card p-1.5 shadow-md">
+    <div aria-hidden="true" data-preview="" className="flex h-11 w-full items-center gap-2 rounded-md bg-card p-1.5">
       <span className="flex h-8 w-6 shrink-0 items-center justify-center rounded-sm bg-background">
         <GripVertical className="size-4 text-muted-foreground" />
       </span>
@@ -547,20 +549,32 @@ function PreviewRow({ row }: { row: AppRow }) {
   )
 }
 
-/** Below the dragged row's own app: dropped here, its platform becomes an app of its own. */
-function NewAppZone({ source, incoming }: { source: App; incoming?: AppRow }) {
+/**
+ * Below the dragged row's own app: dropped here, its platform becomes an app of its own. While the split is confirmed it
+ * is drawn as that app will be — the name being typed over the row — with the spacing of an app with one row.
+ */
+function NewAppZone({ source, incoming, name }: { source: App; incoming?: AppRow; name: string }) {
   const { setNodeRef, isOver } = useDroppable({ id: `new:${source.id}` })
+  if (incoming) {
+    return (
+      <div ref={setNodeRef} data-drop-box="new-app" className="flex flex-col gap-2 rounded-lg bg-background px-4 pb-3 pt-4 ring-2 ring-foreground">
+        <div className="flex h-8 items-center">
+          <span aria-hidden="true" className="truncate text-sm font-medium">{name.trim() || 'New app'}</span>
+        </div>
+        <div className="flex flex-col gap-2 py-1.5"><PreviewRow row={incoming} /></div>
+      </div>
+    )
+  }
   return (
     <div
       ref={setNodeRef}
       data-drop-box="new-app"
       className={cn(
         'flex h-[124px] items-center justify-center rounded-lg border border-dashed border-foreground/30 text-sm text-muted-foreground transition-[box-shadow]',
-        (isOver || incoming) && 'border-transparent text-foreground ring-2 ring-foreground',
-        incoming && 'px-3',
+        isOver && 'border-transparent text-foreground ring-2 ring-foreground',
       )}
     >
-      {incoming ? <PreviewRow row={incoming} /> : 'New app'}
+      New app
     </div>
   )
 }

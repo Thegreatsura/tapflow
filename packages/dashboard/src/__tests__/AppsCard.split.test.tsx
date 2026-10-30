@@ -178,6 +178,11 @@ describe('splitting', () => {
     const handle = await dropIntoNewApp()
     await screen.findByRole('dialog')
     expect(document.querySelector('[data-drop-box] [data-preview]')).toHaveTextContent('com.joined')
+    // Drawn as the app it will be, under the name being typed.
+    const zone = document.querySelector('[data-drop-box]')!
+    expect(zone).toHaveTextContent('Joined (Android)')
+    fireEvent.change(screen.getByLabelText('New app name'), { target: { value: 'Joined Droid' } })
+    expect(zone).toHaveTextContent('Joined Droid')
     expect(handle.parentElement).toHaveClass('opacity-40')
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     await waitFor(() => expect(document.activeElement).toBe(handle))
