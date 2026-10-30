@@ -23,8 +23,8 @@ vi.mock('@/lib/queries', async (importOriginal) => ({
 import { AppCenter } from '@/src/pages/AppCenter'
 
 const APPS: App[] = [
-  { id: 1, name: 'Coffee', bundle_id_key: 'com.a.coffee', platform: 'ios' },
-  { id: 2, name: 'Tea', bundle_id_key: 'com.a.tea', platform: 'ios' },
+  { id: 1, name: 'Coffee', bundle_id_key: 'com.a.coffee', bundle_ids: { ios: 'com.a.coffee', android: null }, build_platforms: ['ios'], platform: 'ios' },
+  { id: 2, name: 'Tea', bundle_id_key: 'com.a.tea', bundle_ids: { ios: 'com.a.tea', android: null }, build_platforms: ['ios'], platform: 'ios' },
 ] as unknown as App[]
 
 function build(id: number, version: string): Build {
@@ -114,6 +114,13 @@ describe('App Center — switching apps', () => {
     updateBuildStatus.mockResolvedValue(undefined)
   })
   afterEach(() => vi.restoreAllMocks())
+
+  // A merge removes the app it moved out of (#1086), and a tab or bookmark can still name it.
+  it('opens the first app when the URL names one that is gone', async () => {
+    getBuilds.mockResolvedValue([build(1, '1.0.0')])
+    renderAppCenter('/app-center?appId=99')
+    await waitFor(() => expect(getBuilds).toHaveBeenLastCalledWith(expect.objectContaining({ appId: 1 })))
+  })
 
   it('never shows the empty state while the next app is loading', async () => {
     // **The reported bug.** `handleAppSelect` cleared `builds` synchronously while `loading` was

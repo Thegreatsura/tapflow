@@ -45,6 +45,24 @@ You can also create the app first with **Add App** below the **Apps** list, givi
 
 To upload builds automatically from a CI pipeline, see [Upload from CI](/operate/ci-distribution).
 
+## Merge apps {#merge-apps}
+
+If one product split into two apps because its iOS and Android bundle IDs differ, you can merge them. This needs the **Admin, Developer or QA** role.
+
+1. In **Settings**, on the **Apps** card, press **Merge apps**. A handle appears in front of each bundle ID row.
+2. Drag the bundle ID row you want to move onto the app you want to keep. From the keyboard, press Space on the handle to pick it up, choose an app with the arrow keys, and press Space to drop it.
+3. Press **Merge** in the confirmation.
+
+That platform's bundle ID and builds move to the app you keep, along with the builds' comments, recordings and run records. If the other app has nothing left, it is deleted. The app keeps the name of the one you dropped onto. A merge cannot be undone.
+
+CI that uploads with the deleted app's `app_id` keeps working, because the build's bundle ID finds the app.
+
+Some rows cannot be moved. Hover over the handle to see why.
+
+- A row of an app that uses the same bundle ID on both platforms. That app is already one app.
+- A row of the app that collects builds whose bundle ID could not be read.
+- A row cannot be dropped on an app that already has a bundle ID on that platform.
+
 ## Review status {#review-status}
 
 The review status tells the team how far a build has been checked. Change it from the status menu on the build's row.

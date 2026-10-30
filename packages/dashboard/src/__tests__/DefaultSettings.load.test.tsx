@@ -21,7 +21,7 @@ beforeEach(() => {
     const url = String(input)
     if (url === '/api/v1/settings') return new Response(JSON.stringify({ team_name: 'QA Team', logo_url: '/logos/team.png' }))
     if (url === '/api/v1/apps') {
-      return new Response(JSON.stringify({ items: [{ id: 7, name: 'Coffee', bundle_id_key: 'com.a.coffee', platform: 'ios' }] }))
+      return new Response(JSON.stringify({ items: [{ id: 7, name: 'Coffee', bundle_id_key: 'com.a.coffee', bundle_ids: { ios: 'com.a.coffee', android: null }, build_platforms: ['ios'], platform: 'ios' }] }))
     }
     return new Response('{}', { status: 404 })
   })

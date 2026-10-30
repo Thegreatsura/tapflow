@@ -39,7 +39,7 @@ import { ForbiddenError, queryKeys } from '@/lib/queries'
 
 const user = (role: string): AuthUser => ({ id: 1, email: 'a@b.c', displayName: 'A', avatarUrl: null, role })
 
-const APPS = [{ id: 1, name: 'Coffee', bundle_id_key: 'com.a.coffee', platform: 'ios' }] as unknown as App[]
+const APPS = [{ id: 1, name: 'Coffee', bundle_id_key: 'com.a.coffee', bundle_ids: { ios: 'com.a.coffee', android: null }, build_platforms: ['ios'], platform: 'ios' }] as unknown as App[]
 const BUILDS = [{
   id: 1, app_id: 1, version_name: '1.0.0', build_number: '7', platform: 'ios', status_label: 'Backlog',
   uploaded_at: '2026-09-21T00:00:00Z', uploader: 'ci', delete_after: null,

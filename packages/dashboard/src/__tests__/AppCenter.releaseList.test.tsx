@@ -23,8 +23,8 @@ vi.mock('@/lib/queries', async (importOriginal) => ({
 import { AppCenter } from '@/src/pages/AppCenter'
 
 const APPS = [
-  { id: 1, name: 'Coffee', bundle_id_key: 'com.a.coffee', platform: 'ios' },
-  { id: 2, name: 'Tea', bundle_id_key: 'com.a.tea', platform: 'ios' },
+  { id: 1, name: 'Coffee', bundle_id_key: 'com.a.coffee', bundle_ids: { ios: 'com.a.coffee', android: null }, build_platforms: ['ios'], platform: 'ios' },
+  { id: 2, name: 'Tea', bundle_id_key: 'com.a.tea', bundle_ids: { ios: 'com.a.tea', android: null }, build_platforms: ['ios'], platform: 'ios' },
 ] as unknown as App[]
 
 function build(id: number, version: string, status: Build['status_label'] = 'Backlog', appId = 1): Build {
