@@ -29,7 +29,7 @@ function sqlLiterals(text: string): string[] {
 }
 
 describe('builds are read through builds_effective (#1084)', () => {
-  const literals = sourceFiles(SRC).flatMap((f) => sqlLiterals(fs.readFileSync(f, 'utf8')).map((sql) => ({ f: path.relative(SRC, f), sql })))
+  const literals = sourceFiles(SRC).flatMap((f) => sqlLiterals(fs.readFileSync(f, 'utf8')).map((sql) => ({ f: path.relative(SRC, f).split(path.sep).join('/'), sql })))  // `/` on Windows too
 
   it('reads no version or build number straight from builds', () => {
     // A statement that joins the view may still read ids or platforms from `builds` in a subquery (the apps list
