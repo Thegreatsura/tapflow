@@ -6,7 +6,7 @@ import path from 'path'
 import { randomUUID } from 'crypto'
 import { WebSocketServer, WebSocket } from 'ws'
 import { SessionManager, isAiClientKind } from './SessionManager.js'
-import type { InstalledBuild, Session } from './SessionManager.js'
+import type { AgentIdentity, InstalledBuild, Session } from './SessionManager.js'
 import type { AgentResources } from './types.js'
 import type { DeviceDetails, UIElement } from './types.js'
 import type { AdmissionRefusal, BootRefusalReason, ChromePayload, LeaseRefusalReason, InputErrorReason, MacAdmission, RelayOutbound, PosturesPayload, WatchActionKind, WatchRefusal } from '@tapflowio/protocol'
@@ -105,6 +105,7 @@ import { EMAIL_KEY_SQL } from './lib/email.js'
 import { handleListBuilds, handleGetBuild, handleUpdateBuild, handleUploadBuild, handleScheduleBuildDeletion, handleCancelBuildDeletion, purgeExpiredBuilds } from './api/builds.js'
 import type { BuildFileDirs } from './lib/buildDeletion.js'
 import { handleListApps, handleCreateApp, handleUpdateApp, handleDeleteApp, handleMergeApp, handleSplitApp } from './api/apps.js'
+import { handleDeviceFavourite, handlePutDevicePrefs, withDevicePrefs } from './api/devicePrefs.js'
 import { handleListWebhooks, handleCreateWebhook, handleUpdateWebhook, handleDeleteWebhook } from './api/webhooks.js'
 import { handleListComments, handleCreateComment, handleDeleteComment } from './api/comments.js'
 import { handleListMembers, handleInvite, handleUpdateMember, handleDeleteMember } from './api/team.js'
@@ -289,6 +290,14 @@ export class RelayServer {
   /** Names agents give at registration, kept apart from the session map so an agent with no sessions
    *  can still be named when its socket goes. */
   private agentNames = new WeakMap<WebSocket, string>()
+  /** What each agent socket said about itself when it registered. `agent:devices` carries only devices, and an agent
+   *  that registered with none has no session to read its identity off — yet its first device needs one (#1085). A
+   *  socket missing here never registered, so its `agent:devices` is not taken: a stream socket cannot add devices. */
+  private agentIdentities = new WeakMap<WebSocket, AgentIdentity>()
+  /** The socket that registered last for each agent identity and platform. A re-register evicts the sockets it finds
+   *  through their sessions, so one that registered with no devices is not found and lingers until the heartbeat; its
+   *  `agent:devices` would make a second session for a device the new socket already has. Only the latest is taken. */
+  private latestAgentSocket = new Map<string, WebSocket>()
   private releaseStallWatch: (() => void) | null = null
   /** Agent sockets whose close was already explained — ended by a sweep, or replaced by the same agent
    *  registering again — so the close handler does not log them as a fresh drop. */
@@ -567,6 +576,9 @@ export class RelayServer {
     this.router.patch('/api/v1/apps/:id', handleUpdateApp)
     this.router.post('/api/v1/apps/:id/merge', handleMergeApp)
     this.router.post('/api/v1/apps/:id/split', handleSplitApp)
+    this.router.put('/api/v1/device-prefs', handlePutDevicePrefs)
+    this.router.put('/api/v1/device-favourites', handleDeviceFavourite)
+    this.router.delete('/api/v1/device-favourites', handleDeviceFavourite)
     this.router.delete('/api/v1/apps/:id', (req, res, params) => handleDeleteApp(req, res, params, this.buildFileDirs()))
 
     // builds
@@ -897,6 +909,7 @@ export class RelayServer {
     if (others.size > 0) {
       this.pushLog(`heartbeat terminated ${[...others].map(([role, n]) => `${n} ${role}`).join(', ')} socket(s)`)
     }
+    this.sweepGoneDevices()
   }
 
   /** A sweep that runs late means this process was held, or the machine slept: the pongs it judges were
@@ -1604,6 +1617,7 @@ export class RelayServer {
       // ── Agent → Relay ─────────────────────────────────────────────────────
       case 'agent:resources':    this.handleAgentResources(ws, msg); break
       case 'agent:register':     this.handleAgentRegister(ws, msg); break
+      case 'agent:devices':      this.handleAgentDevices(ws, msg); break
       case 'screenshot:done':    this.handleScreenshotDone(msg); break
       case 'screenshot:error':   this.handleScreenshotError(msg); break
       case 'ui:tree:response':   this.handleUITreeResponse(msg); break
@@ -1611,7 +1625,10 @@ export class RelayServer {
       case 'agents:list': {
         this.sendTo(ws, {
           type: 'agents:listed',
-          sessions: this.sessions.list(this.ownerOf(ws), (holder) => this.isAlive(holder), (group) => this.macAdmission(group), this.userOf(ws)),
+          sessions: withDevicePrefs(
+            this.sessions.list(this.ownerOf(ws), (holder) => this.isAlive(holder), (group) => this.macAdmission(group), this.userOf(ws)),
+            this.userOf(ws),
+          ),
           features: ['device-lease', 'launch-options'],
         })
         break
@@ -2511,6 +2528,8 @@ export class RelayServer {
       agentId: msg.agentId, agentName: msg.agentName,
       agentPlatform: msg.platform, agentCapabilities: msg.capabilities,
     }
+    this.agentIdentities.set(ws, agent)
+    if (identity) this.latestAgentSocket.set(`${identity}\u0000${msg.platform}`, ws)
     // deviceId → the session id kept across the restart. Also the guard that a device is rebound at
     // most once (#426): before rebinding existed, `create()` ran after every old session had been
     // evicted, so one device could not be behind two sessions. It can now, and `list()` does not
@@ -2580,7 +2599,7 @@ export class RelayServer {
     // which only held while every device got a session — now that some are rebound, the arrays have
     // different lengths and index alignment would hand the agent someone else's session id.
     const registeredSessions = devices.map((d) => ({ deviceId: d.id, sessionId: byDeviceId.get(d.id)! }))
-    this.sendTo(ws, { type: 'agent:registered', registeredSessions })
+    this.sendTo(ws, { type: 'agent:registered', registeredSessions, features: ['device-updates'] })
 
     // After the state is final: the browser answers this with `device:boot` on the same session id.
     for (const sessionId of rebound.values()) {
@@ -2604,6 +2623,75 @@ export class RelayServer {
     this.agentNames.set(ws, msg.agentName || msg.agentId || 'unknown')
     // Through `pushLog` too, so `tapflow logs` shows an agent coming back after the line about it leaving.
     this.pushLog(`agent connected: ${msg.agentName || msg.agentId || 'unknown'} (${msg.platform || 'unknown'}) — ${registeredSessions.length} device(s)`)
+  }
+
+  /**
+   * A registered agent's device list, sent when it changed (#1085). Diffed against this socket's sessions: a new
+   * device gets a session, a listed one has its name, form factor and version refreshed, and one that left is removed
+   * — unless someone is on it, in which case it is kept and marked, and the heartbeat removes it once nobody is
+   * (`sweepGoneDevices`). Ending a tester's session because a list read said so would cost them their screen for
+   * what may be a simulator deleted by mistake or a runtime briefly unavailable.
+   *
+   * The answer goes out before anything else can be sent on this socket, so the agent has the new session's state
+   * before any boot for it arrives: no `await` belongs in here.
+   */
+  private handleAgentDevices(ws: WebSocket, msg: Inbound<'agent:devices'>): void {
+    const agent = this.agentIdentities.get(ws)
+    if (!agent) {
+      logger.debug('[tapflow] agent:devices from a socket that never registered — dropped')
+      return
+    }
+    const identity = agent.agentId ?? agent.agentName
+    if (identity && this.latestAgentSocket.get(`${identity}\u0000${agent.agentPlatform}`) !== ws) {
+      logger.debug('[tapflow] agent:devices from a socket its agent has since replaced — dropped')
+      return
+    }
+    const devices = new Map(msg.devices.map((d) => [d.id, d]))
+    const current = this.sessions.getAllByAgentSocket(ws)
+    const removed: Array<{ deviceId: string; sessionId: string }> = []
+    let kept = 0
+    for (const s of current) {
+      const report = devices.get(s.deviceId)
+      if (report) {
+        this.sessions.refreshDevice(s.id, report)
+        continue
+      }
+      s.deviceGone = true
+      if (this.sessions.goneAndVacant(s)) {
+        removed.push({ deviceId: s.deviceId, sessionId: s.id })
+        this.settleShutdownRequesters(s, SHUTDOWN_OUTCOME_LOST)
+        this.removeSession(s.id)
+      } else {
+        kept++
+      }
+    }
+    const known = new Set(current.map((s) => s.deviceId))
+    const fresh = [...devices.values()].filter((d) => !known.has(d.id))
+    const ids = this.sessions.create(ws, fresh, agent.agentName, agent.agentPlatform, agent.agentId, agent.agentCapabilities)
+    const added = fresh.map((d, i) => ({ deviceId: d.id, sessionId: ids[i]! }))
+    this.sendTo(ws, { type: 'agent:devices-applied', added, removed })
+    if (added.length > 0 || removed.length > 0 || kept > 0) {
+      this.pushLog(`devices updated: ${agent.agentName || agent.agentId || 'unknown'} — +${added.length} −${removed.length}` +
+        (kept > 0 ? `, ${kept} gone but still in use` : ''))
+    }
+  }
+
+  /** Removes the sessions `handleAgentDevices` kept for a device that left, once nobody holds them, and tells their
+   *  agent the same way it was told at the time. Run from the heartbeat, because the ways a session stops being held
+   *  (a tab closing, an idle shutdown, a watcher leaving) have no one place to hook. */
+  private sweepGoneDevices(): void {
+    const byAgent = new Map<WebSocket, Array<{ deviceId: string; sessionId: string }>>()
+    for (const s of this.sessions.all()) {
+      if (!this.sessions.goneAndVacant(s)) continue
+      const list = byAgent.get(s.agentSocket) ?? []
+      list.push({ deviceId: s.deviceId, sessionId: s.id })
+      byAgent.set(s.agentSocket, list)
+      this.settleShutdownRequesters(s, SHUTDOWN_OUTCOME_LOST)
+      this.removeSession(s.id)
+    }
+    for (const [ws, removed] of byAgent) {
+      if (ws.readyState === WebSocket.OPEN) this.sendTo(ws, { type: 'agent:devices-applied', added: [], removed })
+    }
   }
 
   /** `device:boot`, and the boot a lease sends for the device it chose. */
@@ -2698,6 +2786,7 @@ export class RelayServer {
     const sessionOf = new Map<string, Session>()
     for (const s of ofPlatform) {
       if (s.agentSocket.readyState !== WebSocket.OPEN) continue
+      if (s.deviceGone) continue
       if (s.owner !== null || this.sessions.watchersOf(s.id).length > 0) continue
       if (s.evictingAt !== undefined && now - s.evictingAt < this.evictionGraceMs) continue
       if (s.lastBootPending !== undefined) continue

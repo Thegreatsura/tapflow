@@ -376,7 +376,9 @@ describe('browser-inbound routing matches the protocol union', () => {
       'session:activity': 'label sessionId',
     },
     RelayToAgent: {
-      'agent:registered': 'registeredSessions',
+      // #1085: what the relay accepts beyond every relay's messages; absent from an older one.
+      'agent:registered': 'features? registeredSessions',
+      'agent:devices-applied': 'added removed',
       'stream:request-idr': 'sessionId',
       'network:request-state': 'sessionId',
       'device:shutdown': 'payload requestId? sessionId',

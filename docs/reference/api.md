@@ -1088,6 +1088,51 @@ Query:
 Data is sampled once per minute and retained for 30 days.
 
 
+## Device settings {#device-settings}
+
+Settings for the QA session device list. They are stored on the relay; the devices on the Mac don't change. A device is named by `agent` and `deviceId`: `agent` is the `agentKey` from the device list (`agents:listed`), and `deviceId` is the device's `id` (the UDID on iOS, `avd:<AVD name>` on Android). See [Organize the device list](/testing/qa-session#organize-devices).
+
+### `PUT /api/v1/device-prefs`
+
+Hides a device or gives it a name, for every teammate's list. Requires the **Admin** role; other roles get `403`.
+
+```
+Body (JSON):
+  agent        string          required
+  deviceId     string          required
+  hidden       boolean         optional  keeps the current value when left out
+  displayName  string | null   optional  keeps the current value when left out. An empty string or null goes back to the device's own name (at most 100 characters)
+```
+
+**Response `200`**
+
+```json
+{ "ok": true, "hidden": true, "displayName": "Release phone" }
+```
+
+When a device ends up neither hidden nor renamed, its stored settings are deleted. The device list doesn't leave hidden devices out; it marks them `hidden: true`, so MCP clients and automated runs can keep using them.
+
+### `PUT /api/v1/device-favourites`
+
+Adds a device to your favourites. Each person has their own. Call it with a session cookie or a PAT with the `view` scope; any role can. Calling it again for a device that is already a favourite returns `200`.
+
+```
+Body (JSON):
+  agent     string  required
+  deviceId  string  required
+```
+
+**Response `200`**
+
+```json
+{ "ok": true }
+```
+
+### `DELETE /api/v1/device-favourites`
+
+Removes a device from your favourites. The body and the response are the same as for `PUT`.
+
+
 ## Sessions
 
 Find a `sessionId` in the MCP server's `list_devices` result. Both endpoints take the session cookie or a PAT with the `view` scope.

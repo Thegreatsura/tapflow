@@ -156,6 +156,14 @@ export interface DeviceSummary extends DeviceReport {
   /** Someone else took or shut down the device while it was waiting for the asker. Sent only to that person, on every
    *  listing until it expires — never cleared by being read, since every open tab polls. */
   endedBy?: DeviceEndedBy
+  /** The name an Admin gave the device on the relay (#1085). For people only: `name` stays the device's own, which
+   *  is what an MCP client or a flow picks a device by. */
+  displayName?: string
+  /** An Admin hid the device from the dashboard's device list. The device is still listed, and still offered to
+   *  automation: hiding is for people picking a device by eye. */
+  hidden?: true
+  /** The asker starred the device. Per person. */
+  favourite?: true
 }
 
 export interface DeviceWaiting {
@@ -256,6 +264,9 @@ export interface UIElement {
 /** `agents:listed` groups devices by agent machine. */
 export interface SessionInfo {
   agentName?: string
+  /** The Mac's key for settings kept on the relay (device prefs, favourites): its machine id, else its name — the
+   *  identity the relay already dedups agents by. Sent back verbatim as `agent` in those requests. */
+  agentKey?: string
   platform?: string
   resources?: AgentResources
   /** What this agent implements, mirroring `AgentRegister.capabilities`.
@@ -467,6 +478,25 @@ export type ChromePayload = ChromeData | AndroidChrome
 export interface AgentRegistered {
   type: 'agent:registered'
   registeredSessions: Array<{ deviceId: string; sessionId: string }>
+  /** What this relay accepts from an agent beyond the messages every relay does. Optional: an older relay omits
+   *  it, and an agent reads the absence as "send only what every relay understands". The relay → agent half of
+   *  the skew markers (protocol AGENTS.md, #662); `capabilities` is agent → relay, `AgentsListed.features` is
+   *  relay → browser. */
+  features?: RelayAgentFeature[]
+}
+
+/** Values of `AgentRegistered.features`. An agent meeting one it does not know ignores it.
+ *  `'device-updates'`: the relay takes `agent:devices` and answers `agent:devices-applied`. */
+export type RelayAgentFeature = 'device-updates'
+
+/** The relay's answer to `agent:devices`: the sessions it made for devices that appeared, and the ones it removed
+ *  for devices that left. Not correlated: the agent sends at most one list at a time per socket, and a list lost
+ *  with its socket is replaced by the next `agent:register`. A device still in use when it left is kept until its
+ *  session ends, so it is in neither array. */
+export interface AgentDevicesApplied {
+  type: 'agent:devices-applied'
+  added: Array<{ deviceId: string; sessionId: string }>
+  removed: Array<{ deviceId: string; sessionId: string }>
 }
 
 export interface StreamRequestIdr {
@@ -616,6 +646,7 @@ export interface UiTreeRequest {
 
 export type RelayToAgent =
   | AgentRegistered
+  | AgentDevicesApplied
   | StreamRequestIdr
   | NetworkRequestState
   | DeviceShutdown
@@ -1673,6 +1704,14 @@ export interface AgentRegister {
   devices: DeviceReport[]
 }
 
+/** The agent's whole device list, sent when it changed after registration (#1085). Full rather than a delta: the
+ *  relay diffs it against its own sessions, so a lost reply cannot leave the two out of step. Sent only to a relay
+ *  that announced `'device-updates'`. */
+export interface AgentDevices {
+  type: 'agent:devices'
+  devices: DeviceReport[]
+}
+
 /** Periodic load report. The relay gates new sessions on it. */
 export interface AgentResourceReport {
   type: 'agent:resources'
@@ -1735,6 +1774,7 @@ export interface UiTreeError {
 
 export type AgentToRelay =
   | AgentRegister
+  | AgentDevices
   | AgentResourceReport
   | ScreenshotDone
   | ScreenshotError

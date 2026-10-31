@@ -33,7 +33,7 @@ Once signed in as Admin, go to **Settings → Team** and create invite links:
 
 1. Click **Invite member**.
 2. Enter the team member's email and select a role. The role defaults to **QA**.
-   - **Admin** — can do everything except remove their own account. Inviting members, changing roles, removing members, resetting passwords, workspace settings and issuing **Agent** tokens are Admin-only.
+   - **Admin** — can do everything except remove their own account. Inviting members, changing roles, removing members, resetting passwords, workspace settings, issuing **Agent** tokens, and [renaming and hiding devices](/testing/qa-session#organize-devices) in the QA session device list are Admin-only.
    - **Developer**, **QA** — can add, edit and delete apps, upload builds, change a build's status, schedule build deletion, manage webhooks and create their own API tokens in **Settings → Tokens**. The two roles have the same permissions.
    - **Viewer** — read-only. Can view builds, test them on a simulator or emulator in a QA Session, and comment. Cannot change builds or apps, and can neither see nor change webhooks.
 

@@ -37,9 +37,19 @@ Click a device under **Select device** to start the session. Each device shows i
 
 A running device marked **Most services off** was started by an automated run with most background services turned off (`--service-tier slim`), apart from any it asked to keep. It stays that way until it restarts: pick it and restart it from the toolbar to turn them back on. The info card says so too.
 
-Find a device by name with **Search device…**. Narrow the list with the OS version filter (default **Any version**).
+Find a device with **Search device…**, by the name an Admin gave it or by its own name. Narrow the list with the OS version filter (default **Any version**). With **Any version**, the list is split under a heading per OS version, newest first; a list with a single group has no heading. Devices whose version is unknown are gathered under **Other** at the bottom. An Android emulator is grouped by its system image's version even while it is off.
 
 Turn on **Full reset** before picking a device to erase all of its data first, other apps included. Even with it off, the build under test is installed fresh at every session start, so that app always starts with its data cleared. [Returning to a session](#return-to-a-session) does not reinstall it. It applies once: the switch turns itself off the moment you pick a device. The switch appears only when the Mac supports resetting.
+
+### Organize the device list {#organize-devices}
+
+Simulators and emulators you add to or delete from the Mac show up in the list without restarting the agent. The agent re-reads its device list every 30 seconds, so a device appears or disappears within about 35 seconds. A device someone is using leaves the list after their session ends. Both the relay and the agent need to be on a version that includes this.
+
+- **Favourites**: Click the star on a device card to move the device into the **Favourites** group at the top of the list. Each person has their own favourites.
+- **Rename** (Admin): Choose **Rename** from the card's ⋯ menu. Every teammate's list shows the new name, with the original name in small type underneath. Save an empty name to go back to the original.
+- **Hide** (Admin): Choose **Hide** from the ⋯ menu to take the device out of every teammate's list. Admins can turn on the **Show hidden** switch to see hidden devices, and choose **Show** from the ⋯ menu to bring one back.
+
+Names and hidden devices are stored on the relay; the simulators and emulators on the Mac don't change. They apply only to the dashboard's list, so MCP clients and automated runs keep using hidden devices under their original names.
 
 ### Launch the app {#launch}
 
