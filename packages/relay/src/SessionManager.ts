@@ -370,6 +370,12 @@ export class SessionManager {
   ): JoinResult {
     const session = this.sessions.get(sessionId)
     if (!session) return { ok: false, failure: 'not-found' }
+    // A device that has left its Mac is kept only for whoever was on it (#1085): the same client coming back, or the
+    // person a dropped session is waiting for. Anyone else — a stale link, an MCP client holding the id — would boot
+    // a device that is no longer there, and as its new holder keep the session from ever being swept.
+    if (session.deviceGone && session.owner !== owner.key && session.waitingOwner?.user !== owner.user) {
+      return { ok: false, failure: 'not-found' }
+    }
     // **Three conditions, and each one is an issue.** A session is occupied only when someone *else* holds
     // it, on a socket that is open, and that socket is answering.
     //

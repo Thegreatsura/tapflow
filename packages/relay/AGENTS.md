@@ -205,6 +205,11 @@ announced `'device-updates'` on `agent:registered`. `handleAgentDevices` diffs i
   listing and the lease, and removed by the heartbeat (`sweepGoneDevices`) once `goneAndVacant`: an idle shutdown
   sends `device:shutdown` and keeps the session, so no single place sees a session stop being held. Removal goes
   through `removeSession`, which also releases the boot gate.
+- **Only the one who was on a gone device may re-join it** (`SessionManager.join`): the same client, or the person a
+  dropped session is waiting for. Anyone else holding the id would boot a device that is no longer there and, as its
+  holder, keep the session from being swept.
+- **Only the socket that registered last takes a list** (`latestAgentSocket`). A re-register evicts the sockets it
+  finds through their sessions, so one that registered with no devices lingers until the heartbeat.
 - The two-reads-in-a-row rule for a missing device lives in the agent (`DeviceListWatcher`): the agent sends only on
   change, so the relay never hears the second absence.
 

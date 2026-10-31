@@ -5,7 +5,9 @@ import path from 'path'
 import { WebSocket } from 'ws'
 import { RelayServer } from '../RelayServer'
 import { SessionManager, REFRESHED_FIELDS } from '../SessionManager'
-import { initDb, closeDb } from '../db'
+import { initDb, closeDb, getDb } from '../db'
+import { makePasswordHash } from '../api/auth'
+import { signJwt } from '../middleware/auth'
 import { waitForOpen, waitForType, waitForTypeOrNull } from '@tapflowio/test-utils'
 import type { AgentDevicesApplied, AgentRegistered, AgentsListed, DeviceReport, SessionJoined } from '@tapflowio/protocol'
 
@@ -19,6 +21,10 @@ describe('agent:devices (#1085)', () => {
   beforeAll(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tapflow-agent-devices-'))
     initDb(path.join(tmpDir, 'test.db'))
+    for (const id of [1, 2]) {
+      getDb().prepare('INSERT INTO users (id, email, display_name, role, password_hash) VALUES (?, ?, ?, ?, ?)')
+        .run(id, `u${id}@example.com`, `User ${id}`, 'QA', makePasswordHash('password123'))
+    }
   })
 
   afterAll(() => {
@@ -37,8 +43,10 @@ describe('agent:devices (#1085)', () => {
   const DEV_A: DeviceReport = { id: 'devA', name: 'iPhone A', platform: 'ios', status: 'shutdown', osVersion: 'iOS 26.5' }
   const DEV_B: DeviceReport = { id: 'devB', name: 'iPhone B', platform: 'ios', status: 'shutdown', osVersion: 'iOS 18.6' }
 
-  async function open() {
-    const ws = new WebSocket(`ws://localhost:${port}`)
+  async function open(userId?: number) {
+    const ws = new WebSocket(`ws://localhost:${port}`, userId
+      ? { headers: { Cookie: `tapflow_token=${signJwt({ userId, email: `u${userId}@example.com`, role: 'QA' })}` } }
+      : {})
     await waitForOpen(ws)
     return ws
   }
@@ -167,6 +175,52 @@ describe('agent:devices (#1085)', () => {
     expect(await waitForTypeOrNull(restarted.agent, 'agent:devices-applied', 200)).toBeNull()
     browser.close()
     agent.close()
+  })
+
+  // A link or an MCP client holding the session id must not take a device that has left: it would boot nothing, and
+  // as its holder keep the session from being swept. The one who was on it can still come back.
+  it('lets the holder of a gone device re-join its session', async () => {
+    const { agent, sessionOf } = await register([DEV_A, DEV_B])
+    const browser = await open()
+    browser.send(JSON.stringify({ type: 'session:start', sessionId: sessionOf.get('devB') }))
+    await waitForType<SessionJoined>(browser, 'session:joined')
+    await update(agent, [DEV_A])
+
+    browser.close()
+    agent.close()
+  })
+
+  // A tab that dropped leaves the device waiting for its person: with the device gone, a teammate may not take it
+  // over, and the person may still come back.
+  it('keeps a gone device waiting for the person who dropped, and from anyone else', async () => {
+    const { agent, sessionOf } = await register([DEV_A, DEV_B])
+    const holder = await open(1)
+    holder.send(JSON.stringify({ type: 'session:start', sessionId: sessionOf.get('devB') }))
+    await waitForType<SessionJoined>(holder, 'session:joined')
+    await update(agent, [DEV_A])
+    holder.close()
+    await new Promise((r) => setTimeout(r, 100))
+
+    const teammate = await open(2)
+    teammate.send(JSON.stringify({ type: 'session:start', sessionId: sessionOf.get('devB') }))
+    expect(await waitForTypeOrNull(teammate, 'session:joined', 300)).toBeNull()
+    const back = await open(1)
+    back.send(JSON.stringify({ type: 'session:start', sessionId: sessionOf.get('devB') }))
+    await waitForType<SessionJoined>(back, 'session:joined')
+    teammate.close()
+    back.close()
+    agent.close()
+  })
+
+  // Re-registering evicts the sockets it finds through their sessions, so one that registered empty lingers.
+  it('takes no list from a socket its agent has since replaced', async () => {
+    const first = await register([])
+    const second = await register([DEV_A])
+    first.agent.send(JSON.stringify({ type: 'agent:devices', devices: [DEV_A] }))
+    expect(await waitForTypeOrNull(first.agent, 'agent:devices-applied', 300)).toBeNull()
+    expect((await listedDevices()).map((d) => d.sessionId)).toEqual([second.sessionOf.get('devA')])
+    first.agent.close()
+    second.agent.close()
   })
 
   it('takes no list from a socket that never registered', async () => {

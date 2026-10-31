@@ -294,6 +294,10 @@ export class RelayServer {
    *  that registered with none has no session to read its identity off — yet its first device needs one (#1085). A
    *  socket missing here never registered, so its `agent:devices` is not taken: a stream socket cannot add devices. */
   private agentIdentities = new WeakMap<WebSocket, AgentIdentity>()
+  /** The socket that registered last for each agent identity and platform. A re-register evicts the sockets it finds
+   *  through their sessions, so one that registered with no devices is not found and lingers until the heartbeat; its
+   *  `agent:devices` would make a second session for a device the new socket already has. Only the latest is taken. */
+  private latestAgentSocket = new Map<string, WebSocket>()
   private releaseStallWatch: (() => void) | null = null
   /** Agent sockets whose close was already explained — ended by a sweep, or replaced by the same agent
    *  registering again — so the close handler does not log them as a fresh drop. */
@@ -2525,6 +2529,7 @@ export class RelayServer {
       agentPlatform: msg.platform, agentCapabilities: msg.capabilities,
     }
     this.agentIdentities.set(ws, agent)
+    if (identity) this.latestAgentSocket.set(`${identity}\u0000${msg.platform}`, ws)
     // deviceId → the session id kept across the restart. Also the guard that a device is rebound at
     // most once (#426): before rebinding existed, `create()` ran after every old session had been
     // evicted, so one device could not be behind two sessions. It can now, and `list()` does not
@@ -2634,6 +2639,11 @@ export class RelayServer {
     const agent = this.agentIdentities.get(ws)
     if (!agent) {
       logger.debug('[tapflow] agent:devices from a socket that never registered — dropped')
+      return
+    }
+    const identity = agent.agentId ?? agent.agentName
+    if (identity && this.latestAgentSocket.get(`${identity}\u0000${agent.agentPlatform}`) !== ws) {
+      logger.debug('[tapflow] agent:devices from a socket its agent has since replaced — dropped')
       return
     }
     const devices = new Map(msg.devices.map((d) => [d.id, d]))
