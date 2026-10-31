@@ -62,6 +62,23 @@ describe('AdbWrapper', () => {
     })
   })
 
+  // A re-read runs one at a time, so a call stuck on a wedged emulator must be killed, not waited on.
+  it('bounds every adb call of a re-read', async () => {
+    const runner = mockRunner({
+      avds: ['Pixel_8_API_34'],
+      devices: 'List of devices attached\nemulator-5554\tdevice\n',
+      avdName: 'Pixel_8_API_34',
+    })
+    const bounded = vi.fn((_ms: number, ...args: string[]) => runner.exec(...args))
+    const wrapper = new AdbWrapper({ ...runner, execBounded: bounded })
+    const exec = runner.exec as ReturnType<typeof vi.fn>
+    exec.mockClear()
+    expect((await wrapper.peekDevices())[0]).toMatchObject({ status: 'booted', osVersion: 'Android 14' })
+    expect(bounded.mock.calls.map((c) => [c[0], c[1]])).toEqual([[10_000, 'devices'], [10_000, '-s'], [10_000, '-s']])
+    // Every call went through the bounded one; `exec` ran only beneath the test double.
+    expect(exec).toHaveBeenCalledTimes(3)
+  })
+
   describe('listDevices', () => {
     it('returns empty array when no AVDs exist', async () => {
       const wrapper = new AdbWrapper(mockRunner({ avds: [] }))

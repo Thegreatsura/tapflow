@@ -65,7 +65,12 @@ export function DeviceCardActions({ device, agentKey, isAdmin, refresh, hidingLe
       ? await api.delete('/api/v1/device-favourites', ref)
       : await api.put('/api/v1/device-favourites', ref)
     setBusy(false)
-    if (res.error) { toast.error(`Could not update favourites: ${res.error}`); return }
+    if (res.error) {
+      // Nothing moves, so nothing is put back — and a later change from elsewhere must not take focus.
+      refocusStar.current = false
+      toast.error(`Could not update favourites: ${res.error}`)
+      return
+    }
     refresh()
   }
 
