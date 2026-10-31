@@ -1090,6 +1090,51 @@ Query:
 데이터는 1분마다 샘플링되며 30일간 보관됩니다.
 
 
+## 기기 설정 (Device settings) {#device-settings}
+
+QA 세션 기기 목록에 적용되는 설정입니다. 릴레이에 저장되고 Mac의 기기는 바뀌지 않습니다. 기기는 `agent`와 `deviceId`로 가리킵니다. `agent`는 기기 목록(`agents:listed`)의 `agentKey`이고, `deviceId`는 그 기기의 `id`(iOS는 UDID, Android는 `avd:<AVD 이름>`)입니다. [기기 목록 정리](/ko/testing/qa-session#organize-devices)를 참고하세요.
+
+### `PUT /api/v1/device-prefs`
+
+기기를 숨기거나 이름을 붙입니다. 팀원 모두의 목록에 적용됩니다. **Admin** 권한이 필요합니다. 다른 역할은 `403`을 받습니다.
+
+```
+Body (JSON):
+  agent        string          필수
+  deviceId     string          필수
+  hidden       boolean         선택  빼면 지금 값을 유지
+  displayName  string | null   선택  빼면 지금 값을 유지. 빈 문자열이나 null이면 원래 이름으로 (최대 100자)
+```
+
+**응답 `200`**
+
+```json
+{ "ok": true, "hidden": true, "displayName": "Release phone" }
+```
+
+숨김도 이름도 없는 상태가 되면 저장된 설정을 지웁니다. 기기 목록은 숨긴 기기도 빼지 않고 `hidden: true`로 알려 줍니다. 그래서 MCP 클라이언트와 자동 실행은 숨긴 기기를 계속 쓸 수 있습니다.
+
+### `PUT /api/v1/device-favourites`
+
+기기를 내 즐겨찾기에 넣습니다. 즐겨찾기는 사람마다 따로 저장됩니다. 세션 쿠키나 `view` scope의 PAT로 호출하며 역할은 상관없습니다. 이미 즐겨찾기인 기기에 다시 호출해도 `200`입니다.
+
+```
+Body (JSON):
+  agent     string  필수
+  deviceId  string  필수
+```
+
+**응답 `200`**
+
+```json
+{ "ok": true }
+```
+
+### `DELETE /api/v1/device-favourites`
+
+기기를 내 즐겨찾기에서 뺍니다. Body와 응답은 `PUT`과 같습니다.
+
+
 ## 세션 (Sessions)
 
 `sessionId`는 MCP 서버의 `list_devices` 결과에서 확인합니다. 두 엔드포인트 모두 세션 쿠키나 `view` scope의 PAT로 호출합니다.

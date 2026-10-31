@@ -36,6 +36,32 @@ function mockRunner(responses: {
 }
 
 describe('AdbWrapper', () => {
+  // #1085. The periodic re-read must not move the serial map a boot is relying on.
+  describe('peekDevices', () => {
+    it('lists what listDevices lists without touching the serial map', async () => {
+      const runner = mockRunner({
+        avds: ['Pixel_8_API_34', 'Pixel_9'],
+        devices: 'List of devices attached\nemulator-5554\tdevice\n',
+        avdName: 'Pixel_8_API_34',
+        osVersion: '14',
+      })
+      const wrapper = new AdbWrapper(runner)
+      // A boot that set its serial before adb lists the emulator.
+      wrapper.setSerial('avd:Pixel_9', 'emulator-5556')
+      const peeked = await wrapper.peekDevices()
+      expect(peeked).toEqual([
+        { id: 'avd:Pixel_8_API_34', name: 'Pixel_8_API_34', platform: 'android', status: 'booted', osVersion: 'Android 14' },
+        { id: 'avd:Pixel_9', name: 'Pixel_9', platform: 'android', status: 'shutdown', osVersion: undefined },
+      ])
+      expect(wrapper.getSerial('avd:Pixel_9')).toBe('emulator-5556')
+      expect(wrapper.getSerial('avd:Pixel_8_API_34')).toBeUndefined()
+      // The syncing one, for contrast: it drops the serial adb does not list and adds the one it does.
+      expect(await wrapper.listDevices()).toEqual(peeked)
+      expect(wrapper.getSerial('avd:Pixel_9')).toBeUndefined()
+      expect(wrapper.getSerial('avd:Pixel_8_API_34')).toBe('emulator-5554')
+    })
+  })
+
   describe('listDevices', () => {
     it('returns empty array when no AVDs exist', async () => {
       const wrapper = new AdbWrapper(mockRunner({ avds: [] }))

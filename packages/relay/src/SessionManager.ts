@@ -108,6 +108,12 @@ export interface Session {
    * cleared) while an AI client borrows the device, restored in full when it hands the countdown back.
    */
   waitingOwner?: { user: string; label: string; name: string; since: number; deadline: number }
+  /**
+   * The device has left its agent's list (`agent:devices`, #1085) while the session was in use, so it was kept rather
+   * than removed under someone. Kept sessions are not listed or leased, and the heartbeat removes one once nobody
+   * holds it (`goneAndVacant`). Cleared if the device comes back first.
+   */
+  deviceGone?: true
   /** Someone else took or shut down the device while it waited for `ownerUser`. Expires with the idle window; a read
    *  does not clear it, because every open tab of that person polls the listing. */
   endedBy?: { ownerUser: string; byLabel: string; byName: string; at: number }
@@ -129,6 +135,13 @@ export type InstalledBuild = { buildId: number; filePath: string }
  * throws, which keeps the two apart at the call site instead of at a `catch`.
  */
 export type JoinResult = { ok: true } | { ok: false; failure: 'not-found' | 'held-by-another' }
+
+type AgentField = 'agentId' | 'agentName' | 'agentPlatform' | 'agentCapabilities'
+type DeviceField = 'deviceName' | 'devicePlatform' | 'deviceStatus' | 'deviceOsVersion' | 'deviceFormFactor' | 'deviceServiceTier'
+
+/** The device fields `refreshDevice` writes. A test holds it against `deviceFields`, so a field added there is a
+ *  decision for this path too rather than one it misses in silence. */
+export const REFRESHED_FIELDS = ['deviceName', 'deviceFormFactor', 'deviceOsVersion'] as const satisfies readonly DeviceField[]
 
 /** What an `agent:register` says about the agent itself, as opposed to its devices. */
 export type AgentIdentity = {
@@ -203,15 +216,19 @@ export class SessionManager {
    * What is left out is what a register cannot change: the session's own id and sockets, and
    * `deviceId`, which is the key the rebind matched on in the first place.
    */
-  private static agentFields(
-    agent: AgentIdentity,
-    device: DeviceReport,
-  ): Pick<Session, 'agentId' | 'agentName' | 'agentPlatform' | 'agentCapabilities' | 'deviceName' | 'devicePlatform' | 'deviceStatus' | 'deviceOsVersion' | 'deviceFormFactor' | 'deviceServiceTier'> {
+  private static agentFields(agent: AgentIdentity, device: DeviceReport): Pick<Session, AgentField | DeviceField> {
     return {
       agentId: agent.agentId,
       agentName: agent.agentName,
       agentPlatform: agent.agentPlatform,
       agentCapabilities: agent.agentCapabilities,
+      ...SessionManager.deviceFields(device),
+    }
+  }
+
+  /** The device half of `agentFields`. `refreshDevice` takes a subset of it, held there by `REFRESHED_FIELDS`. */
+  static deviceFields(device: DeviceReport): Pick<Session, DeviceField> {
+    return {
       deviceName: device.name,
       devicePlatform: device.platform,
       deviceStatus: device.status as DeviceStatus,
@@ -219,6 +236,28 @@ export class SessionManager {
       deviceFormFactor: device.formFactor,
       deviceServiceTier: device.serviceTier,
     }
+  }
+
+  /**
+   * What a later list (`agent:devices`) may change about a device the relay already has a session for. Narrower than
+   * a register on purpose: `deviceStatus` and `deviceServiceTier` are tracked from `device:ready` and shutdowns and
+   * read by the lease, so a list read in between must not overwrite them. A version the list no longer carries is
+   * kept — an Android emulator that was shut down outside tapflow reports none, and it has not changed.
+   */
+  refreshDevice(sessionId: string, device: DeviceReport): void {
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+    session.deviceName = device.name
+    session.deviceFormFactor = device.formFactor
+    session.deviceOsVersion = device.osVersion ?? session.deviceOsVersion
+    delete session.deviceGone
+  }
+
+  /** A session kept for a device that has left, with nothing left holding it: nobody's tab, no countdown for a
+   *  dropped person, no watcher, no boot in flight. */
+  goneAndVacant(s: Session): boolean {
+    return s.deviceGone === true && s.owner === null && s.browserSocket === null && s.idleTimer === null &&
+      s.lastBootPending === undefined && this.watchersOf(s.id).length === 0
   }
 
   create(agentSocket: WebSocket, devices: DeviceReport[] = [], agentName?: string, agentPlatform?: string, agentId?: string, agentCapabilities?: string[]): string[] {
@@ -754,6 +793,8 @@ export class SessionManager {
       // and upgrading is a common reason to restart) nothing rebinds, and the dashboard groups by
       // `agentName` — two groups, a duplicate React key, and the lookup picking the dead one.
       if (session.agentSocket.readyState !== WebSocket.OPEN) continue
+      // Its device has left the Mac; the session lives on only for whoever is still on it.
+      if (session.deviceGone) continue
       const group = agentMap.get(session.agentSocket) ?? []
       group.push(session)
       agentMap.set(session.agentSocket, group)
@@ -761,6 +802,7 @@ export class SessionManager {
 
     return Array.from(agentMap.values()).map((group) => ({
       agentName: group[0].agentName,
+      ...(group[0].agentId || group[0].agentName ? { agentKey: group[0].agentId || group[0].agentName } : {}),
       platform: group[0].agentPlatform,
       resources: this.agentResources.get(group[0].agentSocket),
       // `?? []` rather than passing the absence through: an agent that predates the field means

@@ -94,10 +94,28 @@ export class AdbWrapper {
       }
     }
 
+    return this.describe(avdNames, bootedMap)
+  }
+
+  /**
+   * The same list as `listDevices`, without syncing `serialMap` (#1085). That sync is part of how a boot learns which
+   * emulator it launched, and a re-read every 30 s running into a boot's own bookkeeping would move it under it. Each
+   * serial here comes from this read's `adb devices` instead.
+   */
+  async peekDevices(): Promise<Device[]> {
+    const [avdNames, bootedMap] = await Promise.all([
+      this.runner.listAvds(),
+      this.getBootedAvdMap(),
+    ])
+    return this.describe(avdNames, bootedMap)
+  }
+
+  private async describe(avdNames: string[], bootedMap: Map<string, string>): Promise<Device[]> {
+    const serialOf = new Map([...bootedMap].map(([serial, avdName]) => [avdName, serial]))
     const devices: Device[] = []
     for (const avdName of avdNames) {
       const avdId = `avd:${avdName}`
-      const serial = this.serialMap.get(avdId)
+      const serial = serialOf.get(avdName)
       const isBooted = Boolean(serial)
 
       let osVersion: string | undefined

@@ -190,6 +190,28 @@ Routes are registered in `RelayServer.ts`; user-facing reference: [`docs/referen
 
 > **A build goes with everything that points at it, on one path.** `deleteBuildsWithDependents` (`lib/buildDeletion.ts`) is used by both the daily purge and app deletion: recordings, run records and their screenshot files, then the build file. App deletion used to delete only the build rows, so an app with a recorded build failed on the recordings foreign key and one without left its build files on disk.
 
+### A device list after registration (`agent:devices`, #1085)
+
+An agent re-reads its simulators or emulators every 30 s and sends the whole list when it changed, to a relay that
+announced `'device-updates'` on `agent:registered`. `handleAgentDevices` diffs it against that socket's sessions:
+
+- **A new device gets a session under the identity the socket registered with** (`agentIdentities`), not one read
+  off its other sessions — an agent that registered with no devices has none to read, and its first device would
+  otherwise come out with no agent name, no capabilities, and no way for the next restart to rebind it.
+- **A listed device is refreshed by `refreshDevice`, not `agentFields`.** Name, form factor, and a version the list
+  still carries. `deviceStatus` and `deviceServiceTier` come from `device:ready` and shutdowns and the lease reads
+  them, so a list read in between must not move them. `REFRESHED_FIELDS` is held against `deviceFields` by a test.
+- **A device that left is removed only if nobody holds it.** One in use is marked `deviceGone`, left out of the
+  listing and the lease, and removed by the heartbeat (`sweepGoneDevices`) once `goneAndVacant`: an idle shutdown
+  sends `device:shutdown` and keeps the session, so no single place sees a session stop being held. Removal goes
+  through `removeSession`, which also releases the boot gate.
+- The two-reads-in-a-row rule for a missing device lives in the agent (`DeviceListWatcher`): the agent sends only on
+  change, so the relay never hears the second absence.
+
+Device prefs and favourites (`api/devicePrefs.ts`, migration 021) are laid over `agents:listed` by
+`withDevicePrefs`, keyed by `SessionInfo.agentKey` (`agentId ?? agentName`) and the device id. **Nothing is removed
+from the listing**: an MCP client and the lease read the same one, and a hidden device must stay usable to them.
+
 ### Flow run records (`/api/v1/runs`)
 
 What `tapflow flow run` did, for the dashboard's runs page (A3). The CLI writes with its `builds:write` token; anyone who may view reads.
