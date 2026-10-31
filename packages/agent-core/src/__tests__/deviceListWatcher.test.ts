@@ -132,6 +132,29 @@ describe('DeviceListWatcher (#1085)', () => {
     watcher.stop()
   })
 
+  // A read wedged on CoreSimulator holds back the next connection's reads too, rather than gaining a sibling per
+  // reconnect; its result still belongs to no one.
+  it('starts no second read across a reconnect while one is pending', async () => {
+    let release!: (l: DeviceReport[]) => void
+    const read = vi.fn(() => new Promise<DeviceReport[]>((r) => { release = r }))
+    const send = vi.fn()
+    const watcher = new DeviceListWatcher({ read, send, intervalMs: 60_000 })
+    watcher.start([A])
+    const pending = watcher.tick()
+    watcher.stop()
+    watcher.start([A])
+    await watcher.tick()
+    expect(read).toHaveBeenCalledTimes(1)
+    release([A, B])
+    await pending
+    expect(send).not.toHaveBeenCalled()
+    const next = watcher.tick()
+    expect(read).toHaveBeenCalledTimes(2)
+    release([A])
+    await next
+    watcher.stop()
+  })
+
   it('does nothing once stopped', async () => {
     const { watcher, sent } = setup([A], [A, B])
     watcher.stop()

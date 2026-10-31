@@ -53,7 +53,8 @@ export class DeviceListWatcher {
     this.generation++
     if (this.timer) { clearInterval(this.timer); this.timer = null }
     this.missingOnce.clear()
-    this.reading = false
+    // `reading` is left as it is: a read still pending from the last connection holds the next one back too, or a
+    // wedged `simctl` would gain another read per reconnect. Its result is dropped by the generation check.
   }
 
   /** One read. Public so a test can drive it without waiting out the interval. */
@@ -69,7 +70,7 @@ export class DeviceListWatcher {
       if (generation === this.generation) this.options.onReadError?.(e)
       return
     } finally {
-      if (generation === this.generation) this.reading = false
+      this.reading = false
     }
     if (generation !== this.generation) return
 

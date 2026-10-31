@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from 'react'
+import { useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { Ellipsis, Star } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
@@ -23,7 +23,9 @@ interface Props {
   isAdmin: boolean
   /** Asks for a fresh listing, which carries what was just changed. */
   refresh: () => void
-  /** The card is about to leave the list (hidden while hidden devices are not shown): focus must go somewhere first. */
+  /** Whether a hidden device leaves the list: false while an Admin is shown hidden devices. */
+  hidingLeaves: boolean
+  /** The card is about to leave the list: focus must go somewhere first. */
   onLeaving: () => void
 }
 
@@ -31,9 +33,20 @@ interface Props {
  * The star and, for an Admin, the ⋯ menu beside a device card (#1085). Siblings of the card's own button, never inside
  * it: a button cannot hold another.
  */
-export function DeviceCardActions({ device, agentKey, isAdmin, refresh, onLeaving }: Props) {
+export function DeviceCardActions({ device, agentKey, isAdmin, refresh, hidingLeaves, onLeaving }: Props) {
   const [busy, setBusy] = useState(false)
   const menuRef = useRef<HTMLButtonElement>(null)
+  const starRef = useRef<HTMLButtonElement>(null)
+  // The star had focus when it was pressed. A starred card moves to another group in the same grid, and moving a node
+  // (taking it out and putting it back) drops focus. Which nodes React moves depends on its reconcile: in the test's
+  // un-star it moved the siblings and focus stayed, but nothing promises that for every order, so focus is put back
+  // if it was dropped.
+  const refocusStar = useRef(false)
+  useLayoutEffect(() => {
+    if (!refocusStar.current) return
+    refocusStar.current = false
+    if (document.activeElement === document.body) starRef.current?.focus()
+  }, [device.favourite])
   // Set while a Hide is on its way: the card may be gone by the time the menu would hand focus back to it.
   const hidingRef = useRef(false)
   const [renaming, setRenaming] = useState(false)
@@ -46,6 +59,7 @@ export function DeviceCardActions({ device, agentKey, isAdmin, refresh, onLeavin
 
   async function toggleFavourite() {
     if (busy) return
+    refocusStar.current = document.activeElement === starRef.current
     setBusy(true)
     const res = device.favourite
       ? await api.delete('/api/v1/device-favourites', ref)
@@ -56,15 +70,16 @@ export function DeviceCardActions({ device, agentKey, isAdmin, refresh, onLeavin
   }
 
   async function setHidden(hidden: boolean) {
-    hidingRef.current = hidden
+    const leaves = hidden && hidingLeaves
+    hidingRef.current = leaves
     const res = await api.put('/api/v1/device-prefs', { ...ref, hidden })
     if (res.error) {
       toast.error(`Could not ${hidden ? 'hide' : 'show'} ${name}: ${res.error}`)
-      if (hidden) menuRef.current?.focus()
+      if (leaves) menuRef.current?.focus()
       return
     }
     if (hidden) {
-      onLeaving()
+      if (leaves) onLeaving()
       toast.success(`${name} is hidden from the device list`, {
         action: { label: 'Undo', onClick: () => { void setHidden(false) } },
       })
@@ -94,10 +109,12 @@ export function DeviceCardActions({ device, agentKey, isAdmin, refresh, onLeavin
   return (
     <div className="absolute right-2 top-2 flex items-center gap-0.5">
       <Button
-        variant="ghost" size="icon-sm" className="h-8 w-8"
+        variant="ghost" size="icon-sm"
         aria-pressed={device.favourite === true}
         aria-label={device.favourite ? `Remove ${name} from favourites` : `Add ${name} to favourites`}
         aria-disabled={busy}
+        className="h-8 w-8 aria-disabled:opacity-50 aria-disabled:cursor-not-allowed"
+        ref={starRef}
         onClick={() => { void toggleFavourite() }}
         data-star-for={device.id}
       >

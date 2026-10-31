@@ -537,7 +537,7 @@ function QASessionPage() {
                           </TooltipProvider>
                         )}
                         <DeviceCardActions device={d} agentKey={selectedSession?.agentKey} isAdmin={isAdmin}
-                          refresh={() => send({ type: 'agents:list' })} onLeaving={focusList} />
+                          refresh={() => send({ type: 'agents:list' })} hidingLeaves={!showHidden} onLeaving={focusList} />
                       </div>
                     )
                   }),

@@ -148,6 +148,27 @@ describe('agent:devices (#1085)', () => {
     browser.close()
   })
 
+  // A device kept for someone who is still on it, then back in the list of an agent that reconnected: the register
+  // is the new list, so the device is present again and must be listed — and never swept.
+  it('lists a kept device again when its agent comes back with it', async () => {
+    const { agent, sessionOf } = await register([DEV_A, DEV_B])
+    const browser = await open()
+    browser.send(JSON.stringify({ type: 'session:start', sessionId: sessionOf.get('devB') }))
+    await waitForType<SessionJoined>(browser, 'session:joined')
+    await update(agent, [DEV_A])
+    expect((await listedDevices()).map((d) => d.id)).toEqual(['devA'])
+
+    const restarted = await register([DEV_A, DEV_B])
+    expect(restarted.sessionOf.get('devB')).toBe(sessionOf.get('devB'))
+    expect((await listedDevices()).map((d) => d.id).sort()).toEqual(['devA', 'devB'])
+    browser.send(JSON.stringify({ type: 'session:leave', sessionId: sessionOf.get('devB') }))
+    await new Promise((r) => setTimeout(r, 50))
+    heartbeat()
+    expect(await waitForTypeOrNull(restarted.agent, 'agent:devices-applied', 200)).toBeNull()
+    browser.close()
+    agent.close()
+  })
+
   it('takes no list from a socket that never registered', async () => {
     const stranger = await open()
     // A stream socket: registered as something, but not as an agent.

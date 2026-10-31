@@ -79,6 +79,15 @@ describe('QASession — the device list (#1085)', () => {
     expect(document.activeElement).toBe(starred)
   })
 
+  // Un-starring moves the card later in the grid, which React does by moving the node itself — dropping focus.
+  it('keeps focus on the star when a device is taken out of favourites', async () => {
+    const user = await open([device('a', 'iPhone 15', 'iOS 18.3', { favourite: true }), device('b', 'iPhone 17', 'iOS 26.5')])
+    await user.click(screen.getByRole('button', { name: 'Remove iPhone 15 from favourites' }))
+    expect(requests).toContainEqual({ method: 'DELETE', url: '/api/v1/device-favourites', body: { agent: 'mac-1', deviceId: 'a' } })
+    await list([device('a', 'iPhone 15', 'iOS 18.3'), device('b', 'iPhone 17', 'iOS 26.5')])
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add iPhone 15 to favourites' }))
+  })
+
   it('shows a renamed device under its new name with its own beneath', async () => {
     await open([device('a', 'iPhone 15', 'iOS 18.3', { displayName: 'Release phone' })])
     const card = screen.getByRole('button', { name: /^Release phone/ })
@@ -110,6 +119,16 @@ describe('QASession — the device list (#1085)', () => {
       await user.click(await screen.findByRole('menuitem', { name: 'Hide' }))
       await vi.waitFor(() => expect(requests).toContainEqual({ method: 'PUT', url: '/api/v1/device-prefs', body: { agent: 'mac-1', deviceId: 'a', hidden: true } }))
       await vi.waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Search devices')))
+    })
+
+    // With hidden devices shown the card stays, so focus has no reason to leave it.
+    it('leaves focus alone when hiding a device that stays on screen', async () => {
+      const user = await open([device('a', 'iPhone 15', 'iOS 18.3', { hidden: true }), device('b', 'iPhone 17', 'iOS 26.5')])
+      await user.click(await screen.findByLabelText('Show hidden (1)'))
+      await user.click(screen.getByRole('button', { name: 'Actions for iPhone 17' }))
+      await user.click(await screen.findByRole('menuitem', { name: 'Hide' }))
+      await vi.waitFor(() => expect(requests).toContainEqual({ method: 'PUT', url: '/api/v1/device-prefs', body: { agent: 'mac-1', deviceId: 'b', hidden: true } }))
+      await vi.waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Actions for iPhone 17' })))
     })
 
     it('renames a device, and an empty name goes back to its own', async () => {

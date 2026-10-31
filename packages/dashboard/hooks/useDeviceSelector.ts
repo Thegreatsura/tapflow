@@ -48,13 +48,16 @@ export function useDeviceSelector(
   ].sort(compareVersions)
   const hiddenCount = filteredDevices.filter((d) => d.hidden).length
 
-  const deviceGroups = groupDevices(filteredDevices, { osVersion, search: deviceSearch, showHidden })
+  // A version whose last device was just hidden is no longer offered; the filter falls back to every version rather
+  // than naming one the Select has no item for.
+  const shownVersion = osVersions.includes(osVersion) ? osVersion : ''
+  const deviceGroups = groupDevices(filteredDevices, { osVersion: shownVersion, search: deviceSearch, showHidden })
   const versionedDevices = deviceGroups.flatMap((g) => g.devices)
 
   return {
     filteredDevices,
     osVersions,
-    osVersion,
+    osVersion: shownVersion,
     setOsVersion,
     deviceSearch,
     setDeviceSearch,

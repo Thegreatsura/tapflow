@@ -582,6 +582,9 @@ export class SessionManager {
     session.deviceInfo = undefined
 
     Object.assign(session, SessionManager.agentFields(agent, device))
+    // The device is in the new register's list, so it is present again. Kept marked, it would stay out of the listing
+    // and be swept once vacant, and the new agent, whose baseline already has it, would never send it again.
+    delete session.deviceGone
 
     // Not a carry-over guard — resources are keyed by socket, so re-pointing the session at a new
     // one already leaves the old reading behind, and every reader goes through

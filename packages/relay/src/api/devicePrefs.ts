@@ -13,10 +13,15 @@ const MAX_DISPLAY_NAME = 100
 
 type DeviceRef = { agent: string; deviceId: string }
 
-function deviceRef(body: { agent?: unknown; deviceId?: unknown }): DeviceRef | null {
+/** Longer than any machine id, hostname, UDID or `avd:<name>`. Every row is read on every listing, so the keys are
+ *  bounded like the name is. */
+const MAX_KEY = 200
+
+function deviceRef(body: { agent?: unknown; deviceId?: unknown } | null): DeviceRef | null {
+  if (!body || typeof body !== 'object') return null
   const agent = typeof body.agent === 'string' ? body.agent : ''
   const deviceId = typeof body.deviceId === 'string' ? body.deviceId : ''
-  return agent && deviceId ? { agent, deviceId } : null
+  return agent && deviceId && agent.length <= MAX_KEY && deviceId.length <= MAX_KEY ? { agent, deviceId } : null
 }
 
 /** `PUT /api/v1/device-prefs` — Admin only. Fields left out keep their value; a name of `''` or `null` goes back to
@@ -25,7 +30,7 @@ export async function handlePutDevicePrefs(req: http.IncomingMessage, res: http.
   if (!requireRole(req, res, ['Admin'])) return
   const body = await readJson<{ agent?: unknown; deviceId?: unknown; hidden?: unknown; displayName?: unknown }>(req)
   const ref = deviceRef(body)
-  if (!ref) return json(res, 400, { error: 'agent and deviceId are required' })
+  if (!ref) return json(res, 400, { error: `agent and deviceId are required, at most ${MAX_KEY} characters each` })
   if (body.hidden !== undefined && typeof body.hidden !== 'boolean') return json(res, 400, { error: 'hidden must be a boolean' })
   if (body.displayName !== undefined && body.displayName !== null && typeof body.displayName !== 'string') {
     return json(res, 400, { error: 'displayName must be a string or null' })
@@ -58,8 +63,8 @@ export async function handlePutDevicePrefs(req: http.IncomingMessage, res: http.
 export async function handleDeviceFavourite(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const auth = requireViewAuth(req, res)
   if (!auth) return
-  const ref = deviceRef(await readJson<{ agent?: unknown; deviceId?: unknown }>(req))
-  if (!ref) return json(res, 400, { error: 'agent and deviceId are required' })
+  const ref = deviceRef(await readJson<{ agent?: unknown; deviceId?: unknown } | null>(req))
+  if (!ref) return json(res, 400, { error: `agent and deviceId are required, at most ${MAX_KEY} characters each` })
   const db = getDb()
   if (req.method === 'DELETE') {
     db.prepare('DELETE FROM device_favourites WHERE user_id = ? AND agent_key = ? AND device_id = ?')

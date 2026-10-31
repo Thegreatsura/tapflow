@@ -37,7 +37,7 @@ Click a device under **Select device** to start the session. Each device shows i
 
 A running device marked **Most services off** was started by an automated run with most background services turned off (`--service-tier slim`), apart from any it asked to keep. It stays that way until it restarts: pick it and restart it from the toolbar to turn them back on. The info card says so too.
 
-Find a device with **Search device…**, by the name an Admin gave it or by its own name. Narrow the list with the OS version filter (default **Any version**). With **Any version**, the list is split under a heading per OS version, newest first. Devices whose version is unknown are gathered under **Other** at the bottom. An Android emulator is grouped by its system image's version even while it is off.
+Find a device with **Search device…**, by the name an Admin gave it or by its own name. Narrow the list with the OS version filter (default **Any version**). With **Any version**, the list is split under a heading per OS version, newest first; a list with a single group has no heading. Devices whose version is unknown are gathered under **Other** at the bottom. An Android emulator is grouped by its system image's version even while it is off.
 
 Turn on **Full reset** before picking a device to erase all of its data first, other apps included. Even with it off, the build under test is installed fresh at every session start, so that app always starts with its data cleared. [Returning to a session](#return-to-a-session) does not reinstall it. It applies once: the switch turns itself off the moment you pick a device. The switch appears only when the Mac supports resetting.
 

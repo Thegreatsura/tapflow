@@ -128,6 +128,10 @@ describe('device prefs and favourites (#1085)', () => {
     expect((await put({ deviceId: 'devA', hidden: true })).status).toBe(400)
     expect((await put({ agent: 'mac-1', deviceId: 'devA', hidden: 'yes' })).status).toBe(400)
     expect((await put({ agent: 'mac-1', deviceId: 'devA', displayName: 'x'.repeat(101) })).status).toBe(400)
+    // Every row is read on every listing, so the keys are bounded too.
+    expect((await put({ agent: 'm'.repeat(201), deviceId: 'devA', hidden: true })).status).toBe(400)
+    expect((await star('PUT', 'd'.repeat(201), 'QA')).status).toBe(400)
+    expect((await request(port, 'PUT', null as unknown as object, '/api/v1/device-favourites', 'QA')).status).toBe(400)
   })
 
   it('keeps each person\'s favourites to themselves, Viewers included', async () => {

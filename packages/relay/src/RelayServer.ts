@@ -2649,6 +2649,7 @@ export class RelayServer {
       s.deviceGone = true
       if (this.sessions.goneAndVacant(s)) {
         removed.push({ deviceId: s.deviceId, sessionId: s.id })
+        this.settleShutdownRequesters(s, SHUTDOWN_OUTCOME_LOST)
         this.removeSession(s.id)
       } else {
         kept++
@@ -2675,6 +2676,7 @@ export class RelayServer {
       const list = byAgent.get(s.agentSocket) ?? []
       list.push({ deviceId: s.deviceId, sessionId: s.id })
       byAgent.set(s.agentSocket, list)
+      this.settleShutdownRequesters(s, SHUTDOWN_OUTCOME_LOST)
       this.removeSession(s.id)
     }
     for (const [ws, removed] of byAgent) {
