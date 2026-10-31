@@ -163,9 +163,9 @@ export function DeviceCardActions({ device, agentKey, isAdmin, refresh, hidingLe
             </div>
             <p role="status" className="text-sm text-destructive">{renameError}</p>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setRenaming(false)}>Cancel</Button>
+              <Button type="button" variant="outline" className="w-24" onClick={() => setRenaming(false)}>Cancel</Button>
               <Button type="submit" aria-disabled={renameBusy}
-                className="aria-disabled:opacity-50 aria-disabled:cursor-not-allowed">
+                className="w-24 aria-disabled:opacity-50 aria-disabled:cursor-not-allowed">
                 {renameBusy ? 'Saving…' : 'Save'}
               </Button>
             </DialogFooter>

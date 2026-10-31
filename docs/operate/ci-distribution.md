@@ -79,7 +79,17 @@ curl -X POST https://your-relay/api/v1/builds \
 ```
 
 `status=In Progress` signals to the team that the build is ready for review.  
-Use `label` to attach context — branch name, ticket number, or a short description.
+Use `label` to attach context — branch name, ticket number, or a short description. It shows on the build's row in App Center and is found by its search.
+
+When the build file's version or build number does not say which build this is — several QA builds of the same version, say — send `version_name` and `build_number` too. They are used instead of the file's values to show and group the build in tapflow; the file itself is not changed. Each of `label`, `version_name` and `build_number` is at most 100 characters.
+
+```sh
+curl -X POST https://your-relay/api/v1/builds \
+  -H "Authorization: Bearer $TAPFLOW_PAT" \
+  -F "file=@MyApp.app.zip" \
+  -F "label=$GIT_BRANCH" \
+  -F "build_number=$CI_PIPELINE_ID"
+```
 
 ::: warning iOS builds
 `.ipa` files are not supported. For a simulator build, upload `.app.zip` or `.tar.gz`/`.tgz`. Build `.app.zip` with `xcodebuild -sdk iphonesimulator` and zip the `.app` folder; a `.tar.gz`/`.tgz` is what a cloud simulator build produces.

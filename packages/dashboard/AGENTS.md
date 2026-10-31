@@ -28,9 +28,10 @@ The audience is the whole team (PO, PM, designers, backend, QA) — not just QA.
 
 - **App sidebar**: `GET /api/v1/apps` → selecting an app manages state via `?appId=N` URL parameter.
 - **Release Accordion**: `GET /api/v1/builds?app_id=N` → grouped by `version_name` (`groupByRelease()`). No dedicated `releases` table — UI grouping uses `version_name` metadata.
-- **Build card**: shows `build_number`, `platform`, `status_label`, uploader, `uploaded_at`. Inline status dropdown. **"Start QA" CTA** → `/app-center/build?id={build_id}`.
-- **Viewer is read-only**: `AppCenter` reads the role once (`useAuth`) and passes `canWrite` down. For a Viewer the build card draws no status dropdown or deletion button, and **Add App** / **Upload build** stay as plain buttons whose click raises a toast instead of opening a dialog. The relay enforces the same rule (`assertCanWrite`), so this only decides what is offered.
-- **Upload**: `UploadBuildDialog` — iOS `.app.zip` or `.tar.gz`/`.tgz` (EAS simulator build) / Android `.apk`. `version_name` / `build_number` are auto-extracted from plist, so no manual input fields.
+- **Build card**: shows `build_number`, the label (`version_label`), an **Edited** badge when the version or build number differs from `binary` (what the file says), `platform`, `status_label`, uploader, `uploaded_at`. Inline status dropdown, and a ⋯ menu with **Edit build** and scheduling or cancelling deletion. **"Start QA" CTA** → `/app-center/build?id={build_id}`.
+- **Edit build** (#1084) is one dialog in `AppCenter`, not one per row: a version edit moves the row into another release, which React draws as a new row, and a dialog inside the old one would vanish and drop focus. The save writes the cache and opens the target release before the dialog closes; the refetch waits for the dialog's focus hand-back (`onClosed`), or it can take the row away while the dialog still holds focus.
+- **Viewer is read-only**: `AppCenter` reads the role once (`useAuth`) and passes `canWrite` down. For a Viewer the build card draws no status dropdown or ⋯ menu, and **Add App** / **Upload build** stay as plain buttons whose click raises a toast instead of opening a dialog. The relay enforces the same rule (`assertCanWrite`), so this only decides what is offered.
+- **Upload**: `UploadBuildDialog` — iOS `.app.zip` or `.tar.gz`/`.tgz` (EAS simulator build) / Android `.apk`. `version_name` / `build_number` are read from the file; an optional **Label** and a folded **Override version** (Version, Build number) are sent when filled in. The dialog closes on submit and the answer is a toast, so each field carries the relay's 100-character bound.
 
 ## HOW
 

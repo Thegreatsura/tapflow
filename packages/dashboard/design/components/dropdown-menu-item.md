@@ -11,9 +11,10 @@ own: state
 > This file holds only what is specific to DropdownMenuItem.
 
 `components/ui/dropdown-menu.tsx` wraps Radix DropdownMenu and has no `cva`. This spec covers the item and the
-content panel and separator around it; `state` below is what renders, not a prop. The dashboard has two dropdown
-menus: the account menu in the sidebar footer, with Settings and Log out, and each app's menu in Settings → Apps,
-with Edit and Delete.
+content panel and separator around it; `state` below is what renders, not a prop. The dashboard has four dropdown
+menus: the account menu in the sidebar footer, with Settings and Log out; each app's menu in Settings → Apps, with
+Edit and Delete; each device card's menu in the QA session picker (Admin only), with Rename and Hide or Show; and each
+build row's menu in App Center, with Edit build and Schedule deletion or Cancel scheduled deletion.
 
 ## Anatomy
 
@@ -58,6 +59,15 @@ Each app's menu in Settings → Apps, with Edit and Delete.
 - **Trigger** — a `ghost` icon Button, 32px square (`size="icon-sm"` narrowed with `h-8 w-8`), holding a 16px
   `Ellipsis`. Named `Actions for <app name>`. In arrange mode it is `invisible`: it keeps its place so the header does
   not shift, and cannot be reached.
+
+The device card's and the build row's menus follow it, with two differences.
+
+- **Device card** — named `Actions for <name shown>`; both items are plain (Hide is undone from the same menu).
+- **Build row** — 208px wide (`w-52`), the trigger 36px (`size="icon-sm"` unnarrowed, to match the row's status
+  Select). Last on the row, after Start QA, as the app and device cards put theirs. Named `Actions for <buildRowName>`. **Its destructive item depends on the build's state**: Schedule
+  deletion is destructive and comes last after a separator; once a deletion is scheduled the same slot holds Cancel
+  scheduled deletion, which undoes and so is a plain item. Every item opens a dialog or acts at once, and a dialog
+  opened from an item returns focus to the trigger itself (`onCloseAutoFocus`).
 
 ### The trigger
 

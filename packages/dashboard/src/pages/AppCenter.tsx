@@ -14,7 +14,8 @@ import { UploadBuildDialog } from '@/components/UploadBuildDialog'
 import { AppSidebar } from '@/components/app-center/AppSidebar'
 import { ReleaseAccordion } from '@/components/app-center/ReleaseAccordion'
 import { ReleaseListSkeleton } from '@/components/app-center/ReleaseListSkeleton'
-import { getApps, getBuilds, updateBuildStatus, scheduleBuildDeletion, cancelBuildDeletion, groupByRelease, queryKeys, ForbiddenError } from '@/lib/queries'
+import { getApps, getBuilds, updateBuildStatus, updateBuildDetails, scheduleBuildDeletion, cancelBuildDeletion, groupByRelease, queryKeys, ForbiddenError, type BuildEdit } from '@/lib/queries'
+import { EditBuildDialog } from '@/components/app-center/EditBuildDialog'
 import type { Build } from '@/lib/types'
 import { useFocusAfterSwap } from '@/hooks/useFocusAfterSwap'
 import { SKELETON_DELAY_MS, useShownAfter } from '@/hooks/useShownAfter'
@@ -327,6 +328,54 @@ export function AppCenter() {
     statusMutation.mutate({ buildId, status })
   }
 
+  // ── Edit build (#1084) ──────────────────────────────────────────────────
+  const [editing, setEditing] = useState<Build | null>(null)
+  // Set by a save, read when the dialog has handed focus back: see `onClosed`.
+  const refetchAfterEdit = useRef(false)
+  const editMutation = useMutation({
+    mutationFn: ({ buildId, edit }: { buildId: number; edit: BuildEdit }) => updateBuildDetails(buildId, edit),
+  })
+
+  /**
+   * Saves, then puts the build where it now belongs before the dialog closes, so the dialog's focus return finds the
+   * row's ⋯ in its new release rather than in the one it is leaving. Resolves to what to say inside the dialog when
+   * the save failed.
+   */
+  const saveEdit = async (edit: BuildEdit): Promise<string | null> => {
+    const build = editing
+    if (!build) return null
+    const key = buildsKey
+    try {
+      await editMutation.mutateAsync({ buildId: build.id, edit })
+    } catch (error) {
+      if (error instanceof ForbiddenError) void queryClient.invalidateQueries({ queryKey: queryKeys.me })
+      return error instanceof Error ? error.message : 'Could not save the build'
+    }
+    // What the relay now returns for it: an empty version or build number is the file's again.
+    const next: Build = {
+      ...build,
+      version_label: edit.version_label,
+      version_name: edit.version_name ?? build.binary.version_name,
+      build_number: edit.build_number ?? build.binary.build_number,
+    }
+    // A search the build no longer matches takes it off the list on the refetch: focus goes to its neighbours then, as
+    // for a status change under a filter.
+    const query = settledSearch.toLowerCase()
+    const stillFound = query === '' || [next.version_name, next.version_label].some((v) => v?.toLowerCase().includes(query))
+    const candidates = stillFound ? [] : rankTargets(build.id)
+    if (candidates.length > 0) {
+      const leaving = { leaving: build.id, candidates, text: `${buildRowName(next)} no longer matches the search "${settledSearch}".`, key: buildsKeyId }
+      pendingFocus.current = leaving
+      landedOn.current = null
+      setLeftNote(leaving)
+    }
+    queryClient.setQueryData<Build[]>(key, (old) => old?.map((b) => (b.id === build.id ? next : b)))
+    disclosure.open(next.version_name ?? 'Unversioned')
+    refetchAfterEdit.current = true
+    setEditing(null)
+    return null
+  }
+
   // A change of key is answered by the layout effect below, which drops the note with the move.
   const noteShown = leftNote !== null && !builds.some(b => b.id === leftNote.leaving)
   const noteTarget = noteShown ? firstDrawn(leftNote.candidates, drawnKey) : null
@@ -532,8 +581,8 @@ export function AppCenter() {
           <SearchInput
             ref={searchRef}
             aria-describedby={`${loadingId} ${emptyTitleId}`}
-            aria-label="Search versions"
-            placeholder="Search version…"
+            aria-label="Search versions and labels"
+            placeholder="Search version or label…"
             value={search}
             onChange={setSearch}
           />
@@ -643,6 +692,7 @@ export function AppCenter() {
                 onStatusChange={handleStatusChange}
                 onScheduleDeletion={handleScheduleDeletion}
                 onCancelDeletion={handleCancelDeletion}
+                onEdit={setEditing}
                 canWrite={canWrite}
               />
             ))}
@@ -652,6 +702,16 @@ export function AppCenter() {
         </>
         )}
       </div>
+      <EditBuildDialog
+        build={editing}
+        onClose={() => setEditing(null)}
+        onClosed={() => {
+          if (!refetchAfterEdit.current) return
+          refetchAfterEdit.current = false
+          void queryClient.invalidateQueries({ queryKey: ['builds'] })
+        }}
+        onSave={saveEdit}
+      />
     </div>
   )
 }
