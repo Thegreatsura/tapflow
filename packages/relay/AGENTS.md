@@ -41,7 +41,8 @@ happened to show. Each cites where it holds.
    NULL meaning "not set", and the value in use is made in SQL with `COALESCE`: `users.display_name` (the email's
    name part otherwise), `builds.*_override`. When several queries read it, one VIEW makes it (`builds_effective`),
    so no query can forget. `device_prefs.display_name` falls back in the dashboard instead, because devices are not
-   in the database. A CHECK keeps NULL the only "not set" (`trim(x) <> ''`).
+   in the database. NULL is the only "not set": `users.display_name` keeps that in code (`api/profile.ts` stores
+   `trim() || null`); from 022 a CHECK holds it in the schema too (`trim(x) <> ''`).
 2. **Many of a thing to one is a table, not columns**: `app_bundle_ids` (an app's ID per platform),
    `flow_run_video_chunks` (a video's chunks). `flow_run_videos` is a table of its own for timing, not count: its
    chunks arrive before the flow row exists.
@@ -51,9 +52,10 @@ happened to show. Each cites where it holds.
    to one app whatever the platform), `lib/buildVersion.ts`.
 5. **Migrations are numbered and only added.** A table another references is never rebuilt — inside the migration
    transaction `PRAGMA foreign_keys = OFF` does nothing, so dropping it fails (020). One nothing references may be,
-   inside the transaction (007, 017). A view references nothing and is dropped and recreated when its table gains a
-   column. Dropping a column is a decision of its own. Columns nothing reads: `builds.label` (the upload still writes
-   it), `apps.status_label`, `apps.version_label` (002).
+   inside the transaction (017). 007 rebuilt `apps`, which `builds` references, under that same no-op pragma: it is
+   the case 020 warns about, not a precedent. A view references nothing and is dropped and recreated when its table
+   gains a column. Dropping a column is a decision of its own. A column nothing reads: `builds.label` (the upload
+   still writes it).
 
 iOS build format: `.app.zip` **or** `.tar.gz`/`.tgz` (EAS `eas build` simulator artifacts). `.ipa` uploads return 400. `.tar.gz` is stored natively (no re-zip) so the `.app`'s exec bits / symlinks survive to install time; `tar` extraction happens on the macOS agent.
 - Auto-extracts `CFBundleIdentifier`, `CFBundleShortVersionString`, `CFBundleVersion`, `CFBundleDisplayName`/`CFBundleName` from the top-level `*.app/Info.plist` (zip: `unzip -p`; tar: `tar -xzOf`).

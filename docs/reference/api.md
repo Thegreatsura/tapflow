@@ -380,7 +380,7 @@ Only `file` is required; every other field is optional.
 `.ipa` files are not supported. Upload `.app.zip`, or the `.tar.gz` / `.tgz` a cloud simulator build produces. Build `.app.zip` with `xcodebuild -sdk iphonesimulator` and zip the `.app` folder.
 :::
 
-`label`, `version_name` and `build_number` are trimmed and at most 100 characters each; a longer one gets `400`.
+`label`, `version_name` and `build_number` are trimmed. A `label` longer than 100 characters is cut to 100; a longer `version_name` or `build_number` gets `400`.
 
 **Response `201`**
 

@@ -39,8 +39,10 @@ function build(id: number, version: string | null, extra: Partial<Build> = {}): 
 let db: Build[] = []
 function serve(rows: Build[]) {
   db = rows
+  // SQLite `LIKE` folds ASCII case only.
+  const fold = (v: string) => v.replace(/[A-Z]/g, (c) => c.toLowerCase())
   api.getBuilds.mockImplementation(async ({ search }: { search: string }) => db.filter((b) =>
-    !search || [b.version_name, b.version_label].some((v) => v?.toLowerCase().includes(search.toLowerCase()))))
+    !search || [b.version_name, b.version_label].some((v) => v !== null && fold(v).includes(fold(search)))))
   api.updateBuildDetails.mockImplementation(async (id: number, edit: BuildEdit) => {
     db = db.map((b) => (b.id === id ? {
       ...b, version_label: edit.version_label,

@@ -110,8 +110,7 @@ describe('BuildRow — every control names its row', () => {
   // #1084: the Edited badge carries the build file's values for a keyboard and a screen reader, not only on hover.
   it('says an edited build\'s file values on keyboard focus and in its text', async () => {
     renderRow(makeBuild({ version_name: '2.0', binary: { version_name: '1.0.0', build_number: '1' } }))
-    const badge = screen.getByText('Edited')
-    expect(badge.textContent).toContain('From the build file: 1.0.0 (1)')
+    const badge = screen.getByRole('img', { name: 'Edited. From the build file: 1.0.0 (1)' })
     await userEvent.tab()
     expect(document.activeElement).toBe(badge)
     expect((await screen.findByRole('tooltip')).textContent).toContain('From the build file: 1.0.0 (1)')

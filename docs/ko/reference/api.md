@@ -380,7 +380,7 @@ Authorization: Bearer tflw_pat_<token>  (또는 세션 쿠키)
 `.ipa` 파일은 지원하지 않습니다. `.app.zip`을 올리거나, 클라우드 시뮬레이터 빌드가 만드는 `.tar.gz`/`.tgz`를 올리세요. `.app.zip`은 `xcodebuild -sdk iphonesimulator`로 빌드한 `.app` 폴더를 zip으로 압축하면 됩니다.
 :::
 
-`label`, `version_name`, `build_number`는 앞뒤 공백을 지우고 저장하며 각각 최대 100자입니다. 넘으면 `400`을 받습니다.
+`label`, `version_name`, `build_number`는 앞뒤 공백을 지우고 저장합니다. 100자를 넘는 `label`은 100자로 자릅니다. 100자를 넘는 `version_name`이나 `build_number`는 `400`을 받습니다.
 
 **응답 `201`**
 

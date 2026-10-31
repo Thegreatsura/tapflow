@@ -109,14 +109,14 @@ export function BuildRow({
             <span className="text-sm font-medium">
               build <TechLabel>{build.build_number ?? '—'}</TechLabel>
             </span>
-            {/* Focusable, so the tooltip with the file's values opens for a keyboard too; the same words are in the badge
-                for a screen reader, which a tooltip does not reliably reach. */}
+            {/* Focusable, so the tooltip with the file's values opens for a keyboard too. A focused element needs a role
+                and a name to be read at all, so it is an image named with the same words. */}
             {overridden && (
               <TooltipProvider delayDuration={400}>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Badge variant="outline" tabIndex={0} className="text-xs">
-                      Edited<span className="sr-only">. {fromFile}</span>
+                    <Badge variant="outline" tabIndex={0} role="img" aria-label={`Edited. ${fromFile}`} className="text-xs">
+                      Edited
                     </Badge>
                   </TooltipTrigger>
                   <TooltipContent>{fromFile}</TooltipContent>

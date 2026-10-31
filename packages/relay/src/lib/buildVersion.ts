@@ -15,6 +15,13 @@ export function cleanBuildText(input: unknown): string | null | false {
   return value || null
 }
 
+/** A label sent with an upload: like `cleanBuildText`, but cut to the bound rather than refused. Labels had no bound
+ *  before #1084, and a CI job sending a commit subject would otherwise lose a whole upload to a 400 after it arrived. */
+export function clampLabel(input: unknown): string | null {
+  if (typeof input !== 'string') return null
+  return input.trim().slice(0, MAX_BUILD_TEXT).trim() || null
+}
+
 /** The override to store: none when it says what the build file already says, so a build is marked overridden only
  *  when it shows something the file does not. */
 export function overrideOf(value: string | null, fromFile: string | null): string | null {

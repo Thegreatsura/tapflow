@@ -13,7 +13,8 @@ import { assertArchiveTools } from './helpers/archivePrereqs'
 /**
  * A build's label, version and build number as a person sets them (#1084). The file's values stay in `version_name` /
  * `build_number`; a person's go in `*_override`, and every read goes through the `builds_effective` view, so the value
- * in use is the same in the list, the search, the sort, the apps list and the run records.
+ * in use is the same in the list, the search, the sort and the apps list. The run records and the webhook read the
+ * view too; only `buildsEffectiveReads.test.ts`, a static floor, holds them to it.
  */
 
 const plist = (name: string | null) => `<?xml version="1.0" encoding="UTF-8"?>
@@ -114,10 +115,17 @@ describe('build version overrides and labels (#1084)', () => {
       .toEqual({ version_name_override: null, build_number_override: null })
   })
 
-  it('refuses a field over 100 characters, and keeps no file', async () => {
+  it('refuses a version over 100 characters, and keeps no file', async () => {
     const r = await upload({ version_name: 'x'.repeat(101) })
     expect(r.status).toBe(400)
     expect(leftover()).toEqual([])
+  })
+
+  // Labels had no bound before; a CI job sending a commit subject must not lose its upload to a 400.
+  it('cuts a long label to 100 characters rather than refusing the upload', async () => {
+    const r = await upload({ label: 'y'.repeat(150) })
+    expect(r.status).toBe(201)
+    expect(r.body.version_label).toBe('y'.repeat(100))
   })
 
   // A label is a note on the build; it used to name the app when the file had no name.

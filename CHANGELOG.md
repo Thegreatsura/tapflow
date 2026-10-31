@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Build text fields are bounded.** An upload's `label` is trimmed and cut to 100 characters; `PATCH /api/v1/builds/:id` refuses a `version_label` that is not text or is longer than 100 characters with `400`, where it used to store it as sent.
 - **An upload's `label` no longer names the app.** When a build file carries no app name, the new app is named after the file instead of the label, so a label like `staging` does not become an app's name.
 - **A build's platform comes from its file.** The upload's `platform` field is ignored, so an `.apk` sent with `platform=ios` is recorded as Android. Builds already on record are corrected the same way when the relay upgrades.
 - **An upload naming an app that no longer exists is routed by its bundle ID** instead of failing with `404`, so CI that pinned the `app_id` of an app removed by a merge keeps uploading. A build whose bundle ID cannot be read still gets `404`.

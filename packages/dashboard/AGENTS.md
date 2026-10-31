@@ -667,7 +667,9 @@ lives in a portal under `body` and still goes with its owner.
 
 **A dialog opened by state rather than by a trigger returns focus itself.** Radix returns focus to an
 `AlertDialogTrigger`; without one it drops it on `body`. `BuildRow`'s deletion dialog is opened from
-its trash button's `onClick`, so it passes `onCloseAutoFocus` to put focus back on that button.
+an item of the row's ⋯ menu, so it passes `onCloseAutoFocus` to put focus back on the ⋯. Edit build is the case
+where the trigger moves: a version edit redraws the row under another release, so its dialog looks the ⋯ up by
+`[data-row-menu]` when it closes rather than holding a ref.
 
 ### A toast fired while a dialog is open is not heard
 

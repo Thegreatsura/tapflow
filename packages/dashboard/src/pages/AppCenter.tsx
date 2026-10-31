@@ -360,8 +360,10 @@ export function AppCenter() {
     }
     // A search the build no longer matches takes it off the list on the refetch: focus goes to its neighbours then, as
     // for a status change under a filter.
-    const query = settledSearch.toLowerCase()
-    const stillFound = query === '' || [next.version_name, next.version_label].some((v) => v?.toLowerCase().includes(query))
+    // ASCII case only, as the relay's SQLite `LIKE` folds it: a Unicode fold here would keep a row the refetch drops.
+    const fold = (v: string) => v.replace(/[A-Z]/g, (c) => c.toLowerCase())
+    const query = fold(settledSearch)
+    const stillFound = query === '' || [next.version_name, next.version_label].some((v) => v !== null && fold(v).includes(query))
     const candidates = stillFound ? [] : rankTargets(build.id)
     if (candidates.length > 0) {
       const leaving = { leaving: build.id, candidates, text: `${buildRowName(next)} no longer matches the search "${settledSearch}".`, key: buildsKeyId }

@@ -12,7 +12,7 @@ import { json, readJson } from '../router.js'
 import { pipeUpload, unlinkSafe } from '../lib/uploads.js'
 import { deliverWebhooks } from '../lib/webhooks.js'
 import { deleteBuildsWithDependents, type BuildFileDirs } from '../lib/buildDeletion.js'
-import { cleanBuildText, overrideOf, withBinary, MAX_BUILD_TEXT } from '../lib/buildVersion.js'
+import { clampLabel, cleanBuildText, overrideOf, withBinary, MAX_BUILD_TEXT } from '../lib/buildVersion.js'
 import { attachIfFree, holdsUnknown, idOn, ownerOf, promote, UNKNOWN_BUNDLE_ID, type Platform } from '../lib/appBundleIds.js'
 
 // ── archive kind ───────────────────────────────────────────────────────────
@@ -646,12 +646,12 @@ export function handleUploadBuild(
     }
     if (!savedPath) return json(res, 400, { error: 'File required' })
     // Before any archive work, so a refused request does not pay for validating it.
-    const label = cleanBuildText(fields.label)
+    const label = clampLabel(fields.label)
     const versionInput = cleanBuildText(fields.version_name)
     const buildInput = cleanBuildText(fields.build_number)
-    if (label === false || versionInput === false || buildInput === false) {
+    if (versionInput === false || buildInput === false) {
       unlinkSafe(savedPath, 'rejected upload')
-      return json(res, 400, { error: `label, version_name and build_number are at most ${MAX_BUILD_TEXT} characters` })
+      return json(res, 400, { error: `version_name and build_number are at most ${MAX_BUILD_TEXT} characters` })
     }
 
     const kind = buildFileKind(originalName)
