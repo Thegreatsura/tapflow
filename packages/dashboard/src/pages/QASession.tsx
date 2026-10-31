@@ -510,13 +510,15 @@ function QASessionPage() {
                         {d.osVersion && (
                           <span className="font-mono text-xs text-muted-foreground">{d.osVersion}</span>
                         )}
-                        {/* Hidden is a state of the device, so it sits on the status line rather than on a line of its own. */}
-                        <span className="flex items-center gap-3">
+                        {/* Hidden is a state of the device, so it sits on the status line rather than on a line of its own.
+                            The line is always the badge's height (15px text, 2px padding and 1px border each side), so the
+                            status does not shift between a hidden card and the one beside it. */}
+                        <span className="flex min-h-[21px] items-center gap-3">
                           <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                             <span className={cn('inline-block h-1.5 w-1.5 rounded-full', statusDot)} />
                             {statusLabel}
                           </span>
-                          {d.hidden && <Badge variant="outline" className="text-[10px]">Hidden</Badge>}
+                          {d.hidden && <Badge variant="outline" className="text-[10px] leading-[15px]">Hidden</Badge>}
                         </span>
                         {/* A run's `--service-tier slim` survives until the device restarts; say so before it is picked. */}
                         {isBooted && typeof d.serviceTier === 'object' && d.serviceTier.name === 'slim' && (
