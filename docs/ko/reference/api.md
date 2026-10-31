@@ -370,13 +370,17 @@ Authorization: Bearer tflw_pat_<token>  (또는 세션 쿠키)
 |------|------|------|
 | `file` | 필수 | 빌드 산출물. iOS는 `.app.zip` 또는 `.tar.gz`/`.tgz`(시뮬레이터 빌드), Android는 `.apk`입니다. 최대 크기는 기본 500MB이며 `TAPFLOW_MAX_BUILD_BYTES`로 바꿀 수 있습니다. `.ipa`·`.aab`는 거부됩니다. |
 | `status` | 선택 | 초기 리뷰 상태로 `Backlog`, `In Progress`, `Done`, `Rejected` 중 하나입니다. 생략하면 미설정으로 둡니다. |
-| `label` | 선택 | App Center에서 빌드를 식별하는 자유 텍스트 레이블입니다(예: 브랜치명이나 `rc-1`). |
+| `label` | 선택 | App Center에서 빌드를 식별하는 자유 텍스트 레이블입니다(예: 브랜치명이나 `rc-1`). 응답에는 `version_label`로 나옵니다. 빌드 파일에 앱 이름이 없을 때 앱 이름으로 쓰지 않습니다(그때는 파일 이름). |
+| `version_name` | 선택 | 빌드 파일의 버전 대신 쓸 값입니다. 빌드를 보여 주고 묶는 데 쓰이고 파일은 바뀌지 않습니다. 빈 값이면 파일의 값을 씁니다. |
+| `build_number` | 선택 | 빌드 파일의 빌드 번호 대신 쓸 값입니다. 규칙은 `version_name`과 같습니다. |
 | `platform` | 선택 | 무시됩니다. 플랫폼은 파일 형식으로 정해집니다. |
 | `app_id` | 선택 | 기존 앱에 연결합니다. 그 앱에 해당 플랫폼의 bundle ID가 없고 다른 앱도 그 ID를 쓰지 않으면, 빌드의 bundle ID가 그 앱에 추가됩니다. 그렇지 않으면 빌드는 자기 bundle ID의 앱으로 갑니다. 병합으로 삭제된 앱의 `app_id`를 보내도 bundle ID로 앱을 찾아 연결합니다. 생략하면 bundle ID로 앱이 정해집니다. |
 
 ::: warning iOS 빌드 주의사항
 `.ipa` 파일은 지원하지 않습니다. `.app.zip`을 올리거나, 클라우드 시뮬레이터 빌드가 만드는 `.tar.gz`/`.tgz`를 올리세요. `.app.zip`은 `xcodebuild -sdk iphonesimulator`로 빌드한 `.app` 폴더를 zip으로 압축하면 됩니다.
 :::
+
+`label`, `version_name`, `build_number`는 앞뒤 공백을 지우고 저장합니다. 100자를 넘는 `label`은 100자로 자릅니다. 100자를 넘는 `version_name`이나 `build_number`는 `400`을 받습니다.
 
 **응답 `201`**
 
@@ -387,12 +391,16 @@ Authorization: Bearer tflw_pat_<token>  (또는 세션 쿠키)
   "name": "My App",
   "version_name": "1.2.3",
   "build_number": "89",
+  "binary": { "version_name": "1.2.3", "build_number": "89" },
+  "version_label": "rc-1",
   "bundle_id": "com.example.app",
   "status_label": "In Progress",
   "platform": "ios",
   "uploaded_at": "2025-05-15T12:00:00.000Z"
 }
 ```
+
+`version_name`과 `build_number`는 지금 쓰이는 값입니다. 덮어쓴 값이 있으면 그 값입니다. `binary`는 빌드 파일에서 읽은 값입니다. 두 값이 다르면 그 값을 사람이 바꾼 빌드입니다. 빌드 목록과 단건 조회 응답도 같습니다.
 
 
 ### `GET /api/v1/builds`
@@ -403,7 +411,7 @@ Authorization: Bearer tflw_pat_<token>  (또는 세션 쿠키)
 Query:
   page      number               페이지 번호 (기본값: 0)
   limit     number               페이지 크기 (기본값: 20, 최대: 100)
-  q         string               버전명으로 검색
+  q         string               버전명이나 레이블(version_label)로 검색
   platform  ios|android          플랫폼 필터
   status    Backlog|In Progress|Done|Rejected  상태 필터
   app_id    number               특정 앱의 빌드만 조회
@@ -434,6 +442,7 @@ Query:
   "name": "My App",
   "version_name": "1.2.3",
   "build_number": "89",
+  "binary": { "version_name": "1.2.3", "build_number": "89" },
   "version_label": "rc-1",
   "status_label": "In Progress",
   "platform": "ios",
@@ -449,13 +458,17 @@ Query:
 
 ### `PATCH /api/v1/builds/:id`
 
-빌드의 상태 또는 레이블을 수정합니다. Viewer는 `403`을 받습니다.
+빌드의 상태, 레이블, 버전, 빌드 번호를 수정합니다. Viewer는 `403`을 받습니다.
 
 ```
 Body (JSON):
   status_label  Backlog|In Progress|Done|Rejected|null  선택
   version_label string|null                              선택
+  version_name  string|null                              선택  빈 값이나 null이면 빌드 파일의 값으로
+  build_number  string|null                              선택  빈 값이나 null이면 빌드 파일의 값으로
 ```
+
+텍스트 필드는 앞뒤 공백을 지우고 저장하며 최대 100자입니다. 넘거나 텍스트가 아니면 `400`을 받습니다. 빈 `version_label`은 레이블을 지웁니다. 빌드 파일과 같은 버전이나 빌드 번호를 보내면 덮어쓰지 않은 것으로 저장합니다.
 
 **응답 `200`**
 

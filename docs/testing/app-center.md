@@ -15,11 +15,11 @@ App Center is the build list inside the tapflow dashboard. It has nothing to do 
 2. Builds are grouped by version name into collapsible releases. A build whose version name could not be read goes under **Unversioned**.
 3. Press **Start QA** on the build you want to test. The build's [QA Session](/testing/qa-session) opens.
 
-Each build row shows the build number, platform, review status badge, scheduled-deletion badge, uploader, and upload date.
+Each build row shows the build number, label, platform, review status badge, scheduled-deletion badge, uploader, and upload date. A build whose version or build number was [changed](#edit-a-build) carries an **Edited** badge.
 
 ### Find a build {#find-a-build}
 
-- Type part of a version name into **Search version…** to see only builds whose version contains it.
+- Type part of a version name or label into **Search version or label…** to see only builds that contain it.
 - Pick **Backlog**, **In Progress**, **Done** or **Rejected** in the status filter (default **All statuses**) to see only builds with that status.
 
 When nothing matches, the list shows **No matching builds**.
@@ -33,7 +33,9 @@ When nothing matches, the list shows **No matching builds**.
    - iOS: a simulator build, `.app.zip` or `.tar.gz`/`.tgz`. A `.app.zip` is the `.app` folder [built from the command line](https://developer.apple.com/library/archive/technotes/tn2339/_index.html) and zipped. Upload a cloud simulator build's `.tar.gz`/`.tgz`, such as one from EAS, as it is.
    - Android: `.apk`
 3. Optionally pick a review status under **Status (optional)**. With the default, **None**, the build has no status.
-4. Press **Upload**. A **Build uploaded** notice appears and the build joins the list.
+4. Optionally write a note under **Label (optional)**, such as a branch name or `staging, feature X`. It shows on the build's row and is found by search.
+5. To use a version or build number other than the build file's, open **Override version** and fill in **Version** or **Build number**. A field left empty uses the file's value.
+6. Press **Upload**. A **Build uploaded** notice appears and the build joins the list.
 
 ::: warning iOS `.ipa` files are not supported
 `.ipa` is the format for real devices. tapflow accepts `.app.zip` and `.tar.gz`/`.tgz` for simulators. If an upload fails, see [Builds & uploads troubleshooting](/troubleshooting/builds#ios-build-upload-errors).
@@ -44,6 +46,17 @@ An uploaded build is linked to an app by its bundle ID. If no app has that bundl
 You can also create the app first with **Add App** below the **Apps** list, giving its **Name**, **Bundle ID** and **Platform** (iOS, Android or Both).
 
 To upload builds automatically from a CI pipeline, see [Upload from CI](/operate/ci-distribution).
+
+## Edit a build {#edit-a-build}
+
+Choose **Edit build** from a build row's **⋯** menu to change its label, version and build number. This needs the **Admin, Developer or QA** role.
+
+- **Label**: a note on the build. Clear it to remove the label.
+- **Version**, **Build number**: values to use instead of the ones read from the build file. The file's value is shown under each field, and clearing a field goes back to it.
+
+Changing the version moves the build into that version's release and opens it. A build under **Unversioned** because its version could not be read can be given one this way.
+
+The values you set only change how tapflow shows and groups the build. The app installed on the device is the file you uploaded, with its own version. A build with changed values carries an **Edited** badge; point at it or move to it with the keyboard to see the file's values.
 
 ## Merge and split apps {#merge-apps}
 
@@ -96,9 +109,9 @@ The review status tells the team how far a build has been checked. Change it fro
 
 ## Schedule deletion {#schedule-deletion}
 
-Schedule a build you no longer need for deletion with the trash icon (**Schedule deletion**). Press **Schedule deletion** in the confirmation and the build files are deleted after 7 days. The row gets a countdown badge such as **Deletes in 6d**.
+Schedule a build you no longer need for deletion by choosing **Schedule deletion** from its row's **⋯** menu. Press **Schedule deletion** in the confirmation and the build files are deleted after 7 days. The row gets a countdown badge such as **Deletes in 6d**.
 
-Until then you can cancel it any time with the timer icon (**Cancel scheduled deletion**). Scheduled deletion is independent of the review status.
+Until then you can cancel it any time with **Cancel scheduled deletion** in the same menu. Scheduled deletion is independent of the review status.
 
 ## Platform support {#platform-support}
 
@@ -109,7 +122,7 @@ Until then you can cancel it any time with the timer icon (**Cancel scheduled de
 
 ## Limits {#limits}
 
-- The Viewer role is read-only. When a Viewer presses **Upload build** or **Add App**, a notice says QA or Developer access is needed instead of opening the dialog. A Viewer sees no status menu and no deletion button, only **Start QA** and the status badge. For what each role can do, see [Team, roles & tokens](/operate/team-and-roles#team).
+- The Viewer role is read-only. When a Viewer presses **Upload build** or **Add App**, a notice says QA or Developer access is needed instead of opening the dialog. A Viewer sees no status menu and no **⋯** menu, only **Start QA** and the status badge. For what each role can do, see [Team, roles & tokens](/operate/team-and-roles#team).
 - The list shows each app's 100 most recently uploaded builds. Search by version to find older ones.
 - App Center cannot rename or delete an app. The Admin, Developer and QA roles can do both from the **⋯** menu of each app on the **Apps** card in **Settings → Default** (**Edit**, **Delete**). Deleting an app deletes all of its builds.
 - The deletion confirmation always says 7 days. If your operator changed `TAPFLOW_BUILD_TTL_DAYS` on the relay, the real period follows that value.
@@ -117,7 +130,7 @@ Until then you can cancel it any time with the timer icon (**Cancel scheduled de
 ## Troubleshooting {#troubleshooting}
 
 - If an upload fails with a `400` error, see [iOS build upload errors](/troubleshooting/builds#ios-build-upload-errors).
-- If an APK shows as **Unversioned** or merges into another app, see [Builds & uploads](/troubleshooting/builds).
+- If an APK shows as **Unversioned** or merges into another app, see [Builds & uploads](/troubleshooting/builds). When all it needs is a version, you can set one with [Edit a build](#edit-a-build).
 
 ## Related {#related}
 

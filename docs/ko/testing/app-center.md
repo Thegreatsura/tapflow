@@ -15,11 +15,11 @@ App Center는 tapflow 대시보드 안의 빌드 목록 화면입니다. Microso
 2. 빌드는 버전 이름별로 접고 펼 수 있는 묶음(릴리스)에 모입니다. 버전 이름을 읽을 수 없는 빌드는 **Unversioned** 묶음에 들어갑니다.
 3. 테스트할 빌드 행에서 **Start QA**를 누릅니다. 그 빌드의 [QA 세션](/ko/testing/qa-session)이 열립니다.
 
-빌드 행에는 빌드 번호, 플랫폼, 리뷰 상태 배지, 삭제 예약 배지, 업로더, 업로드 날짜가 표시됩니다.
+빌드 행에는 빌드 번호, 레이블, 플랫폼, 리뷰 상태 배지, 삭제 예약 배지, 업로더, 업로드 날짜가 표시됩니다. 버전이나 빌드 번호를 [바꾼](#edit-a-build) 빌드에는 **Edited** 배지가 붙습니다.
 
 ### 빌드 찾기 {#find-a-build}
 
-- **Search version…** 검색창에 버전 이름의 일부를 입력하면 그 문자열이 들어간 버전의 빌드만 보입니다.
+- **Search version or label…** 검색창에 버전 이름이나 레이블의 일부를 입력하면 그 문자열이 들어간 빌드만 보입니다.
 - 상태 필터(기본값 **All statuses**)에서 **Backlog**, **In Progress**, **Done**, **Rejected** 중 하나를 고르면 그 상태의 빌드만 보입니다.
 
 조건에 맞는 빌드가 없으면 **No matching builds**가 표시됩니다.
@@ -33,7 +33,9 @@ App Center는 tapflow 대시보드 안의 빌드 목록 화면입니다. Microso
    - iOS: 시뮬레이터용 빌드인 `.app.zip` 또는 `.tar.gz`/`.tgz`. `.app.zip`은 [커맨드라인으로 빌드](https://developer.apple.com/library/archive/technotes/tn2339/_index.html)해 `.app` 폴더를 압축한 파일입니다. EAS 같은 클라우드 시뮬레이터 빌드의 `.tar.gz`/`.tgz`는 그대로 올립니다.
    - Android: `.apk`
 3. 필요하면 **Status (optional)**에서 리뷰 상태를 미리 고릅니다. 기본값 **None**이면 상태 없이 올라갑니다.
-4. **Upload**를 누릅니다. 올라가면 **Build uploaded** 알림이 뜨고 목록에 빌드가 추가됩니다.
+4. 필요하면 **Label (optional)**에 브랜치 이름이나 `staging, feature X` 같은 메모를 적습니다. 빌드 행에 표시되고 검색으로 찾을 수 있습니다.
+5. 빌드 파일의 버전이나 빌드 번호 대신 다른 값을 쓰려면 **Override version**을 펼쳐 **Version**이나 **Build number**를 적습니다. 비워 둔 칸은 빌드 파일의 값을 씁니다.
+6. **Upload**를 누릅니다. 올라가면 **Build uploaded** 알림이 뜨고 목록에 빌드가 추가됩니다.
 
 ::: warning iOS `.ipa` 파일은 지원하지 않습니다
 `.ipa`는 실제 기기용 포맷입니다. tapflow는 시뮬레이터용 `.app.zip`과 `.tar.gz`/`.tgz`를 받습니다. 업로드 오류가 나면 [빌드와 업로드 문제 해결](/ko/troubleshooting/builds#ios-빌드-업로드-오류)을 참고하세요.
@@ -44,6 +46,17 @@ App Center는 tapflow 대시보드 안의 빌드 목록 화면입니다. Microso
 **Apps** 목록 아래의 **Add App**으로 앱을 먼저 만들어 둘 수도 있습니다. **Name**, **Bundle ID**, **Platform**(iOS, Android, Both)을 입력합니다.
 
 CI 파이프라인에서 빌드를 자동으로 올리는 방법은 [CI에서 빌드 올리기](/ko/operate/ci-distribution)를 참고하세요.
+
+## 빌드 정보 바꾸기 {#edit-a-build}
+
+빌드 행의 **⋯** 메뉴에서 **Edit build**를 고르면 레이블, 버전, 빌드 번호를 바꿀 수 있습니다. **Admin, Developer, QA** 역할이 필요합니다.
+
+- **Label**: 빌드에 붙이는 메모입니다. 비우면 레이블이 없어집니다.
+- **Version**, **Build number**: 빌드 파일에서 읽은 값 대신 쓸 값입니다. 칸 아래에 빌드 파일의 값이 표시되고 칸을 비우면 그 값으로 돌아갑니다.
+
+버전을 바꾸면 빌드가 그 버전의 릴리스로 옮겨 가고 그 릴리스가 펼쳐집니다. 버전 이름을 읽지 못해 **Unversioned**에 들어간 빌드도 이렇게 버전을 정해 줄 수 있습니다.
+
+바꾼 값은 tapflow가 빌드를 보여 주고 묶는 데만 쓰입니다. 기기에 설치되는 앱은 올린 파일 그대로이며 그 앱의 버전도 바뀌지 않습니다. 값을 바꾼 빌드에는 **Edited** 배지가 붙습니다. 배지에 마우스를 올리거나 키보드로 가면 빌드 파일의 값이 보입니다.
 
 ## 앱 합치기와 나누기 {#merge-apps}
 
@@ -96,9 +109,9 @@ iOS와 Android의 bundle ID가 달라 한 제품이 두 앱으로 나뉘어 있�
 
 ## 빌드 삭제 예약 {#schedule-deletion}
 
-더 이상 필요 없는 빌드는 휴지통 아이콘(**Schedule deletion**)으로 삭제를 예약합니다. 확인 창에서 **Schedule deletion**을 누르면 7일 뒤 빌드 파일이 삭제되고 행에 **Deletes in 6d** 같은 남은 시간 배지가 붙습니다.
+더 이상 필요 없는 빌드는 행의 **⋯** 메뉴에서 **Schedule deletion**을 골라 삭제를 예약합니다. 확인 창에서 **Schedule deletion**을 누르면 7일 뒤 빌드 파일이 삭제되고 행에 **Deletes in 6d** 같은 남은 시간 배지가 붙습니다.
 
-그 전에는 타이머 아이콘(**Cancel scheduled deletion**)을 눌러 언제든 취소할 수 있습니다. 삭제 예약은 리뷰 상태와 따로 움직입니다.
+그 전에는 같은 메뉴의 **Cancel scheduled deletion**으로 언제든 취소할 수 있습니다. 삭제 예약은 리뷰 상태와 따로 움직입니다.
 
 ## 플랫폼 지원 {#platform-support}
 
@@ -109,7 +122,7 @@ iOS와 Android의 bundle ID가 달라 한 제품이 두 앱으로 나뉘어 있�
 
 ## 제한 사항 {#limits}
 
-- Viewer 역할은 읽기 전용입니다. Viewer가 **Upload build**나 **Add App**을 누르면 창 대신 QA나 Developer 권한이 필요하다는 알림이 뜹니다. Viewer에게는 상태 메뉴와 삭제 예약 버튼이 보이지 않고 **Start QA**와 상태 배지만 보입니다. 역할별 권한은 [팀·역할·토큰](/ko/operate/team-and-roles#team)을 참고하세요.
+- Viewer 역할은 읽기 전용입니다. Viewer가 **Upload build**나 **Add App**을 누르면 창 대신 QA나 Developer 권한이 필요하다는 알림이 뜹니다. Viewer에게는 상태 메뉴와 **⋯** 메뉴가 보이지 않고 **Start QA**와 상태 배지만 보입니다. 역할별 권한은 [팀·역할·토큰](/ko/operate/team-and-roles#team)을 참고하세요.
 - 목록에는 앱마다 최근에 올린 빌드 100개까지 보입니다. 더 오래된 빌드는 버전 검색으로 찾습니다.
 - App Center에서는 앱 이름을 바꾸거나 앱을 지울 수 없습니다. Admin, Developer, QA 역할은 **Settings → Default**의 **Apps** 카드에서 각 앱의 **⋯** 메뉴(**Edit**, **Delete**)로 할 수 있습니다. 앱을 지우면 그 앱의 빌드도 모두 지워집니다.
 - 삭제 예약 확인 창은 항상 7일이라고 안내합니다. 운영자가 릴레이의 `TAPFLOW_BUILD_TTL_DAYS`를 바꿨다면 실제 기간은 그 값을 따릅니다.
@@ -117,7 +130,7 @@ iOS와 Android의 bundle ID가 달라 한 제품이 두 앱으로 나뉘어 있�
 ## 문제 해결 {#troubleshooting}
 
 - 업로드가 `400` 오류로 실패하면 [iOS 빌드 업로드 오류](/ko/troubleshooting/builds#ios-빌드-업로드-오류)를 참고하세요.
-- APK가 **Unversioned**로 표시되거나 다른 앱에 합쳐지면 [빌드와 업로드](/ko/troubleshooting/builds) 페이지를 참고하세요.
+- APK가 **Unversioned**로 표시되거나 다른 앱에 합쳐지면 [빌드와 업로드](/ko/troubleshooting/builds) 페이지를 참고하세요. 버전만 정해 주면 되는 경우에는 [빌드 정보 바꾸기](#edit-a-build)로 바로 바꿀 수 있습니다.
 
 ## 관련 문서 {#related}
 

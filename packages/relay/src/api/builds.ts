@@ -12,6 +12,7 @@ import { json, readJson } from '../router.js'
 import { pipeUpload, unlinkSafe } from '../lib/uploads.js'
 import { deliverWebhooks } from '../lib/webhooks.js'
 import { deleteBuildsWithDependents, type BuildFileDirs } from '../lib/buildDeletion.js'
+import { clampLabel, cleanBuildText, overrideOf, withBinary, MAX_BUILD_TEXT } from '../lib/buildVersion.js'
 import { attachIfFree, holdsUnknown, idOn, ownerOf, promote, UNKNOWN_BUNDLE_ID, type Platform } from '../lib/appBundleIds.js'
 
 // ── archive kind ───────────────────────────────────────────────────────────
@@ -318,6 +319,8 @@ export function upsertApp(name: string, bundleId: string, platform: Platform): n
 
 // ── handlers ──────────────────────────────────────────────────────────────
 
+type BuildRowWithBinary = { binary_version_name: string | null; binary_build_number: string | null } & Record<string, unknown>
+
 export function handleListBuilds(req: http.IncomingMessage, res: http.ServerResponse): void {
   const auth = requireBuildAuth(req, res)
   if (!auth) return
@@ -337,15 +340,20 @@ export function handleListBuilds(req: http.IncomingMessage, res: http.ServerResp
   const conds: string[] = []
   const params: unknown[] = []
 
-  // A substring search: `%`, `_` and the escape character itself are text to find, not wildcards.
-  if (q)        { conds.push(`b.version_name LIKE ? ESCAPE '\\'`); params.push(`%${q.replace(/[\\%_]/g, '\\$&')}%`) }
+  // A substring search: `%`, `_` and the escape character itself are text to find, not wildcards. The version in use
+  // and the label, now that the label is shown (#1084).
+  if (q) {
+    const pattern = `%${q.replace(/[\\%_]/g, '\\$&')}%`
+    conds.push(`(b.version_name LIKE ? ESCAPE '\\' OR b.version_label LIKE ? ESCAPE '\\')`)
+    params.push(pattern, pattern)
+  }
   if (platform) { conds.push('b.platform = ?'); params.push(platform) }
   if (status)   { conds.push('b.status_label = ?'); params.push(status) }
   if (appId)    { conds.push('b.app_id = ?'); params.push(Number(appId)) }
 
   const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
   const baseFrom = `
-    FROM builds b
+    FROM builds_effective b
     LEFT JOIN apps ap ON ap.id = b.app_id
     LEFT JOIN users u  ON u.id  = b.uploader_id
   `
@@ -354,8 +362,8 @@ export function handleListBuilds(req: http.IncomingMessage, res: http.ServerResp
     `SELECT COUNT(*) as n ${baseFrom} ${where}`
   ).get(...params) as { n: number }).n
 
-  const items = db.prepare(`
-    SELECT b.id, b.app_id, ap.name, b.version_name, b.build_number,
+  const items = (db.prepare(`
+    SELECT b.id, b.app_id, ap.name, b.version_name, b.build_number, b.binary_version_name, b.binary_build_number,
            b.version_label, b.status_label, b.platform,
            b.bundle_id, b.uploaded_at, b.completed_at, b.delete_after,
            COALESCE(u.display_name, substr(u.email, 1, instr(u.email, '@') - 1)) as uploader
@@ -363,7 +371,7 @@ export function handleListBuilds(req: http.IncomingMessage, res: http.ServerResp
     ${where}
     ORDER BY b.${sortKey} ${sortDir}
     LIMIT ? OFFSET ?
-  `).all(...params, limit, page * limit)
+  `).all(...params, limit, page * limit) as BuildRowWithBinary[]).map(withBinary)
 
   json(res, 200, { items, total })
 }
@@ -376,15 +384,15 @@ export function handleGetBuild(
   if (!requireBuildAuth(req, res)) return
 
   const build = getDb().prepare(`
-    SELECT b.id, b.app_id, ap.name, b.version_name, b.build_number,
+    SELECT b.id, b.app_id, ap.name, b.version_name, b.build_number, b.binary_version_name, b.binary_build_number,
            b.version_label, b.status_label, b.platform, b.bundle_id, b.uploaded_at, b.completed_at, b.delete_after
-    FROM builds b
+    FROM builds_effective b
     LEFT JOIN apps ap ON ap.id = b.app_id
     WHERE b.id = ?
-  `).get(params.id)
+  `).get(params.id) as BuildRowWithBinary | undefined
 
   if (!build) return json(res, 404, { error: 'Build not found' })
-  json(res, 200, build)
+  json(res, 200, withBinary(build))
 }
 
 export async function handleUpdateBuild(
@@ -398,11 +406,14 @@ export async function handleUpdateBuild(
   // Parse the body before reading current state, so the SELECT and UPDATE below run
   // with no await between them. Closes a TOCTOU window where two concurrent PATCHes
   // could both observe the old status_label and both fire the webhook.
-  const body = await readJson<{ status_label?: string | null; version_label?: string | null }>(req)
+  const body = await readJson<{
+    status_label?: string | null; version_label?: unknown; version_name?: unknown; build_number?: unknown
+  } | null>(req)
+  if (!body || typeof body !== 'object') return json(res, 400, { error: 'Nothing to update' })
 
   const db = getDb()
-  const existing = db.prepare('SELECT status_label FROM builds WHERE id = ?').get(params.id) as
-    | { status_label: string | null }
+  const existing = db.prepare('SELECT status_label, version_name, build_number FROM builds WHERE id = ?').get(params.id) as
+    | { status_label: string | null; version_name: string | null; build_number: string | null }
     | undefined
   if (!existing) return json(res, 404, { error: 'Build not found' })
 
@@ -422,9 +433,19 @@ export async function handleUpdateBuild(
       updates.push('completed_at = NULL')
     }
   }
-  if ('version_label' in body) {
-    updates.push('version_label = ?')
-    values.push(body.version_label ?? null)
+  // Each text field: trimmed, empty means none, at most MAX_BUILD_TEXT. An empty version or build number goes back to
+  // what the build file says (#1084).
+  const text: Array<[key: 'version_label' | 'version_name' | 'build_number', column: string, fromFile?: string | null]> = [
+    ['version_label', 'version_label'],
+    ['version_name', 'version_name_override', existing.version_name],
+    ['build_number', 'build_number_override', existing.build_number],
+  ]
+  for (const [key, column, fromFile] of text) {
+    if (!(key in body)) continue
+    const value = cleanBuildText(body[key])
+    if (value === false) return json(res, 400, { error: `${key} must be text of at most ${MAX_BUILD_TEXT} characters` })
+    updates.push(`${column} = ?`)
+    values.push(fromFile === undefined ? value : overrideOf(value, fromFile))
   }
 
   if (updates.length === 0) return json(res, 400, { error: 'Nothing to update' })
@@ -440,7 +461,7 @@ export async function handleUpdateBuild(
   if ('status_label' in body && (next === 'Done' || next === 'Rejected') && existing.status_label !== next) {
     try {
       const info = db
-        .prepare('SELECT version_name, platform FROM builds WHERE id = ?')
+        .prepare('SELECT version_name, platform FROM builds_effective WHERE id = ?')
         .get(params.id) as { version_name: string | null; platform: string | null } | undefined
       void deliverWebhooks({
         event: 'build.status_changed',
@@ -624,6 +645,14 @@ export function handleUploadBuild(
       return json(res, 400, { error: fileError })
     }
     if (!savedPath) return json(res, 400, { error: 'File required' })
+    // Before any archive work, so a refused request does not pay for validating it.
+    const label = clampLabel(fields.label)
+    const versionInput = cleanBuildText(fields.version_name)
+    const buildInput = cleanBuildText(fields.build_number)
+    if (versionInput === false || buildInput === false) {
+      unlinkSafe(savedPath, 'rejected upload')
+      return json(res, 400, { error: `version_name and build_number are at most ${MAX_BUILD_TEXT} characters` })
+    }
 
     const kind = buildFileKind(originalName)
     const isIos = kind === 'ios-zip' || kind === 'ios-tar'
@@ -677,7 +706,8 @@ export function handleUploadBuild(
       aaptFound       = info.aaptFound
     }
 
-    const appName = resolvedAppName ?? fields.label ?? stripArchiveExt(originalName)
+    // Not the label: it is a note on the build, and naming an app after "staging" is how the two used to mix (#1084).
+    const appName = resolvedAppName ?? stripArchiveExt(originalName)
 
     const db = getDb()
     const filePath = savedPath
@@ -691,9 +721,11 @@ export function handleUploadBuild(
       })
       if (route.kind !== 'ok') return route
       const result = db.prepare(`
-        INSERT INTO builds (app_id, version_name, build_number, bundle_id, status_label, file_path, label, version_label, uploader_id, platform)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(route.appId, versionName, buildNumber, bundleId, status, filePath, fields.label ?? null, fields.label ?? null, auth.userId, platform)
+        INSERT INTO builds (app_id, version_name, build_number, version_name_override, build_number_override,
+                            bundle_id, status_label, file_path, label, version_label, uploader_id, platform)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(route.appId, versionName, buildNumber, overrideOf(versionInput, versionName), overrideOf(buildInput, buildNumber),
+        bundleId, status, filePath, label, label, auth.userId, platform)
       return { kind: 'inserted' as const, buildId: result.lastInsertRowid }
     })()
     if (outcome.kind === 'app-not-found') {
@@ -707,13 +739,13 @@ export function handleUploadBuild(
     const result = { lastInsertRowid: outcome.buildId }
 
     const build = db.prepare(`
-      SELECT b.id, b.app_id, ap.name, b.version_name, b.build_number,
-             b.bundle_id, b.status_label, b.platform, b.uploaded_at
-      FROM builds b LEFT JOIN apps ap ON ap.id = b.app_id
+      SELECT b.id, b.app_id, ap.name, b.version_name, b.build_number, b.binary_version_name, b.binary_build_number,
+             b.version_label, b.bundle_id, b.status_label, b.platform, b.uploaded_at
+      FROM builds_effective b LEFT JOIN apps ap ON ap.id = b.app_id
       WHERE b.id = ?
-    `).get(result.lastInsertRowid)
+    `).get(result.lastInsertRowid) as BuildRowWithBinary
 
-    json(res, 201, build)
+    json(res, 201, withBinary(build))
   })
 
   bb.on('error', () => json(res, 500, { error: 'Upload failed' }))

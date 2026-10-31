@@ -50,8 +50,12 @@ at desktop width, where the header is left-aligned and the corners are 8px.
 |-------|------------|-----------:|-------|
 | `stacked` | One primary button, full width, at the bottom of the body | 4 | Invite member, Password reset link, Create token, Add App |
 | `end` | Cancel (`outline`) and the primary action, 96px each (`w-24`), right-aligned, 8px apart | 1 | Upload build |
-| `footer` | `DialogFooter`: secondary and primary right-aligned, 8px apart; below 640px stacked with the primary on top | 3 | Streaming in Standard mode, Edit app and Split (Settings → Apps) |
+| `footer` | `DialogFooter`: secondary and primary right-aligned, 8px apart; below 640px stacked with the primary on top | 5 | Streaming in Standard mode, Edit app and Split (Settings → Apps), Rename device (QA session picker), Edit build (App Center) |
 | `inline` | No action row; the one button sits inside the bar beside the field | 1 | Open deeplink |
+
+**Two buttons side by side whose labels are about as long take the same width**: 96px (`w-24`) for Cancel and
+Save or Upload, 112px (`w-28`) where a busy label would not fit 96 (`Splitting…`). Edit app, Split, Rename device
+and Edit build follow it in `footer`, as Upload build does in `end`.
 
 Call-site counts are a snapshot (2026-10-18). `stacked` is what a form dialog does: fields, then the submit
 button stretched to the panel's width. A dialog whose form is replaced by a result (the invite link, the new

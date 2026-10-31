@@ -24,7 +24,7 @@ export function handleListApps(req: http.IncomingMessage, res: http.ServerRespon
       b.status_label,
       b.uploaded_at AS latest_uploaded_at
     FROM apps a
-    LEFT JOIN builds b ON b.id = (
+    LEFT JOIN builds_effective b ON b.id = (
       SELECT id FROM builds WHERE app_id = a.id ORDER BY uploaded_at DESC LIMIT 1
     )
     ORDER BY a.created_at DESC, a.id DESC

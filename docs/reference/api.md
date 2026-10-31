@@ -370,13 +370,17 @@ Only `file` is required; every other field is optional.
 |-------|----------|-------------|
 | `file` | Yes | The build artifact. iOS: `.app.zip` or `.tar.gz` / `.tgz` (a simulator build); Android: `.apk`. Max 500 MB by default (`TAPFLOW_MAX_BUILD_BYTES` changes it). `.ipa` and `.aab` are rejected. |
 | `status` | No | Initial review status — one of `Backlog`, `In Progress`, `Done`, `Rejected`. Omit to leave it unset. |
-| `label` | No | Free-text label to identify the build in App Center (e.g. a branch name or `rc-1`). |
+| `label` | No | Free-text label to identify the build in App Center (e.g. a branch name or `rc-1`). Returned as `version_label`. Not used as the app's name when the build file has none (the file name is). |
+| `version_name` | No | A version to use instead of the build file's. It is used to show and group the build; the file is not changed. Empty uses the file's value. |
+| `build_number` | No | A build number to use instead of the build file's, as for `version_name`. |
 | `platform` | No | Ignored. The platform comes from the file type. |
 | `app_id` | No | Attach to an existing app. If that app has no bundle ID on the build's platform and no other app holds the build's ID, the ID is added to the app. Otherwise the build goes to the app for its bundle ID. An upload naming an app a merge removed is routed by its bundle ID instead. When omitted, the bundle ID decides the app. |
 
 ::: warning iOS builds
 `.ipa` files are not supported. Upload `.app.zip`, or the `.tar.gz` / `.tgz` a cloud simulator build produces. Build `.app.zip` with `xcodebuild -sdk iphonesimulator` and zip the `.app` folder.
 :::
+
+`label`, `version_name` and `build_number` are trimmed. A `label` longer than 100 characters is cut to 100; a longer `version_name` or `build_number` gets `400`.
 
 **Response `201`**
 
@@ -387,12 +391,16 @@ Only `file` is required; every other field is optional.
   "name": "My App",
   "version_name": "1.2.3",
   "build_number": "89",
+  "binary": { "version_name": "1.2.3", "build_number": "89" },
+  "version_label": "rc-1",
   "bundle_id": "com.example.app",
   "status_label": "In Progress",
   "platform": "ios",
   "uploaded_at": "2025-05-15T12:00:00.000Z"
 }
 ```
+
+`version_name` and `build_number` are the values in use, which are the overrides when there are any. `binary` holds what was read from the build file; where the two differ, the build was overridden. The list and single-build responses are the same.
 
 
 ### `GET /api/v1/builds`
@@ -403,7 +411,7 @@ Return a paginated list of builds.
 Query:
   page      number                                   page number (default: 0)
   limit     number                                   page size (default: 20, max: 100)
-  q         string                                   search by version name
+  q         string                                   search by version name or label (version_label)
   platform  ios|android                              platform filter
   status    Backlog|In Progress|Done|Rejected        status filter
   app_id    number                                   filter by app
@@ -434,6 +442,7 @@ Return a single build.
   "name": "My App",
   "version_name": "1.2.3",
   "build_number": "89",
+  "binary": { "version_name": "1.2.3", "build_number": "89" },
   "version_label": "rc-1",
   "status_label": "In Progress",
   "platform": "ios",
@@ -449,13 +458,17 @@ Return a single build.
 
 ### `PATCH /api/v1/builds/:id`
 
-Update the status or label of a build. A Viewer gets `403`.
+Update the status, label, version or build number of a build. A Viewer gets `403`.
 
 ```
 Body (JSON):
   status_label  Backlog|In Progress|Done|Rejected|null  optional
   version_label string|null                              optional
+  version_name  string|null                              optional  empty or null goes back to the build file's
+  build_number  string|null                              optional  empty or null goes back to the build file's
 ```
+
+Text fields are trimmed and at most 100 characters; a longer one, or one that is not text, gets `400`. An empty `version_label` removes the label. A version or build number equal to the build file's is stored as not overridden.
 
 **Response `200`**
 

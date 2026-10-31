@@ -47,7 +47,7 @@ that is destructive or hard to undo. `action` below is how the call site styles 
 
 | Value | Looks like | Call sites | Where |
 |-------|------------|-----------:|-------|
-| `primary` | `Button` `default` — ink fill, white text | 3 | Schedule deletion (build row), Restart this device (toolbar), Start again (a session link to a device that has shut down) |
+| `primary` | `Button` `default` — ink fill, white text | 3 | Schedule deletion (build row's ⋯ menu), Restart this device (toolbar), Start again (a session link to a device that has shut down) |
 | `destructive` | `Button` `destructive` — the soft tint: `--destructive` at 10% fill (20% on hover), `--destructive` text, no border | 5 | Revoke token, Delete app (96px, `w-24`), Remove member, Take over (a device a teammate is coming back to), Merge (a bundle ID moved into another app) |
 
 Call-site counts are a snapshot (2026-10-30). Each button keeps its own `Button` states (hover, focus, pressed);
@@ -80,7 +80,7 @@ There is no state axis: the panel is not interactive.
   title (`Revoke`, `Restart`), never `OK` or `Yes`.
 - Focus starts on Cancel, so Enter right after it opens does not confirm.
 - **Open it from an `AlertDialogTrigger`, or return focus yourself.** As with Dialog, Radix puts focus back only on
-  a trigger. The build row's deletion dialog passes `onCloseAutoFocus`. Revoke token, Remove member and Restart
+  a trigger. The build row's deletion dialog, opened from its ⋯ menu, passes `onCloseAutoFocus` to the ⋯. Revoke token, Remove member and Restart
   this device do neither, so focus drops to the page when they close. Delete app has a trigger, but confirming
   disables it (`Deleting…`) before focus comes back, so focus drops there too; Cancel and Escape return it. All
   four are tracked in #979.

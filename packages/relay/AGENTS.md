@@ -21,9 +21,41 @@ A single process on a single configurable port (default: 4000) handles both WebS
 
 - **apps**: product-level app identity. Its bundle IDs live in `app_bundle_ids` (migration 020, #1086), one row per (app, platform), so an app can have a different ID on iOS and Android. Two rules the table does not hold are kept in `lib/appBundleIds.ts`: **an ID belongs to one app whatever the platform** (every ownership lookup ignores the platform; `POST /apps` refuses a taken ID with 409) and **an app has at most one ID per platform** (a different ID for a platform the app already has goes to that ID's own app, so a build flavor stays separate). `platform` is `ios` | `android` | `both`, widened when a build or ID for the other platform arrives. `__unknown__` collects builds whose ID could not be read and never takes part in a create or a merge. `POST /apps/:id/merge` moves one platform's ID and builds into another app and deletes the source when it has nothing left, and `POST /apps/:id/split` moves them into a new app, the way back (the source must keep its other platform). The rules for the side that leaves are one function, `cannotLeave`, shared by both; everything else a build has hangs off `build_id` and follows it, and only `builds.app_id` points at `apps`.
 - **builds**: build artifacts. `app_id FK → apps.id`. Contains `version_name`, `build_number`, `file_path`.
+  `version_name` / `build_number` are what the build file says and never change after upload; a person's values go
+  in `version_name_override` / `build_number_override` (migration 022, #1084). **Read builds through the
+  `builds_effective` view**, which is the one place the value in use is made (`binary_*` keeps the file's).
+  `__tests__/buildsEffectiveReads.test.ts` finds a query that reads them straight from `builds` — a floor; the fence
+  is `buildOverride.test.ts`. Write rules (trim, empty = none, 100 characters, an override equal to the file's value
+  is none) are `lib/buildVersion.ts`, shared by the upload and the edit. The label (`version_label`) is not the app's
+  name when the file has none: that is the file name.
 - An upload's bundle ID finds its app (`routeUploadToApp` / `upsertApp`) → re-uploading the same app adds only a new `builds` row. `app_id` adds the ID to the named app only when that app has none on the platform and no other app holds it; an `app_id` naming no app (merged away) is routed by the ID. A build's `platform` is its file type, never the caller's field.
 
 Build file storage path: `uploads/builds/`.
+
+## Schema conventions
+
+What the schema already does, written down so the next table follows it rather than whatever the last migration
+happened to show. Each cites where it holds.
+
+1. **A fact is stored once.** A value a person may set beside one tapflow derives goes in its own NULL-able column,
+   NULL meaning "not set", and the value in use is made in SQL with `COALESCE`: `users.display_name` (the email's
+   name part otherwise), `builds.*_override`. When several queries read it, one VIEW makes it (`builds_effective`),
+   so no query can forget. `device_prefs.display_name` falls back in the dashboard instead, because devices are not
+   in the database. NULL is the only "not set": `users.display_name` keeps that in code (`api/profile.ts` stores
+   `trim() || null`); from 022 a CHECK holds it in the schema too (`trim(x) <> ''`).
+2. **Many of a thing to one is a table, not columns**: `app_bundle_ids` (an app's ID per platform),
+   `flow_run_video_chunks` (a video's chunks). `flow_run_videos` is a table of its own for timing, not count: its
+   chunks arrive before the flow row exists.
+3. **A closed set of values is a CHECK**: `status_label`, `platform`, a skipped flow's reason only with a skip
+   (017).
+4. **A rule the table cannot hold lives in one `lib/` function with tests**: `lib/appBundleIds.ts` (an ID belongs
+   to one app whatever the platform), `lib/buildVersion.ts`.
+5. **Migrations are numbered and only added.** A table another references is never rebuilt — inside the migration
+   transaction `PRAGMA foreign_keys = OFF` does nothing, so dropping it fails (020). One nothing references may be,
+   inside the transaction (017). 007 rebuilt `apps`, which `builds` references, under that same no-op pragma: it is
+   the case 020 warns about, not a precedent. A view references nothing and is dropped and recreated when its table
+   gains a column. Dropping a column is a decision of its own. A column nothing reads: `builds.label` (the upload
+   still writes it).
 
 iOS build format: `.app.zip` **or** `.tar.gz`/`.tgz` (EAS `eas build` simulator artifacts). `.ipa` uploads return 400. `.tar.gz` is stored natively (no re-zip) so the `.app`'s exec bits / symlinks survive to install time; `tar` extraction happens on the macOS agent.
 - Auto-extracts `CFBundleIdentifier`, `CFBundleShortVersionString`, `CFBundleVersion`, `CFBundleDisplayName`/`CFBundleName` from the top-level `*.app/Info.plist` (zip: `unzip -p`; tar: `tar -xzOf`).

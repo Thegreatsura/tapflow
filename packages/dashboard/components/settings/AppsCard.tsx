@@ -388,9 +388,9 @@ export function AppsCard({ apps }: { apps: App[] }) {
             </div>
             <p role="status" className="text-sm text-destructive">{nameError}</p>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
+              <Button type="button" variant="outline" className="w-24" onClick={() => setEditing(null)}>Cancel</Button>
               <Button type="submit" disabled={!nameDraft.trim()} aria-disabled={nameBusy}
-                className="aria-disabled:opacity-50 aria-disabled:cursor-not-allowed">
+                className="w-24 aria-disabled:opacity-50 aria-disabled:cursor-not-allowed">
                 {nameBusy ? 'Saving…' : 'Save'}
               </Button>
             </DialogFooter>
@@ -468,10 +468,11 @@ export function AppsCard({ apps }: { apps: App[] }) {
               </div>
               <p role="status" className="text-sm text-destructive">{splitError}</p>
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => { if (!splitBusy) setSplitting(null) }}>Cancel</Button>
+                {/* 112px, not 96: "Splitting…" does not fit the narrower pair. */}
+                <Button type="button" variant="outline" className="w-28" onClick={() => { if (!splitBusy) setSplitting(null) }}>Cancel</Button>
                 {/* Waits for the relay and for the list with the new app; stays open on a refusal, which it says above. */}
                 <Button type="submit" disabled={!splitName.trim()} aria-disabled={splitBusy}
-                  className="aria-disabled:opacity-50 aria-disabled:cursor-not-allowed">
+                  className="w-28 aria-disabled:opacity-50 aria-disabled:cursor-not-allowed">
                   {splitBusy ? 'Splitting…' : 'Split'}
                 </Button>
               </DialogFooter>

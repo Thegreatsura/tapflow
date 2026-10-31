@@ -65,6 +65,9 @@ export interface Build {
   version_name: string | null
   build_number: string | null
   version_label: string | null
+  /** What the build file says (#1084). `version_name` and `build_number` above are the values in use, which a person
+   *  may have set; where they differ from these, the build is marked overridden. */
+  binary: { version_name: string | null; build_number: string | null }
   status_label: 'Backlog' | 'In Progress' | 'Done' | 'Rejected' | null
   platform: 'ios' | 'android'
   bundle_id: string | null
